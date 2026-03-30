@@ -1,0 +1,100 @@
+local nk = require("nakama")
+local hero_mgr = require("hero_manager")
+local rules = require("game_rules")
+
+local M = {}
+
+-- 游戏状态定义
+local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
+
+-- 初始化：支持动态人数
+function M.match_init(context, params)
+    local max_players = params.max_players or 2
+    local state = {
+        status = STATE.WAITING,
+        max_players = max_players,
+        players = {},      -- { [id]: {hero, health, hand, role...} }
+        presences = {},
+        deck = rules.create_deck(),
+        discard_pile = {},
+        current_turn_id = nil,
+        pending_action = nil, -- 极其重要：用于挂起等待玩家技能选择
+        tick_rate = 1
+    }
+    local label = nk.json_encode({ mode = params.mode, max = max_players })
+    return state, state.tick_rate, label
+end
+
+function M.match_join(context, dispatcher, tick, state, presences)
+    for _, p in ipairs(presences) do
+        state.presences[p.user_id] = p
+        state.players[p.user_id] = {
+            id = p.user_id,
+            username = p.username,
+            health = 4,
+            hand = {},
+            hero = "aladdin", -- 实际开发中这里应由玩家选择或随机分配
+        }
+        nk.logger_info("Player " .. p.username .. " joined.")
+    end
+
+    -- 满员自动开赛
+    local current_count = 0
+    for _ in pairs(state.players) do current_count = current_count + 1 end
+    
+    if state.status == STATE.WAITING and current_count >= state.max_players then
+        state.status = STATE.PLAYING
+        rules.start_game(dispatcher, state) -- 初始发牌等
+        M.next_turn(dispatcher, state)
+    end
+    return state
+end
+
+function M.match_loop(context, dispatcher, tick, state, messages)
+    if state.status == STATE.ENDED then return nil end
+
+    -- 1. 处理客户端消息
+    for _, message in ipairs(messages) do
+        local payload = nk.json_decode(message.data)
+        
+        -- 如果当前有挂起的技能动作，优先交给技能处理器
+        if state.pending_action and state.pending_action.player_id == message.sender.user_id then
+            -- 调用英雄管理器处理响应
+            hero_mgr.handle_response(dispatcher, state, payload)
+        else
+            -- 常规出牌逻辑
+            if message.op_code == 3 then -- PLAY_CARD
+                rules.handle_play_card(dispatcher, state, message.sender.user_id, payload)
+            end
+        end
+    end
+
+    -- 2. 检查胜负判定 (由规则模块统一处理)
+    if rules.check_victory(dispatcher, state) then
+        state.status = STATE.ENDED
+        return nil
+    end
+
+    return state
+end
+
+-- 回合流转：接入英雄钩子
+function M.next_turn(dispatcher, state)
+    state.current_turn_id = rules.get_next_player_id(state)
+    
+    -- 【关键点】在摸牌前，先触发英雄的“摸牌阶段前”钩子
+    local suspended = hero_mgr.trigger("on_draw_phase_start", dispatcher, state, state.current_turn_id)
+    
+    -- 如果技能没有挂起流程，则执行常规摸牌
+    if not suspended then
+        rules.draw_cards(state, state.current_turn_id, 2)
+        rules.broadcast_update(dispatcher, state)
+    end
+end
+
+-- 其他 Nakama 必须的函数 (leave, terminate, signal) 保持简洁...
+function M.match_leave(context, dispatcher, tick, state, presences) return state end
+function M.match_terminate(context, dispatcher, tick, state, grace_seconds) return state end
+function M.match_signal(context, dispatcher, tick, state, data) return state, data end
+
+return M

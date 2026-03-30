@@ -1,0 +1,32 @@
+local M = {}
+
+-- 1. 触发钩子：询问是否发动
+function M.on_draw_start(dispatcher, state, player_id)
+    state.pending_action = { player_id = player_id, skill = "magic_lamp" }
+    -- 发送给客户端的消息，增加一个 op_code 区分
+    dispatcher.broadcast_message(100, "阿拉丁，是否消耗2张手牌召唤神灯精灵？")
+    return true 
+end
+
+-- 2. 响应钩子：按下按钮后的具体逻辑处理
+function M.on_response(dispatcher, state, player_id, payload)
+    local player = state.players[player_id]
+    local rules = require("game_rules")
+
+    if payload.confirm == true and #player.hand >= 2 then
+        -- 执行扣牌
+        for i = 1, 2 do
+            table.insert(state.discard_pile, table.remove(player.hand, 1))
+        end
+        -- 发放神谕牌
+        local oracle_card = rules.pull_oracle(state)
+        table.insert(player.hand, oracle_card)
+        
+        dispatcher.broadcast_message(11, player.username .. " 获得了精灵的指引！")
+    else
+        -- 拒绝或手牌不足，执行常规摸牌
+        rules.draw_cards(state, player_id, 2)
+    end
+end
+
+return M

@@ -1,0 +1,64 @@
+local nk = require("nakama")
+
+local M = {}
+
+-- 技能：【星象】
+-- 触发时机：摸牌阶段开始前
+function M.on_draw_phase_start(dispatcher, state, hakim_id)
+    local hakim = state.players[hakim_id]
+    
+    -- 取出牌堆顶的 3 张牌（不移除，只是预览）
+    local cards = {}
+    for i = 1, math.min(3, #state.deck) do
+        table.insert(cards, state.deck[i])
+    end
+
+    -- 挂起流程，等待哈基姆重新排列顺序
+    state.pending_action = {
+        player_id = hakim_id,
+        skill = "xing_xiang",
+        cards = cards -- 把这3张牌发给客户端显示
+    }
+
+    -- 私发消息给哈基姆
+    local msg = {
+        prompt = "你发动了【星象】，请排列牌堆顶的 3 张牌：",
+        skill_id = "xing_xiang",
+        cards = cards
+    }
+    dispatcher.broadcast_message(102, nk.json_encode(msg), {state.presences[hakim_id]})
+
+    return true -- 返回 true 挂起游戏，直到哈基姆回复
+end
+
+-- 响应：哈基姆排列好顺序后返回
+function M.on_response(dispatcher, state, player_id, payload)
+    -- payload.sorted_ids 应该是客户端返回的排好序的卡牌 ID 列表
+    local new_order_ids = payload.sorted_ids
+    if not new_order_ids then return end
+
+    local new_cards = {}
+    -- 根据返回的 ID 顺序重新构建牌堆顶
+    for _, id in ipairs(new_order_ids) do
+        for i = 1, #state.deck do
+            if state.deck[i].id == id then
+                table.insert(new_cards, table.remove(state.deck, i))
+                break
+            end
+        end
+    end
+
+    -- 将排好序的牌放回牌堆最前面
+    for i = #new_cards, 1, -1 do
+        table.insert(state.deck, 1, new_cards[i])
+    end
+
+    nk.logger_info("哈基姆已完成【星象】排列")
+    
+    -- 技能结束，手动触发原本被挂起的摸牌逻辑
+    local rules = require("game_rules")
+    rules.draw_cards(state, player_id, 2)
+    rules.broadcast_update(dispatcher, state)
+end
+
+return M
