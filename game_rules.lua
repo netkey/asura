@@ -37,7 +37,7 @@ local CARD_EFFECTS = {
     -- 万箭齐发 (沙尘暴) 改造
     ["AOE_SANDSTORM"] = function(dispatcher, state, source_id)
         -- AOE 更复杂：它需要全场所有人按顺序结算防御
-        -- 我们先简单处理，建立一个“待结算列表”
+        -- 我们先简单处理，建立一个"待结算列表"
         local targets = {}
         for uid, p in pairs(state.players) do
             if uid ~= source_id and p.health > 0 then
@@ -87,6 +87,25 @@ local CARD_EFFECTS = {
 }
 
 
+
+-- 通知当前 AOE 目标准备防御，或结算完成
+function M.notify_aoe_target(dispatcher, state)
+    local action = state.pending_action
+    if not action or action.type ~= "WAITING_FOR_AOE" then return end
+
+    local target_id = action.current_target
+    if not target_id then
+        state.pending_action = nil
+        M.broadcast_update(dispatcher, state)
+        return
+    end
+
+    dispatcher.broadcast_message(105, nk.json_encode({
+        attacker = action.attacker_id,
+        target   = target_id,
+        msg      = "受到【沙尘暴】，请出示【防御】或放弃"
+    }))
+end
 
 -- ==========================================
 -- 2. 身份局核心逻辑 (新增)
@@ -192,14 +211,25 @@ function M.create_deck()
     end
     
     -- 4. 生成锦囊牌 (3张)
-    for i = 1, 3 do 
+    for i = 1, 3 do
         table.insert(deck, {
-            id = "aoe_"..i, 
-            type = "AOE_SANDSTORM", 
+            id = "aoe_"..i,
+            type = "AOE_SANDSTORM",
             name = "沙尘暴",
             suit = "CLUB",
             number = math.random(1, 13)
-        }) 
+        })
+    end
+
+    -- 5. 生成无中生有牌 (4张)
+    for i = 1, 4 do
+        table.insert(deck, {
+            id = "draw2_"..i,
+            type = "DRAW_TWO",
+            name = "无中生有",
+            suit = "DIAMOND",
+            number = math.random(1, 13)
+        })
     end
 
     -- 5. 【新增】生成延时判定牌：审判/天谴 (2张)
@@ -290,17 +320,30 @@ end
 
 function M.handle_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
-    if not action or action.target_id ~= player_id then return end
+    if not action then return end
 
     if action.type == "WAITING_FOR_DEFENSE" then
+        if action.target_id ~= player_id then return end
         if payload.confirm == true then
-            -- 玩家 B 选了一张【防御】牌
-            -- 1. 执行常规防御成功逻辑
             M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
         else
-            -- 玩家 B 点击了“放弃”或没有防御牌
             M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
-            state.pending_action = nil -- 伤害结算完，清除状态
+            state.pending_action = nil
+        end
+
+    elseif action.type == "WAITING_FOR_AOE" then
+        if action.current_target ~= player_id then return end
+        if payload.confirm ~= true then
+            -- 未防御，扣血
+            M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
+        end
+        -- 推进到下一个目标
+        if #action.remaining_targets > 0 then
+            action.current_target = table.remove(action.remaining_targets, 1)
+            M.notify_aoe_target(dispatcher, state)
+        else
+            state.pending_action = nil
+            M.broadcast_update(dispatcher, state)
         end
     end
 end
@@ -336,10 +379,10 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     -- 尝试触发阿里巴巴的【暗号】
     local hero_mgr = require("hero_manager")
     -- 注意：trigger 会检查 attacker_id 的英雄是不是阿里巴巴
-    local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, attacker_id, defender_id)
+    local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, defender_id, attacker_id)
     
     if not suspended then
-        -- 如果没有触发技能（比如攻击者是阿拉丁），直接告诉大家防御成功，继续出牌阶段
+        state.pending_action = nil
         dispatcher.broadcast_message(11, "防御成功！")
         M.broadcast_update(dispatcher, state)
     end

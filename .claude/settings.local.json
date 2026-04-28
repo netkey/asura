@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lua -e \"require\\(''''api''''\\)\")",
+      "Bash(grep -c \"^end$\" api.lua)",
+      "WebSearch",
+      "WebFetch(domain:finance.sina.com.cn)"
+    ]
+  }
+}

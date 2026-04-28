@@ -1,68 +1,83 @@
-local M = {}
 local nk = require("nakama")
+local M = {}
 
--- 阶段 1: 询问启动
-function M.on_draw_start(dispatcher, state, player_id)
-    state.pending_action = { 
-        player_id = player_id, 
-        hero_id = "aladdin", -- 确保对应 handle_response
-        skill = "magic_lamp",
-        step = "ASK_CONFIRM" -- 记录步骤
+-- 阿拉丁 - 神灯主题英雄
+-- 技能：【神灯】 - 出牌阶段，可以弃置2张牌，视为使用一张【无中生有】
+
+function M.on_play_phase_start(dispatcher, state, player_id)
+    local player = state.players[player_id]
+
+    -- 检查是否是阿拉丁
+    if player.hero ~= "aladdin" then
+        return false
+    end
+
+    -- 检查是否有足够的牌
+    if #player.hand < 2 then
+        return false
+    end
+
+    -- 挂起操作，询问玩家是否发动神灯技能
+    state.pending_action = {
+        type = "ALADDIN_LAMP",
+        player_id = player_id,
+        hero_id = "aladdin",
+        description = "是否弃置2张牌发动【神灯】？"
     }
-    -- OpCode 100: 客户端弹出询问框
+
     dispatcher.broadcast_message(100, nk.json_encode({
-        text = "阿拉丁，是否消耗2张手牌召唤神灯精灵？"
+        type = "skill_choice",
+        skill = "shen_deng",
+        description = "是否弃置2张牌发动【神灯】，摸2张牌？",
+        min_cards = 2,
+        max_cards = 2
     }), {state.presences[player_id]})
-    return true
+
+    return true  -- 挂起游戏流程
 end
 
--- 阶段 2: 处理响应逻辑 (由 hero_manager 转发过来)
+-- 处理神灯技能响应
 function M.on_response(dispatcher, state, player_id, payload)
-    local player = state.players[player_id]
-    local rules = require("game_rules")
     local action = state.pending_action
+    if not action or action.type ~= "ALADDIN_LAMP" then
+        return
+    end
 
-    -- 第一步响应：确认是否发动
-    if action.step == "ASK_CONFIRM" then
-        if payload.confirm == true and #player.hand >= 2 then
-            -- 修改步骤，等待玩家选牌
-            action.step = "CHOOSE_CARDS"
-            -- OpCode 101: 客户端进入“选2张弃掉”模式
-            dispatcher.broadcast_message(101, nk.json_encode({
-                text = "请选择2张手牌作为祭品",
-                count = 2
-            }), {state.presences[player_id]})
-        else
-            -- 拒绝或手牌不够，直接走常规摸牌并结束技能
-            rules.draw_cards(state, player_id, 2)
-            state.pending_action = nil
-            rules.broadcast_update(dispatcher, state)
-        end
+    if payload.confirm ~= true then
+        state.pending_action = nil
+        return
+    end
 
-    -- 第二步响应：处理选好的弃牌
-    elseif action.step == "CHOOSE_CARDS" then
-        local chosen_ids = payload.card_ids -- 客户端传回选中的 ID 列表
-        if #chosen_ids == 2 then
-            -- 这里需要遍历 player.hand，根据 ID 移除牌并放入弃牌堆
-            for _, id in ipairs(chosen_ids) do
-                for i, card in ipairs(player.hand) do
-                    if card.id == id then
-                        table.insert(state.discard_pile, table.remove(player.hand, i))
-                        break
-                    end
-                end
+    local rules = require("game_rules")
+    local player = state.players[player_id]
+
+    -- 弃置2张牌
+    local discard_count = 0
+    for _, card_id in ipairs(payload.card_ids or {}) do
+        for i, card in ipairs(player.hand) do
+            if card.id == card_id then
+                table.insert(state.discard_pile, table.remove(player.hand, i))
+                discard_count = discard_count + 1
+                break
             end
-            -- 发放神谕牌
-            local oracle_card = rules.pull_oracle(state)
-            table.insert(player.hand, oracle_card)
-            
-            dispatcher.broadcast_message(11, player.username .. " 获得了精灵的指引！")
-            
-            -- 技能圆满结束，记得清空 pending
-            state.pending_action = nil
-            rules.broadcast_update(dispatcher, state)
         end
     end
+
+    if discard_count >= 2 then
+        -- 摸2张牌
+        rules.draw_cards(state, player_id, 2)
+
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 发动【神灯】，弃置2张牌并摸2张牌！",
+            hero = "aladdin",
+            skill = "shen_deng"
+        }))
+
+        -- 同步状态
+        rules.broadcast_update(dispatcher, state)
+    end
+
+    state.pending_action = nil
 end
 
 return M

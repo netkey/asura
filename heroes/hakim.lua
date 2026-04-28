@@ -1,70 +1,106 @@
 local nk = require("nakama")
 local M = {}
 
--- 技能：【星象】
-function M.on_draw_phase_start(dispatcher, state, hakim_id)
-    local hakim = state.players[hakim_id]
-    local cards = {}
-    local count = math.min(3, #state.deck)
-    for i = 1, count do
-        table.insert(cards, state.deck[i])
+-- 哈基姆 - 智者主题英雄
+-- 技能：【星象】 - 在判定阶段，可以观看牌堆顶的3张牌并调整顺序
+
+-- 触发时机：摸牌阶段开始前（可提前调整牌堆顶影响判定/摸牌结果）
+function M.on_draw_phase_start(dispatcher, state, player_id)
+    local player = state.players[player_id]
+
+    -- 检查是否是哈基姆
+    if player.hero ~= "hakim" then
+        return false
     end
 
-    if #cards == 0 then return false end
+    -- 检查是否有判定牌
+    if #player.judgments == 0 then
+        return false
+    end
 
+    -- 检查牌堆是否有足够的牌
+    if #state.deck < 3 then
+        return false
+    end
+
+    -- 获取牌堆顶的3张牌
+    local cards = {}
+    for i = 1, 3 do
+        if state.deck[i] then
+            table.insert(cards, state.deck[i])
+        end
+    end
+
+    if #cards == 0 then
+        return false
+    end
+
+    -- 挂起操作，询问玩家是否调整判定牌顺序
     state.pending_action = {
-        player_id = hakim_id,
+        type = "HAKIM_XING_XIANG",
+        player_id = player_id,
         hero_id = "hakim",
+        cards = cards,
+        description = "是否使用【星象】调整判定牌的顺序？"
+    }
+
+    dispatcher.broadcast_message(102, nk.json_encode({
+        type = "skill_choice",
         skill = "xing_xiang",
-        cards = cards 
-    }
-
-    local msg = {
-        prompt = "你发动了【星象】，请排列牌堆顶的 3 张牌：",
-        skill_id = "xing_xiang",
+        description = "你发动了【星象】，可以调整接下来3张判定牌的顺序",
         cards = cards
-    }
-    dispatcher.broadcast_message(102, nk.json_encode(msg), {state.presences[hakim_id]})
+    }), {state.presences[player_id]})
 
-    return true 
+    return true  -- 挂起等待玩家选择
 end
 
--- 响应：哈基姆排列好顺序后返回
+-- 处理星象技能响应
 function M.on_response(dispatcher, state, player_id, payload)
-    local new_order_ids = payload.sorted_ids
-    
-    -- 仅当收到有效的排序 ID 时才执行重排逻辑
-    if new_order_ids and #new_order_ids > 0 then
-        local temp_map = {}
-        -- 缓存前几张牌
-        for i = 1, math.min(5, #state.deck) do
-            local card = state.deck[i]
-            temp_map[card.id] = card
-        end
-
-        -- 移除旧牌
-        local num_to_reorder = #new_order_ids
-        for i = 1, num_to_reorder do
-            table.remove(state.deck, 1)
-        end
-
-        -- 按新顺序插回
-        for i = #new_order_ids, 1, -1 do
-            local cid = new_order_ids[i]
-            local card_obj = temp_map[cid]
-            if card_obj then
-                table.insert(state.deck, 1, card_obj)
-            end
-        end
-        nk.logger_info("哈基姆已完成【星象】排列")
+    local action = state.pending_action
+    if not action or action.type ~= "HAKIM_XING_XIANG" then
+        return
     end
 
-    -- 无论是否排序成功，都必须执行的清理工作放在这里
-    state.pending_action = nil
+    -- 如果玩家取消，直接返回
+    if payload.confirm ~= true then
+        state.pending_action = nil
+        return
+    end
 
-    local rules = require("game_rules")
-    rules.draw_cards(state, player_id, 2)
-    rules.broadcast_update(dispatcher, state)
+    -- 获取新的牌序
+    local new_order_ids = payload.sorted_ids
+    if not new_order_ids or #new_order_ids ~= #action.cards then
+        state.pending_action = nil
+        return
+    end
+
+    -- 重新排列牌堆顶的牌
+    local temp_map = {}
+    for i, card in ipairs(action.cards) do
+        temp_map[card.id] = card
+    end
+
+    -- 移除原来的牌
+    for i = 1, #action.cards do
+        table.remove(state.deck, 1)
+    end
+
+    -- 按新顺序插入
+    for i = #new_order_ids, 1, -1 do
+        local card_id = new_order_ids[i]
+        if temp_map[card_id] then
+            table.insert(state.deck, 1, temp_map[card_id])
+        end
+    end
+
+    local player = state.players[player_id]
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content = player.username .. " 发动【星象】，改变了判定牌的顺序！",
+        hero = "hakim",
+        skill = "xing_xiang"
+    }))
+
+    state.pending_action = nil
 end
 
 return M

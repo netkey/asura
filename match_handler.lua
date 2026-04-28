@@ -13,17 +13,16 @@ local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 local function assign_roles(player_count)
     local roles = {}
     if player_count == 2 then
+        -- 2人局: 主公 + 反贼
         roles = {"MONARCH", "REBEL"}
-    elseif player_count >= 5 and player_count < 8 then
+    elseif player_count == 5 then
+        -- 5人局: 主公 + 忠臣 + 反贼x2 + 内奸
         roles = {"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"}
-    elseif player_count >= 8 then
-        roles = {"MONARCH", "MINISTER", "MINISTER", "REBEL", "REBEL", "REBEL", "REBEL", "TRAITOR"}
     else
-        -- 容错处理
-        for i = 1, player_count do table.insert(roles, "REBEL") end
-        roles[1] = "MONARCH"
+        -- 仅支持 2/5 人
+        error("Unsupported player count: " .. tostring(player_count) .. ". Only 2 or 5 players are supported.")
     end
-    return rules.shuffle(roles) -- 调用 game_rules 里的洗牌
+    return rules.shuffle(roles)
 end
 
 -- ==========================================
@@ -125,7 +124,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
 
 		-- 随机分配英雄
 		local hero_list = {"aladdin", "alibaba", "saladin", "hakim"}
-		for _, p in paris(state.players) do
+		for _, p in pairs(state.players) do
 			p.hero = hero_list[math.random(#hero_list)]
 		end
         -- 【合并：身份分配逻辑】
@@ -142,7 +141,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
         end
 
         rules.start_game(dispatcher, state)
-		rules.broadcase_update(dispatcher, state) 
+		rules.broadcast_update(dispatcher, state) 
         -- 如果主公已经确定，next_turn 逻辑里会正确从主公开始
         --M.next_turn(dispatcher, state)
 		-- 开始第一个回合
@@ -221,6 +220,8 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 rules.handle_play_card(dispatcher, state, uid, payload)
             elseif message.op_code == 4 then -- 手动结束回合
                 M.next_turn(dispatcher, state)
+            elseif message.op_code == 5 then -- 防御/AOE 响应 {confirm: true/false}
+                rules.handle_response(dispatcher, state, uid, payload)
             end
         end
     end
@@ -243,7 +244,26 @@ end
 
 
 function M.next_turn(dispatcher, state)
-    -- 1. 切换到下一个存活玩家
+    -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
+    local ending_uid = state.current_turn_id
+    if ending_uid then
+        local ep = state.players[ending_uid]
+        if ep and ep.health > 0 and #ep.hand > ep.health then
+            local discard_count = #ep.hand - ep.health
+            local discarded = {}
+            for _ = 1, discard_count do
+                local card = table.remove(ep.hand)
+                table.insert(state.discard_pile, card)
+                table.insert(discarded, card.name or card.type)
+            end
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = ep.username .. " 弃牌阶段弃置 " .. discard_count ..
+                          " 张：" .. table.concat(discarded, "/")
+            }))
+        end
+    end
+
+    -- 2. 切换到下一个存活玩家
     state.current_turn_id = rules.get_next_player_id(state)
     state.current_turn_elapsed = 0
     local uid = state.current_turn_id
