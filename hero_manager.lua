@@ -1,10 +1,39 @@
 local M = {}
 -- 自动加载所有英雄脚本
 local heroes = {
-    aladdin = require("heroes.aladdin"),
-    alibaba = require("heroes.alibaba"),
-    saladin = require("heroes.saladin"),
-	hakim	= require("heroes.hakim"),
+    -- 原版 6 英雄
+    aladdin      = require("heroes.aladdin"),
+    alibaba      = require("heroes.alibaba"),
+    saladin      = require("heroes.saladin"),
+    hakim        = require("heroes.hakim"),
+    scheherazade = require("heroes.scheherazade"),
+    jafar        = require("heroes.jafar"),
+    -- 第一批扩展 12 英雄
+    ibn_battuta  = require("heroes.ibn_battuta"),
+    al_khwarizmi = require("heroes.al_khwarizmi"),
+    avicenna     = require("heroes.avicenna"),
+    sinbad       = require("heroes.sinbad"),
+    hulagu       = require("heroes.hulagu"),
+    rumi         = require("heroes.rumi"),
+    zubaydah     = require("heroes.zubaydah"),
+    al_biruni    = require("heroes.al_biruni"),
+    tamerlane    = require("heroes.tamerlane"),
+    dunyazad     = require("heroes.dunyazad"),
+    antar        = require("heroes.antar"),
+    nefertiti    = require("heroes.nefertiti"),
+    -- 第二批扩展 12 英雄
+    harun_al_rashid = require("heroes.harun_al_rashid"),
+    suleiman     = require("heroes.suleiman"),
+    khayyam      = require("heroes.khayyam"),
+    zenobia      = require("heroes.zenobia"),
+    muawiyah     = require("heroes.muawiyah"),
+    nizamulmulk  = require("heroes.nizamulmulk"),
+    enheduanna   = require("heroes.enheduanna"),
+    al_mansur    = require("heroes.al_mansur"),
+    gilgamesh    = require("heroes.gilgamesh"),
+    imru_al_qais = require("heroes.imru_al_qais"),
+    basira       = require("heroes.basira"),
+    dhul_qarnayn = require("heroes.dhul_qarnayn"),
 }
 
 function M.trigger(hook_name, dispatcher, state, player_id, ...)

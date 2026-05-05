@@ -138,6 +138,16 @@ local function ai_handle_pending(state)
             hero_mgr.handle_response(dispatcher, state, action.player_id,
                 {confirm=true, sorted_ids=ids})
             rules.draw_cards(state, action.player_id, 2)  -- hakim on_response 不含摸牌
+
+        elseif action.type == "SCHEHERAZADE_QIANYE" then
+            local p = state.players[action.player_id]
+            if #p.hand >= 1 then
+                print(string.format("    → %s 发动【千夜】弃1摸2", p.username))
+                hero_mgr.handle_response(dispatcher, state, action.player_id,
+                    {confirm=true, card_ids={p.hand[1].id}})
+            else
+                hero_mgr.handle_response(dispatcher, state, action.player_id, {confirm=false})
+            end
         else
             break  -- unknown action type, stop
         end

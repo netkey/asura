@@ -4,7 +4,12 @@
       "Bash(lua -e \"require\\(''''api''''\\)\")",
       "Bash(grep -c \"^end$\" api.lua)",
       "WebSearch",
-      "WebFetch(domain:finance.sina.com.cn)"
+      "WebFetch(domain:finance.sina.com.cn)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(lua *)",
+      "Bash(git status *)",
+      "Bash(git add *)"
     ]
   }
 }

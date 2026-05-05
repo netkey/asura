@@ -100,9 +100,18 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 health = 4,
                 max_health = 4,
                 hand = {},
-                hero = want_hero, 
+                hero = want_hero,
                 role = "UNKNOWN",
-                judgments = {}
+                judgments = {},
+                -- 装备区
+                equipment = {
+                    weapon = nil,
+                    armor = nil,
+                    horse = nil
+                },
+                weapon_buff = false,  -- 酒牌buff
+                delayed_effects = {}, -- 延时锦囊
+                attacks_this_turn = 0 -- 本回合攻击次数
             }
 			nk.logger_info("Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
         end
@@ -123,7 +132,16 @@ function M.match_join(context, dispatcher, tick, state, presences)
         dispatcher.match_label_update(nk.json_encode(new_label))
 
 		-- 随机分配英雄
-		local hero_list = {"aladdin", "alibaba", "saladin", "hakim"}
+		local hero_list = {
+            -- 原版 6 英雄
+            "aladdin", "alibaba", "saladin", "hakim", "scheherazade", "jafar",
+            -- 第一批 12 英雄
+            "ibn_battuta", "al_khwarizmi", "avicenna", "sinbad", "hulagu", "rumi",
+            "zubaydah", "al_biruni", "tamerlane", "dunyazad", "antar", "nefertiti",
+            -- 第二批 12 英雄
+            "harun_al_rashid", "suleiman", "khayyam", "zenobia", "muawiyah", "nizamulmulk",
+            "enheduanna", "al_mansur", "gilgamesh", "imru_al_qais", "basira", "dhul_qarnayn"
+        }
 		for _, p in pairs(state.players) do
 			p.hero = hero_list[math.random(#hero_list)]
 		end
@@ -244,8 +262,18 @@ end
 
 
 function M.next_turn(dispatcher, state)
-    -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
     local ending_uid = state.current_turn_id
+    -- 清除苏莱曼【封印】状态（新回合开始时失效）
+    state.suleiman_sealed = nil
+    if ending_uid then
+        -- on_turn_end 钩子（弃牌前触发，辛巴达/纳芙蒂蒂等回合结束技能在此触发）
+        hero_mgr.trigger("on_turn_end", dispatcher, state, ending_uid)
+        -- 重置本回合攻击计数
+        local ep_reset = state.players[ending_uid]
+        if ep_reset then ep_reset.attacks_this_turn = 0 end
+    end
+
+    -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
     if ending_uid then
         local ep = state.players[ending_uid]
         if ep and ep.health > 0 and #ep.hand > ep.health then
@@ -270,11 +298,37 @@ function M.next_turn(dispatcher, state)
     local current_p = state.players[uid]
 
     -- ==========================================
-    -- 2. 判定阶段 (处理所有判定牌)
+    -- 2. 判定阶段 (处理所有判定牌 + 延时锦囊)
     -- ==========================================
-    -- 英雄改命点 A：某些英雄可以在判定开始前改变判定牌堆（例如哈基姆提前星象）
-    -- 但通常我们建议在判定循环内部给改命英雄留出响应空间
-    
+    -- 先处理延时锦囊
+    while #current_p.delayed_effects > 0 and current_p.health > 0 do
+        local d_eff = table.remove(current_p.delayed_effects, 1)
+        if d_eff.subtype == "discard1_draw2" then
+            -- 黑血蛊：弃1张牌，摸2张
+            if #current_p.hand > 0 then
+                local discarded = table.remove(current_p.hand, math.random(#current_p.hand))
+                table.insert(state.discard_pile, discarded)
+            end
+            rules.draw_cards(state, uid, 2)
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = current_p.username .. " 的【黑血蛊】结算：弃1摸2"
+            }))
+        elseif d_eff.subtype == "skip_play_phase" then
+            -- 沙漠诅咒：跳过出牌阶段
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = current_p.username .. " 的【沙漠诅咒】结算：跳过出牌阶段"
+            }))
+            current_p.skip_play_phase = true
+        elseif d_eff.subtype == "attack_minus1" then
+            -- 虚弱标记：本回合攻击伤害-1
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = current_p.username .. " 的【虚弱标记】结算：本回合攻击伤害-1"
+            }))
+            current_p.attack_debuff = true
+        end
+    end
+
+    -- 再处理判定牌
     while #current_p.judgments > 0 and current_p.health > 0 do
         local j_card = table.remove(current_p.judgments) -- 弹出最近的判定
         
@@ -310,6 +364,10 @@ function M.next_turn(dispatcher, state)
         end
     end
 
+    -- 重置每回合状态标志
+    current_p.immortal_used_this_turn = nil
+    current_p.attack_debuff = nil
+
     -- ==========================================
     -- 3. 摸牌阶段
     -- ==========================================
@@ -319,6 +377,15 @@ function M.next_turn(dispatcher, state)
     if not suspended then
         rules.draw_cards(state, uid, 2)
         rules.broadcast_update(dispatcher, state)
+        -- 检查沙漠诅咒跳过出牌阶段
+        if current_p.skip_play_phase then
+            current_p.skip_play_phase = nil
+            nk.logger.info(current_p.username .. " 跳过出牌阶段")
+            -- 直接进下一个人
+            self.next_turn(dispatcher, state)
+        else
+            hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
+        end
     end
 end
 

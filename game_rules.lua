@@ -7,21 +7,65 @@ local M = {}
 local CARD_EFFECTS = {
     ["ATTACK"] = function(dispatcher, state, source_id, target_id)
         local hero_mgr = require("hero_manager")
+
+        -- 杜尼亚扎德【续篇】：攻击者本回合已被该目标免疫
+        if state.dunyazad_immune and state.dunyazad_immune[source_id] == target_id then
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = state.players[target_id].username .. " 的【续篇】令此次攻击无效"
+            }))
+            return
+        end
+
         -- 触发：攻击前钩子（如：某些英雄可以让攻击不可闪避）
         hero_mgr.trigger("on_before_attack", dispatcher, state, source_id, target_id)
+
+        -- 旭烈兀【铁蹄】若取消本次攻击则直接返回
+        if state.attack_cancelled then
+            state.attack_cancelled = nil
+            return
+        end
+
+        -- attacks_this_turn 计数（纳芙蒂蒂/安塔拉用）
+        local sp = state.players[source_id]
+        if sp then sp.attacks_this_turn = (sp.attacks_this_turn or 0) + 1 end
+
+        -- 阿拉伯弯刀：攻击后摸1张
+        if sp and sp.equipment.weapon and sp.equipment.weapon.subtype == "draw_card" then
+            M.draw_cards(state, source_id, 1)
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = sp.username .. " 的【阿拉伯弯刀】触发：攻击后摸1张"
+            }))
+        end
+
+        -- 计算基础伤害
+        local dmg = 1
+        if sp and sp.attack_debuff then dmg = math.max(1, dmg - 1) end
+
+        -- 流星锤：攻击无视防具（标记攻击bonus让防御阶段知道伤害）
+        if sp and sp.equipment.weapon and sp.equipment.weapon.subtype == "meteor" then
+            state.attack_forced = true
+        end
+
+        -- 旭烈兀【铁蹄】：attack_bonus 标志
+        if state.attack_bonus then
+            dmg = dmg + state.attack_bonus
+            state.attack_bonus = nil
+        end
 
         -- 【核心修改】：不再自动扣防御牌，而是进入等待防御状态
         state.pending_action = {
             type = "WAITING_FOR_DEFENSE",
             attacker_id = source_id,
             target_id = target_id,
-            deadline = os.time() + 15 -- 给 15 秒思考时间
+            damage = dmg,
+            deadline = os.time() + 15
         }
 
         -- 通知客户端：A 攻击 B，B 准备操作
         dispatcher.broadcast_message(105, nk.json_encode({
             attacker = source_id,
             target = target_id,
+            damage = dmg,
             msg = "受到攻击，请出示【防御】"
         }))
     end,
@@ -36,6 +80,15 @@ local CARD_EFFECTS = {
 
     -- 万箭齐发 (沙尘暴) 改造
     ["AOE_SANDSTORM"] = function(dispatcher, state, source_id)
+        -- 苏莱曼【封印】：被封印者本回合不能使用AOE
+        if state.suleiman_sealed and state.suleiman_sealed[source_id] then
+            state.suleiman_sealed[source_id] = nil
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = state.players[source_id].username .. " 本回合被【封印】，无法使用【沙尘暴】！"
+            }))
+            return
+        end
+
         -- AOE 更复杂：它需要全场所有人按顺序结算防御
         -- 我们先简单处理，建立一个"待结算列表"
         local targets = {}
@@ -82,6 +135,137 @@ local CARD_EFFECTS = {
     	-- 将这张牌挂到目标的判定区数组里
     	table.insert(target.judgments, { type = "JUDGE_STORM", from = source_id })
     	nk.logger_info("【天谴】已挂在 " .. target.username .. " 的面前")
+	end,
+
+	-- 武器牌：装备到武器槽，替换旧武器
+	["WEAPON"] = function(dispatcher, state, source_id, _, card)
+		local p = state.players[source_id]
+		local old = p.equipment.weapon
+		if old then
+			table.insert(state.discard_pile, old)
+			nk.logger_info(p.username .. " 替换旧武器：" .. old.name)
+		end
+		p.equipment.weapon = card
+		dispatcher.broadcast_message(11, nk.json_encode({
+			content = p.username .. " 装备【" .. card.name .. "】",
+			card = card
+		}))
+		-- 流星锤：攻击无视防具；阿拉伯弯刀：攻击后摸1牌 — 这些在ATTACK结算时处理
+	end,
+
+	-- 防具牌：装备到防具槽，替换旧防具
+	["ARMOR"] = function(dispatcher, state, source_id, _, card)
+		local p = state.players[source_id]
+		local old = p.equipment.armor
+		if old then
+			table.insert(state.discard_pile, old)
+		end
+		p.equipment.armor = card
+		dispatcher.broadcast_message(11, nk.json_encode({
+			content = p.username .. " 装备【" .. card.name .. "】",
+			card = card
+		}))
+	end,
+
+	-- 马牌：装备到马槽，替换旧马
+	["HORSE"] = function(dispatcher, state, source_id, _, card)
+		local p = state.players[source_id]
+		local old = p.equipment.horse
+		if old then
+			table.insert(state.discard_pile, old)
+		end
+		p.equipment.horse = card
+		dispatcher.broadcast_message(11, nk.json_encode({
+			content = p.username .. " 装备【" .. card.name .. "】",
+			card = card
+		}))
+	end,
+
+	-- 酒牌：标记 weapon_buff，下次攻击伤害+1
+	["WINE"] = function(dispatcher, state, source_id, _, card)
+		local p = state.players[source_id]
+		p.weapon_buff = true
+		p.wine_subtype = card.subtype  -- 记录 subtype 用于击杀奖励
+		dispatcher.broadcast_message(11, nk.json_encode({
+			content = p.username .. " 饮【" .. card.name .. "】，下次攻击伤害+1",
+			card = card
+		}))
+	end,
+
+	-- 延时锦囊：挂在 delayed_effects，下回合判定阶段触发
+	["DELAYED_TRICK"] = function(dispatcher, state, source_id, target_id, card)
+		local target = state.players[target_id or source_id]
+		table.insert(target.delayed_effects, {
+			name = card.name,
+			subtype = card.subtype,
+			from = source_id
+		})
+		dispatcher.broadcast_message(11, nk.json_encode({
+			content = target.username .. " 被挂上【" .. card.name .. "】",
+			card = card
+		}))
+	end,
+
+	-- 即时锦囊：打出即生效
+	["INSTANT_TRICK"] = function(dispatcher, state, source_id, target_id, card)
+		local p = state.players[source_id]
+		if card.subtype == "peek3_reorder" then
+			-- 沙漠罗盘：看牌堆顶3张，调整顺序后放回
+			local peeked = {}
+			for i = 1, 3 do
+				if #state.deck == 0 then
+					state.deck = M.shuffle(state.discard_pile)
+					state.discard_pile = {}
+				end
+				if #state.deck > 0 then
+					table.insert(peeked, table.remove(state.deck, 1))
+				end
+			end
+			dispatcher.broadcast_message(11, nk.json_encode({
+				content = p.username .. " 使用【沙漠罗盘】，查看牌堆顶3张并调整顺序",
+				card = card
+			}))
+			-- 简单处理：直接放回牌堆顶（不交互排序，按原顺序放回）
+			for i = #peeked, 1, -1 do
+				table.insert(state.deck, 1, peeked[i])
+			end
+
+		elseif card.subtype == "discard_enemy_card" then
+			-- 诱降：指定一名其他玩家，观看其手牌，选择1张弃置
+			local target = state.players[target_id]
+			if target and #target.hand > 0 then
+				local idx = math.random(#target.hand)
+				local discarded = table.remove(target.hand, idx)
+				table.insert(state.discard_pile, discarded)
+				dispatcher.broadcast_message(11, nk.json_encode({
+					content = p.username .. " 对 " .. target.username .. " 使用【诱降】，弃置1张牌",
+					card = card
+				}))
+			end
+
+		elseif card.subtype == "swap_hands" then
+			-- 以物易物：与目标交换全部手牌
+			local target = state.players[target_id]
+			if target then
+				local tmp = target.hand
+				target.hand = p.hand
+				p.hand = tmp
+				dispatcher.broadcast_message(11, nk.json_encode({
+					content = p.username .. " 与 " .. target.username .. " 使用【以物易物】交换手牌",
+					card = card
+				}))
+			end
+
+		elseif card.subtype == "shuffle_draw2" then
+			-- 沙漠风暴：弃牌堆洗入牌堆，然后摸2张
+			state.deck = M.shuffle(state.discard_pile)
+			state.discard_pile = {}
+			M.draw_cards(state, source_id, 2)
+			dispatcher.broadcast_message(11, nk.json_encode({
+				content = p.username .. " 使用【沙漠风暴】，洗牌堆并摸2张",
+				card = card
+			}))
+		end
 	end,
 
 }
@@ -175,73 +359,92 @@ end
 
 function M.create_deck()
     local deck = {}
-    local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"} -- 红桃, 黑桃, 草花, 方块
-    
-    -- 1. 生成基础攻击牌 (20张)
-    for i = 1, 20 do 
-        table.insert(deck, {
-            id = "atk_"..i, 
-            type = "ATTACK", 
-            name = "大马士革弯刀",
-            suit = suits[math.random(4)],
-            number = math.random(1, 13)
-        }) 
-    end
-    
-    -- 2. 生成防御牌 (10张)
-    for i = 1, 10 do 
-        table.insert(deck, {
-            id = "def_"..i, 
-            type = "DEFENSE", 
-            name = "蜃景",
-            suit = suits[math.random(4)],
-            number = math.random(1, 13)
-        }) 
-    end
-    
-    -- 3. 生成治疗牌 (5张)
-    for i = 1, 5 do 
-        table.insert(deck, {
-            id = "heal_"..i, 
-            type = "HEAL", 
-            name = "椰枣",
-            suit = "HEART", -- 医疗牌通常设定为红桃，增加判定回血概率
-            number = math.random(1, 13)
-        }) 
-    end
-    
-    -- 4. 生成锦囊牌 (3张)
-    for i = 1, 3 do
-        table.insert(deck, {
-            id = "aoe_"..i,
-            type = "AOE_SANDSTORM",
-            name = "沙尘暴",
-            suit = "CLUB",
-            number = math.random(1, 13)
-        })
-    end
+    local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"}
 
-    -- 5. 生成无中生有牌 (4张)
+    -- 基础牌 (54张)
+    for i = 1, 20 do
+        table.insert(deck, { id = "atk_"..i, type = "ATTACK", name = "大马士革弯刀", suit = suits[math.random(4)], number = math.random(1, 13) })
+    end
+    for i = 1, 12 do
+        table.insert(deck, { id = "def_"..i, type = "DEFENSE", name = "蜃景", suit = suits[math.random(4)], number = math.random(1, 13) })
+    end
+    for i = 1, 8 do
+        table.insert(deck, { id = "heal_"..i, type = "HEAL", name = "椰枣", suit = "HEART", number = math.random(1, 13) })
+    end
     for i = 1, 4 do
-        table.insert(deck, {
-            id = "draw2_"..i,
-            type = "DRAW_TWO",
-            name = "无中生有",
-            suit = "DIAMOND",
-            number = math.random(1, 13)
-        })
+        table.insert(deck, { id = "aoe_"..i, type = "AOE_SANDSTORM", name = "沙尘暴", suit = "CLUB", number = math.random(1, 13) })
+    end
+    for i = 1, 6 do
+        table.insert(deck, { id = "draw2_"..i, type = "DRAW_TWO", name = "无中生有", suit = "DIAMOND", number = math.random(1, 13) })
+    end
+    for i = 1, 4 do
+        table.insert(deck, { id = "judge_"..i, type = "JUDGE_STORM", name = "天谴", suit = "SPADE", number = 1 })
     end
 
-    -- 5. 【新增】生成延时判定牌：审判/天谴 (2张)
-    -- 这种牌使用后会挂在对方判定区，轮到对方时判定
+    -- 武器牌 (10张) — 装备区永久生效
+    for i = 1, 3 do
+        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "波斯长剑", subtype = "sword", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 4, 6 do
+        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "大马士革弯刀", subtype = "scimitar", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 7, 8 do
+        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "流星锤", subtype = "meteor", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 9, 10 do
+        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "阿拉伯弯刀", subtype = "draw_card", suit = suits[math.random(4)], number = 1 })
+    end
+
+    -- 防具牌 (6张)
     for i = 1, 2 do
-        table.insert(deck, {
-            id = "judge_"..i,
-            type = "JUDGE_STORM",
-            name = "天谴",
-            suit = "SPADE", -- 它的花色是黑桃
-            number = 1
-        })
+        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "波斯盾牌", subtype = "reduce_damage", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 3, 4 do
+        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "古兰经护盾", subtype = "immortal_once", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 5, 6 do
+        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "锁子甲", subtype = "reduce_aoe", suit = suits[math.random(4)], number = 1 })
+    end
+
+    -- 马牌 (6张)
+    for i = 1, 3 do
+        table.insert(deck, { id = "horse_"..i, type = "HORSE", name = "阿拉伯战马", subtype = "offense", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 4, 6 do
+        table.insert(deck, { id = "horse_"..i, type = "HORSE", name = "骆驼", subtype = "defense", suit = suits[math.random(4)], number = 1 })
+    end
+
+    -- 酒牌 (6张)
+    for i = 1, 3 do
+        table.insert(deck, { id = "wine_"..i, type = "WINE", name = "椰枣酒", subtype = "damage_plus1", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 4, 6 do
+        table.insert(deck, { id = "wine_"..i, type = "WINE", name = "阿拉伯烈酒", subtype = "damage_plus1_kill_draw2", suit = suits[math.random(4)], number = 1 })
+    end
+
+    -- 延时锦囊 (6张)
+    for i = 1, 2 do
+        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "黑血蛊", subtype = "discard1_draw2", suit = "SPADE", number = 1 })
+    end
+    for i = 3, 4 do
+        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "沙漠诅咒", subtype = "skip_play_phase", suit = "SPADE", number = 1 })
+    end
+    for i = 5, 6 do
+        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "虚弱标记", subtype = "attack_minus1", suit = "SPADE", number = 1 })
+    end
+
+    -- 即时锦囊 (8张)
+    for i = 1, 2 do
+        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "沙漠罗盘", subtype = "peek3_reorder", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 3, 4 do
+        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "诱降", subtype = "discard_enemy_card", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 5, 6 do
+        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "以物易物", subtype = "swap_hands", suit = suits[math.random(4)], number = 1 })
+    end
+    for i = 7, 8 do
+        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "沙漠风暴", subtype = "shuffle_draw2", suit = suits[math.random(4)], number = 1 })
     end
 
     return M.shuffle(deck)
@@ -324,10 +527,19 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
     if action.type == "WAITING_FOR_DEFENSE" then
         if action.target_id ~= player_id then return end
+        -- 贾法尔【毒计】：强制命中，忽略防御
+        if state.attack_forced then
+            state.attack_forced = nil
+            state.pending_action = nil
+            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+            return
+        end
         if payload.confirm == true then
             M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
         else
-            M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
+            -- 旭烈兀【铁蹄】：attack_bonus 已整合进 action.damage
+            state.attack_bonus = nil
+            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
             state.pending_action = nil
         end
 
@@ -394,19 +606,67 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     local target = state.players[target_id]
     if not target or target.health <= 0 then return end
 
+    -- 计算攻击加成（来源方装备+酒牌）
+    local source = source_id and state.players[source_id]
+    if source then
+        -- 武器加成
+        if source.equipment.weapon then
+            local wtype = source.equipment.weapon.subtype
+            if wtype == "sword" then amount = amount + 1 end
+        end
+        -- 酒牌buff
+        if source.weapon_buff then
+            amount = amount + 1
+            source.weapon_buff = nil
+            -- 阿拉伯烈酒：击杀额外摸2
+            source.pending_wine_kill_draw = (source.wine_subtype == "damage_plus1_kill_draw2")
+            source.wine_subtype = nil
+        end
+    end
+
+    -- 防具减伤
+    if target.equipment.armor then
+        local atype = target.equipment.armor.subtype
+        if atype == "reduce_damage" then
+            amount = math.max(1, amount - 1)
+        elseif atype == "immortal_once" and amount >= target.health then
+            -- 古兰经护盾：免疫致命伤害（每局限1次）
+            if not target.immortal_used_this_turn then
+                amount = 0
+                target.immortal_used_this_turn = true
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = target.username .. " 的【古兰经护盾】免疫了致命伤害！"
+                }))
+            end
+        end
+    end
+
     target.health = target.health - amount
-    
+
     local hero_mgr = require("hero_manager")
-    hero_mgr.trigger("on_damaged", dispatcher, state, target_id, amount)
+    hero_mgr.trigger("on_damaged", dispatcher, state, target_id, amount, source_id)
 
     dispatcher.broadcast_message(20, nk.json_encode({ event = "damage", target = target_id, source = source_id, amount = amount }))
 
     if target.health <= 0 then
         target.health = 0
+        -- on_kill 钩子（需在弃牌前触发，双角王可在此夺牌）
+        if source_id then
+            hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
+        end
         -- 弃牌
         for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
         nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
-        
+
+        -- 阿拉伯烈酒：击杀后摸2
+        if source and source.pending_wine_kill_draw then
+            source.pending_wine_kill_draw = nil
+            M.draw_cards(state, source_id, 2)
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = source.username .. " 因【阿拉伯烈酒】效果额外摸2张"
+            }))
+        end
+
         -- 触发奖惩
         M.handle_role_reward(dispatcher, state, source_id, target_id)
     end
@@ -424,7 +684,10 @@ function M.broadcast_update(dispatcher, state)
             me = {
                 hand = p_data.hand,
                 hp = p_data.health,
-                role = p_data.role
+                role = p_data.role,
+                equipment = p_data.equipment,
+                delayed_effects = p_data.delayed_effects,
+                weapon_buff = p_data.weapon_buff
             },
             others = {}
         }
@@ -442,7 +705,8 @@ function M.broadcast_update(dispatcher, state)
                     hp = other_p.health,
                     hand_count = #other_p.hand,
                     hero = other_p.hero,
-                    role = visible_role
+                    role = visible_role,
+                    equipment = other_p.equipment
                 })
             end
         end
