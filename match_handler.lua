@@ -364,8 +364,7 @@ function M.next_turn(dispatcher, state)
         end
     end
 
-    -- 重置每回合状态标志
-    current_p.immortal_used_this_turn = nil
+    -- 重置每回合状态标志（immortal_used 是每局一次，不在此重置）
     current_p.attack_debuff = nil
 
     -- ==========================================
@@ -380,9 +379,9 @@ function M.next_turn(dispatcher, state)
         -- 检查沙漠诅咒跳过出牌阶段
         if current_p.skip_play_phase then
             current_p.skip_play_phase = nil
-            nk.logger.info(current_p.username .. " 跳过出牌阶段")
+            nk.logger_info(current_p.username .. " 跳过出牌阶段")
             -- 直接进下一个人
-            self.next_turn(dispatcher, state)
+            M.next_turn(dispatcher, state)
         else
             hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
         end

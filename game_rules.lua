@@ -39,7 +39,7 @@ local CARD_EFFECTS = {
 
         -- 计算基础伤害
         local dmg = 1
-        if sp and sp.attack_debuff then dmg = math.max(1, dmg - 1) end
+        if sp and sp.attack_debuff then dmg = math.max(0, dmg - 1) end
 
         -- 流星锤：攻击无视防具（标记攻击bonus让防御阶段知道伤害）
         if sp and sp.equipment.weapon and sp.equipment.weapon.subtype == "meteor" then
@@ -507,7 +507,11 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
 
     if card_idx then
         local card = table.remove(player.hand, card_idx)
-        table.insert(state.discard_pile, card)
+        -- 装备牌不进弃牌堆，直接进装备槽；其余牌正常弃置
+        local is_equipment = card.type == "WEAPON" or card.type == "ARMOR" or card.type == "HORSE"
+        if not is_equipment then
+            table.insert(state.discard_pile, card)
+        end
 
         -- 【改进点】：执行卡牌效果
         if CARD_EFFECTS[card.type] then
@@ -631,9 +635,9 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
             amount = math.max(1, amount - 1)
         elseif atype == "immortal_once" and amount >= target.health then
             -- 古兰经护盾：免疫致命伤害（每局限1次）
-            if not target.immortal_used_this_turn then
+            if not target.immortal_used then
                 amount = 0
-                target.immortal_used_this_turn = true
+                target.immortal_used = true
                 dispatcher.broadcast_message(11, nk.json_encode({
                     content = target.username .. " 的【古兰经护盾】免疫了致命伤害！"
                 }))
@@ -654,8 +658,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         if source_id then
             hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
         end
-        -- 弃牌
+        -- 手牌弃置
         for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
+        -- 装备区回收（防止装备牌永久流失）
+        for _, card in pairs(target.equipment) do
+            if card then table.insert(state.discard_pile, card) end
+        end
+        target.equipment = {weapon = nil, armor = nil, horse = nil}
         nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
 
         -- 阿拉伯烈酒：击杀后摸2
@@ -717,15 +726,16 @@ end
 
 function M.execute_judgment(state)
     if #state.deck == 0 then
+        if #state.discard_pile == 0 then
+            -- 极端情况：牌堆和弃牌堆均空，返回安全的默认牌避免崩溃
+            return {id="dummy_judge", type="DEFENSE", suit="HEART", number=1, name="虚判"}
+        end
         state.deck = M.shuffle(state.discard_pile)
         state.discard_pile = {}
     end
-    
+
     local judge_card = table.remove(state.deck, 1)
     table.insert(state.discard_pile, judge_card)
-    
-    -- 广播判定结果给所有人看
-    -- 比如：判定结果是 [黑桃 1]
     return judge_card
 end
 

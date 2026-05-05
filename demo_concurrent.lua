@@ -1,13 +1,10 @@
--- demo_concurrent.lua  多局并发验证 demo
--- 模拟 3 局对局交替推进（Round-Robin），证明：
---   1. 每局 state 完全隔离，互不干扰
---   2. 游戏逻辑无全局可变状态，天然支持并发
+-- demo_concurrent.lua  全英雄并发验证 Demo
+-- 15 局对局 Round-Robin 推进，覆盖全部 30 个英雄
 -- Run: lua demo_concurrent.lua
 
 --------------------------------------------------------------------------------
 -- Mock Setup
 --------------------------------------------------------------------------------
--- 每局使用独立随机种子，确保牌局不同
 local nk = {
     json_encode  = function(t) return type(t) == "table" and t or tostring(t) end,
     json_decode  = function(s) return type(s) == "table" and s or {} end,
@@ -26,25 +23,36 @@ local rules    = require("game_rules")
 local hero_mgr = require("hero_manager")
 
 --------------------------------------------------------------------------------
--- Dispatcher factory（每局独立 prefix，日志带对局 ID）
+-- 技能触发统计（每个英雄触发过的技能及次数）
 --------------------------------------------------------------------------------
+local TRIGGERS = {}   -- hero_id -> {skill_name -> count}
+
 local function make_dispatcher(prefix)
     return {
         broadcast_message = function(op, data, _)
             if op ~= 11 then return end
-            local msg = type(data) == "table" and (data.content or "") or ""
-            if msg ~= "" then print(prefix .. " " .. msg) end
+            local msg  = type(data) == "table" and (data.content or "") or ""
+            local hero  = type(data) == "table" and data.hero
+            local skill = type(data) == "table" and data.skill
+            if hero and skill then
+                TRIGGERS[hero] = TRIGGERS[hero] or {}
+                TRIGGERS[hero][skill] = (TRIGGERS[hero][skill] or 0) + 1
+            end
+            -- 取消下行注释可输出详细日志
+            -- if msg ~= "" then print(prefix .. " " .. msg) end
         end,
         match_label_update = function() end,
     }
 end
 
 --------------------------------------------------------------------------------
--- Helpers（与 demo.lua 相同，复用）
+-- Helpers
 --------------------------------------------------------------------------------
 local CN = {
     ATTACK="攻击", DEFENSE="防御", HEAL="治疗",
     AOE_SANDSTORM="沙尘暴", DRAW_TWO="无中生有", JUDGE_STORM="天谴",
+    WEAPON="武器", ARMOR="防具", HORSE="马匹", WINE="酒",
+    DELAYED_TRICK="延时锦囊", INSTANT_TRICK="即时锦囊",
 }
 local function hand_str(hand)
     local t = {}
@@ -52,31 +60,32 @@ local function hand_str(hand)
     return #t > 0 and table.concat(t, "/") or "空"
 end
 
+--------------------------------------------------------------------------------
+-- AI：解决所有 pending_action（覆盖全部 30 个英雄的技能响应）
+--------------------------------------------------------------------------------
 local function ai_handle_pending(state)
-    for _ = 1, 20 do
+    for _ = 1, 40 do
         local action = state.pending_action
         if not action then break end
+
+        -- ---- 防御/AOE 响应 ----
         if action.type == "WAITING_FOR_DEFENSE" then
             local p = state.players[action.target_id]
-            local di = nil
-            for i, c in ipairs(p.hand) do if c.type=="DEFENSE" then di=i; break end end
-            if di then
-                table.remove(p.hand, di)
-                rules.handle_response(state._dispatcher, state, action.target_id, {confirm=true})
-            else
-                rules.handle_response(state._dispatcher, state, action.target_id, {confirm=false})
-            end
+            if not p then state.pending_action = nil; break end
+            local di
+            for i, c in ipairs(p.hand) do if c.type == "DEFENSE" then di = i; break end end
+            if di then table.remove(p.hand, di) end
+            rules.handle_response(state._dispatcher, state, action.target_id, {confirm = di ~= nil})
+
         elseif action.type == "WAITING_FOR_AOE" then
             local p = state.players[action.current_target]
-            if not p then break end
-            local di = nil
-            for i, c in ipairs(p.hand) do if c.type=="DEFENSE" then di=i; break end end
-            if di then
-                table.remove(p.hand, di)
-                rules.handle_response(state._dispatcher, state, action.current_target, {confirm=true})
-            else
-                rules.handle_response(state._dispatcher, state, action.current_target, {confirm=false})
-            end
+            if not p then state.pending_action = nil; break end
+            local di
+            for i, c in ipairs(p.hand) do if c.type == "DEFENSE" then di = i; break end end
+            if di then table.remove(p.hand, di) end
+            rules.handle_response(state._dispatcher, state, action.current_target, {confirm = di ~= nil})
+
+        -- ---- 英雄技能响应 ----
         elseif action.type == "ALADDIN_LAMP" then
             local p = state.players[action.player_id]
             if #p.hand >= 2 then
@@ -85,14 +94,18 @@ local function ai_handle_pending(state)
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
+
         elseif action.type == "ALIBABA_COUNTER" then
             hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+
         elseif action.type == "HAKIM_XING_XIANG" then
             local ids = {}
-            for _, c in ipairs(action.cards) do table.insert(ids, c.id) end
+            for _, c in ipairs(action.cards or {}) do table.insert(ids, c.id) end
             hero_mgr.handle_response(state._dispatcher, state, action.player_id,
                 {confirm=true, sorted_ids=ids})
+            -- hakim.on_response 不含摸牌，需手动补摸以接续挂起的摸牌阶段
             rules.draw_cards(state, action.player_id, 2)
+
         elseif action.type == "SCHEHERAZADE_QIANYE" then
             local p = state.players[action.player_id]
             if #p.hand >= 1 then
@@ -101,6 +114,15 @@ local function ai_handle_pending(state)
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
+
+        elseif action.type == "HARUN_CHOOSE" then
+            -- 令目标承受1点伤害（不弃牌）
+            hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                {confirm=true, choose_discard=false})
+
+        elseif action.type == "RUMI_XUANHUI" then
+            hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+
         elseif action.type == "IBN_BATTUTA_YUAN_XING" then
             local p = state.players[action.player_id]
             if #p.hand >= 1 then
@@ -109,6 +131,7 @@ local function ai_handle_pending(state)
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
+
         elseif action.type == "AL_KHWARIZMI_SUANFA" then
             local p = state.players[action.player_id]
             if #p.hand >= 1 then
@@ -117,8 +140,7 @@ local function ai_handle_pending(state)
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
-        elseif action.type == "RUMI_XUANHUI" then
-            hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+
         elseif action.type == "AL_BIRUNI_CELIANG" then
             if action.cards and #action.cards > 0 then
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
@@ -126,34 +148,89 @@ local function ai_handle_pending(state)
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
-        elseif action.type == "HARUN_CHOOSE" then
-            hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+
         elseif action.type == "BASIRA_XIAN_ZHI" then
-            hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true, guess=action.guess})
+            hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                {confirm=true, guess=action.guess})
+
         else
+            -- 未知 pending_action，清除防止死锁
+            io.stderr:write("[WARN] 未知 pending_action: " .. tostring(action.type) .. "\n")
+            state.pending_action = nil
             break
         end
     end
 end
 
+--------------------------------------------------------------------------------
+-- AI：出牌策略（覆盖全牌型，最大化技能触发概率）
+--------------------------------------------------------------------------------
 local function ai_choose(state, uid)
     local p = state.players[uid]
-    local target_id = nil
-    for other_uid, other_p in pairs(state.players) do
-        if other_uid ~= uid and other_p.health > 0 then target_id = other_uid; break end
+    -- 找一个对手
+    local target_id
+    for oid, op in pairs(state.players) do
+        if oid ~= uid and op.health > 0 then target_id = oid; break end
     end
+
+    -- 1. 优先装备（武器/防具/马）
+    for _, c in ipairs(p.hand) do
+        if c.type == "WEAPON" or c.type == "ARMOR" or c.type == "HORSE" then
+            return {card_id=c.id}
+        end
+    end
+    -- 2. 血量不满优先回血
     if p.health < p.max_health then
-        for _, c in ipairs(p.hand) do if c.type=="HEAL" then return {card_id=c.id} end end
+        for _, c in ipairs(p.hand) do
+            if c.type == "HEAL" then return {card_id=c.id} end
+        end
     end
-    for _, c in ipairs(p.hand) do if c.type=="AOE_SANDSTORM" then return {card_id=c.id} end end
+    -- 3. 酒牌（叠攻击buff）
+    if not p.weapon_buff then
+        for _, c in ipairs(p.hand) do
+            if c.type == "WINE" then return {card_id=c.id} end
+        end
+    end
+    -- 4. 延时锦囊挂到对手（触发判定阶段逻辑）
     if target_id then
-        for _, c in ipairs(p.hand) do if c.type=="ATTACK" then return {card_id=c.id, target_id=target_id} end end
+        for _, c in ipairs(p.hand) do
+            if c.type == "DELAYED_TRICK" then return {card_id=c.id, target_id=target_id} end
+        end
     end
-    for _, c in ipairs(p.hand) do if c.type=="DRAW_TWO" then return {card_id=c.id} end end
+    -- 5. 即时锦囊
+    for _, c in ipairs(p.hand) do
+        if c.type == "INSTANT_TRICK" then
+            local needs_target = c.subtype == "discard_enemy_card" or c.subtype == "swap_hands"
+            if needs_target and target_id then return {card_id=c.id, target_id=target_id}
+            elseif not needs_target then return {card_id=c.id} end
+        end
+    end
+    -- 6. AOE
+    for _, c in ipairs(p.hand) do
+        if c.type == "AOE_SANDSTORM" then return {card_id=c.id} end
+    end
+    -- 7. 攻击
+    if target_id then
+        for _, c in ipairs(p.hand) do
+            if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
+        end
+    end
+    -- 8. 无中生有
+    for _, c in ipairs(p.hand) do
+        if c.type == "DRAW_TWO" then return {card_id=c.id} end
+    end
+    -- 9. 天谴（测试判定阶段与哈基姆技能）
+    if target_id then
+        for _, c in ipairs(p.hand) do
+            if c.type == "JUDGE_STORM" then return {card_id=c.id, target_id=target_id} end
+        end
+    end
     return nil
 end
 
--- 推进一个回合，返回 true 表示对局继续，false 表示已结束
+--------------------------------------------------------------------------------
+-- 推进一个回合，返回 true=继续，false=结束
+--------------------------------------------------------------------------------
 local function tick_match(m)
     if m.state.status ~= 1 then return false end
 
@@ -165,7 +242,7 @@ local function tick_match(m)
         return true
     end
 
-    -- 有未解决的挂起动作时，先解决它，不要推进回合
+    -- 先解决挂起的操作
     if m.state.pending_action then
         ai_handle_pending(m.state)
         return true
@@ -190,25 +267,40 @@ local function tick_match(m)
 end
 
 --------------------------------------------------------------------------------
--- 初始化 3 局对局（不同英雄组合，不同随机种子）
+-- 15 局对局配置（覆盖全部 30 英雄）
 --------------------------------------------------------------------------------
 local MATCH_CONFIGS = {
-    { seed=42,  p1={id="a1", name="哈伦·拉希德A", hero="harun_al_rashid"}, p2={id="a2", name="海亚姆A",      hero="khayyam"}      },
-    { seed=100, p1={id="b1", name="芝诺比娅B",    hero="zenobia"},        p2={id="b2", name="穆阿维叶B",    hero="muawiyah"}     },
-    { seed=999, p1={id="c1", name="尼扎姆C",      hero="nizamulmulk"},    p2={id="c2", name="恩赫杜安娜C",  hero="enheduanna"}   },
-    { seed=777, p1={id="d1", name="曼苏尔D",      hero="al_mansur"},     p2={id="d2", name="吉尔伽美什D",  hero="gilgamesh"}    },
-    { seed=321, p1={id="e1", name="伊姆鲁E",      hero="imru_al_qais"},  p2={id="e2", name="巴希拉E",      hero="basira"}       },
+    -- 原有 5 局（第二批扩展英雄）
+    { seed=42,  p1={id="a1", name="哈伦·拉希德", hero="harun_al_rashid"}, p2={id="a2", name="海亚姆",      hero="khayyam"}      },
+    { seed=100, p1={id="b1", name="芝诺比娅",     hero="zenobia"},        p2={id="b2", name="穆阿维叶",    hero="muawiyah"}      },
+    { seed=999, p1={id="c1", name="尼扎姆",       hero="nizamulmulk"},    p2={id="c2", name="恩赫杜安娜",  hero="enheduanna"}    },
+    { seed=777, p1={id="d1", name="曼苏尔",       hero="al_mansur"},      p2={id="d2", name="吉尔伽美什",  hero="gilgamesh"}     },
+    { seed=321, p1={id="e1", name="伊姆鲁盖斯",   hero="imru_al_qais"},   p2={id="e2", name="巴希拉",      hero="basira"}        },
+    -- 新增 10 局（覆盖原版 6 + 第一批 12 扩展英雄）
+    { seed=11,  p1={id="f1", name="阿拉丁",       hero="aladdin"},        p2={id="f2", name="阿里巴巴",    hero="alibaba"}       },
+    { seed=22,  p1={id="g1", name="萨拉丁",       hero="saladin"},        p2={id="g2", name="贾法尔",      hero="jafar"}         },
+    { seed=33,  p1={id="h1", name="哈基姆",       hero="hakim"},          p2={id="h2", name="舍赫拉莎德",  hero="scheherazade"}  },
+    { seed=44,  p1={id="i1", name="伊本白图泰",   hero="ibn_battuta"},    p2={id="i2", name="花拉子密",    hero="al_khwarizmi"}  },
+    { seed=55,  p1={id="j1", name="阿维森纳",     hero="avicenna"},       p2={id="j2", name="辛巴达",      hero="sinbad"}        },
+    { seed=66,  p1={id="k1", name="旭烈兀",       hero="hulagu"},         p2={id="k2", name="纳芙蒂蒂",    hero="nefertiti"}     },
+    { seed=77,  p1={id="l1", name="鲁米",         hero="rumi"},           p2={id="l2", name="帖木儿",      hero="tamerlane"}     },
+    { seed=88,  p1={id="m1", name="祖拜达",       hero="zubaydah"},       p2={id="m2", name="比鲁尼",      hero="al_biruni"}     },
+    { seed=123, p1={id="n1", name="杜尼亚扎德",   hero="dunyazad"},       p2={id="n2", name="安塔拉",      hero="antar"}         },
+    { seed=456, p1={id="o1", name="苏莱曼",       hero="suleiman"},       p2={id="o2", name="双角王",      hero="dhul_qarnayn"}  },
 }
 
+--------------------------------------------------------------------------------
+-- 初始化所有对局
+--------------------------------------------------------------------------------
 local matches = {}
 for i, cfg in ipairs(MATCH_CONFIGS) do
     math.randomseed(cfg.seed)
-    local label = string.format("[对局%d]", i)
+    local label = string.format("[对局%02d]", i)
     local disp  = make_dispatcher(label)
     local ctx   = {}
 
     local state = handler.match_init(ctx, {max_players=2, mode="classic"})
-    state._dispatcher = disp  -- 方便 ai_handle_pending 访问
+    state._dispatcher = disp
 
     local pr1 = {user_id=cfg.p1.id, username=cfg.p1.name}
     local pr2 = {user_id=cfg.p2.id, username=cfg.p2.name}
@@ -216,34 +308,41 @@ for i, cfg in ipairs(MATCH_CONFIGS) do
     state = handler.match_join(ctx, disp, 0, state, {pr2})
     state._dispatcher = disp
 
+    -- 强制指定英雄（覆盖随机分配）
     state.players[cfg.p1.id].hero = cfg.p1.hero
     state.players[cfg.p2.id].hero = cfg.p2.hero
 
-    matches[i] = { state=state, dispatcher=disp, label=label, winner=nil, turns=0 }
+    matches[i] = {state=state, dispatcher=disp, label=label, winner=nil, turns=0, crashed=false}
 end
 
 --------------------------------------------------------------------------------
--- Round-Robin：3 局交替推进，每轮各进一回合
+-- Round-Robin：15 局交替推进
 --------------------------------------------------------------------------------
-print("╔══════════════════════════════════════════════════════╗")
-print("║   阿苏拉 · 多局并发验证 Demo（5局 Round-Robin）      ║")
-print("╚══════════════════════════════════════════════════════╝")
+print("╔══════════════════════════════════════════════════════════╗")
+print("║   阿苏拉 · 全英雄并发验证 Demo（15局 / 覆盖30名英雄）    ║")
+print("╚══════════════════════════════════════════════════════════╝")
 for i, cfg in ipairs(MATCH_CONFIGS) do
-    print(string.format("  对局%d: %-12s vs %-12s  seed=%d",
-        i, cfg.p1.name, cfg.p2.name, cfg.seed))
+    print(string.format("  对局%02d: %-10s(%s)  vs  %-10s(%s)  seed=%d",
+        i, cfg.p1.name, cfg.p1.hero, cfg.p2.name, cfg.p2.hero, cfg.seed))
 end
-print(string.rep("─", 56))
+print(string.rep("─", 64))
 
-local MAX_TURNS = 30
+local MAX_TICKS = 50 * #matches
 local global_tick = 0
 
-while global_tick < MAX_TURNS * 5 do
+while global_tick < MAX_TICKS do
     local all_done = true
     for _, m in ipairs(matches) do
         if m.state.status == 1 then
             all_done = false
             m.turns = m.turns + 1
-            tick_match(m)
+            local ok, err = pcall(tick_match, m)
+            if not ok then
+                m.state.status = 2
+                m.winner = "崩溃"
+                m.crash_msg = tostring(err)
+                m.crashed = true
+            end
         end
     end
     global_tick = global_tick + 1
@@ -251,38 +350,70 @@ while global_tick < MAX_TURNS * 5 do
 end
 
 --------------------------------------------------------------------------------
--- 结果汇总
+-- 对局结果汇总
 --------------------------------------------------------------------------------
+local WIN_CN = {MONARCH_WIN="主公阵营胜", REBEL_WIN="反贼阵营胜", TRAITOR_WIN="内奸胜"}
 print("\n══════════════════ 对局结果汇总 ══════════════════")
-local winner_cn = { MONARCH_WIN="主公阵营", REBEL_WIN="反贼阵营", TRAITOR_WIN="内奸" }
+local crashed_count = 0
 for i, m in ipairs(matches) do
     local cfg = MATCH_CONFIGS[i]
-    local result = m.winner and (winner_cn[m.winner] or m.winner) or "未结束"
-    print(string.format("  对局%d  %s vs %s", i, cfg.p1.name, cfg.p2.name))
-
-    -- 最终各玩家状态
-    local ids = {}
-    for uid in pairs(m.state.players) do table.insert(ids, uid) end
-    table.sort(ids)
-    for _, uid in ipairs(ids) do
-        local p = m.state.players[uid]
-        print(string.format("    %-12s %-8s HP:%d/%d 手牌:%d [%s]",
-            p.username, p.role, p.health, p.max_health, #p.hand, hand_str(p.hand)))
+    local result = WIN_CN[m.winner] or m.winner or "未结束"
+    local status = m.crashed and "✗ 崩溃" or "✓"
+    print(string.format("  对局%02d  %-8s vs %-8s  %s  共%d回合  %s",
+        i, cfg.p1.hero, cfg.p2.hero, result, m.turns, status))
+    if m.crashed then
+        print("         错误: " .. m.crash_msg)
+        crashed_count = crashed_count + 1
     end
-    print(string.format("    → 胜利方: %s  共 %d 回合", result, m.turns))
-    print(string.rep("─", 56))
+    -- 各玩家最终状态
+    for _, pid in ipairs({cfg.p1.id, cfg.p2.id}) do
+        local p = m.state.players[pid]
+        if p then
+            print(string.format("         %-10s %-8s HP:%d/%d 手牌:%d [%s]",
+                p.username, p.role, p.health, p.max_health, #p.hand, hand_str(p.hand)))
+        end
+    end
+    print(string.rep("─", 64))
 end
 
 --------------------------------------------------------------------------------
--- 验证隔离性：3 局的随机种子不同，牌局结果应不同
+-- 技能触发统计
 --------------------------------------------------------------------------------
-print("\n══ 状态隔离验证 ══")
-local deck_sizes = {}
-for i, m in ipairs(matches) do
-    deck_sizes[i] = #m.state.deck
-    print(string.format("  对局%d 剩余牌堆: %d 张  (独立牌堆，互不影响)", i, #m.state.deck))
+local ALL_HEROES = {
+    -- 原版 6
+    "aladdin","alibaba","saladin","hakim","scheherazade","jafar",
+    -- 第一批 12
+    "ibn_battuta","al_khwarizmi","avicenna","sinbad","hulagu","rumi",
+    "zubaydah","al_biruni","tamerlane","dunyazad","antar","nefertiti",
+    -- 第二批 12
+    "harun_al_rashid","suleiman","khayyam","zenobia","muawiyah","nizamulmulk",
+    "enheduanna","al_mansur","gilgamesh","imru_al_qais","basira","dhul_qarnayn",
+}
+
+print("\n══════════════════ 技能触发统计 ══════════════════")
+local triggered_count = 0
+for _, hero in ipairs(ALL_HEROES) do
+    local skills = TRIGGERS[hero]
+    if skills then
+        triggered_count = triggered_count + 1
+        local parts = {}
+        for sk, cnt in pairs(skills) do
+            table.insert(parts, sk .. "×" .. cnt)
+        end
+        table.sort(parts)
+        print(string.format("  ✓ %-22s %s", hero, table.concat(parts, "  ")))
+    else
+        print(string.format("  ○ %-22s （未触发）", hero))
+    end
 end
-local isolated = deck_sizes[1] ~= deck_sizes[2] or deck_sizes[2] ~= deck_sizes[3]
-print(string.format("\n  隔离验证: %s（3局剩余牌堆数量%s）",
-    isolated and "✓ 通过" or "○ 可能相同（概率极低）",
-    isolated and "各不相同" or "恰好相同"))
+
+print(string.rep("─", 64))
+print(string.format("\n英雄技能触发: %d/30  崩溃对局: %d/15\n",
+    triggered_count, crashed_count))
+
+if crashed_count == 0 then
+    print("全部对局运行完毕，无崩溃 ✓")
+else
+    print(string.format("存在 %d 局崩溃，请检查上方错误信息", crashed_count))
+    os.exit(1)
+end

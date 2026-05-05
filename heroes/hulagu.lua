@@ -12,7 +12,7 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     if not target then return false end
 
     if #target.hand > #player.hand then
-        state.attack_bonus = 2  -- 伤害变为2
+        state.attack_bonus = 1  -- 伤害+1，总计2点
         dispatcher.broadcast_message(11, nk.json_encode({
             content = player.username .. " 发动【铁蹄】，目标手牌更多，攻击伤害+1！",
             hero = "hulagu", skill = "tie_ti"
