@@ -95,25 +95,24 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
 
-			-- 【新增：读取玩家拥有的英雄列表进行校验】
-            local unlocked_heroes = { aladdin = true } -- 默认有阿拉丁
-            local objects = nk.storage_read({{
-                collection = "hero_inventory",
-                key = "unlocked_heroes",
-                user_id = p.user_id
-            }})
-            if #objects > 0 then
-                unlocked_heroes = objects[1].value
+            -- 批量读取英雄库存 + 皮肤装备（单次 RTT）
+            local unlocked_heroes = { aladdin = true }
+            local equipped_skins  = {}
+            local inv_objects = nk.storage_read({
+                { collection = "hero_inventory", key = "unlocked_heroes", user_id = p.user_id },
+                { collection = "skin_inventory", key = "equipped_skins",  user_id = p.user_id },
+            })
+            for _, obj in ipairs(inv_objects) do
+                if obj.key == "unlocked_heroes" then unlocked_heroes = obj.value end
+                if obj.key == "equipped_skins"  then equipped_skins  = obj.value end
             end
 
-            -- 假设客户端在 Metadata 中传入了选中的英雄，如 p.metadata.hero
-            -- 这里为了演示，我们假设玩家想选 "hakim"，但我们要校验
-            local want_hero = "aladdin" -- 实际应从客户端 metadata 获取
+            -- 实际应从客户端 metadata 获取想选的英雄
+            local want_hero = "aladdin"
             if not unlocked_heroes[want_hero] then
                 nk.logger_warn("玩家 " .. p.username .. " 尝试使用未解锁英雄，重置为阿拉丁")
                 want_hero = "aladdin"
             end
-
 
             local ph = state.config.match.player_health
             state.players[p.user_id] = {
@@ -123,6 +122,8 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 max_health = ph,
                 hand = {},
                 hero = want_hero,
+                skin_id = equipped_skins[want_hero] or nil,   -- 装备的皮肤（nil=默认）
+                equipped_skins = equipped_skins,              -- 快照，供随机英雄后查表
                 role = "NONE",        -- pvp 模式为 "NONE"，identity 模式后续覆写
                 judgments = {},
                 equipment = {
@@ -168,7 +169,8 @@ function M.match_join(context, dispatcher, tick, state, presences)
             "enheduanna", "al_mansur", "gilgamesh", "imru_al_qais", "basira", "dhul_qarnayn"
         }
 		for _, p in pairs(state.players) do
-			p.hero = hero_list[math.random(#hero_list)]
+			p.hero    = hero_list[math.random(#hero_list)]
+            p.skin_id = (p.equipped_skins or {})[p.hero] or nil
 		end
         -- 身份分配（pvp 模式跳过，identity 模式按角色分配）
         local roles = assign_roles(current_count, state.mode)
@@ -454,6 +456,7 @@ function M.send_spectator_state(dispatcher, state, presence, target_player_id)
             equipment       = target.equipment,
             delayed_effects = target.delayed_effects,
             weapon_buff     = target.weapon_buff,
+            skin_id         = target.skin_id,
         },
         others = {},
     }
@@ -472,6 +475,7 @@ function M.send_spectator_state(dispatcher, state, presence, target_player_id)
                 hero       = other_p.hero,
                 role       = visible_role,
                 equipment  = other_p.equipment,
+                skin_id    = other_p.skin_id,
             })
         end
     end
@@ -485,11 +489,12 @@ function M.send_full_state_to_player(dispatcher, state, presence)
         is_reconnect = true,
         current_turn = state.current_turn_id,
         me = {
-            hand = p_data.hand,
-            hp = p_data.health,
-            role = p_data.role,
-            hero = p_data.hero,
-            judgments = p_data.judgments
+            hand      = p_data.hand,
+            hp        = p_data.health,
+            role      = p_data.role,
+            hero      = p_data.hero,
+            judgments = p_data.judgments,
+            skin_id   = p_data.skin_id,
         },
         others = {} -- 同样的逻辑，根据权限过滤身份
     }

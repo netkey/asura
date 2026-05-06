@@ -719,12 +719,13 @@ function M.broadcast_update(dispatcher, state)
             current_turn = state.current_turn_id,
             pending = state.pending_action,
             me = {
-                hand = p_data.hand,
-                hp = p_data.health,
-                role = p_data.role,
-                equipment = p_data.equipment,
+                hand            = p_data.hand,
+                hp              = p_data.health,
+                role            = p_data.role,
+                equipment       = p_data.equipment,
                 delayed_effects = p_data.delayed_effects,
-                weapon_buff = p_data.weapon_buff
+                weapon_buff     = p_data.weapon_buff,
+                skin_id         = p_data.skin_id,
             },
             others = {}
         }
@@ -737,13 +738,14 @@ function M.broadcast_update(dispatcher, state)
                 end
 
                 table.insert(payload.others, {
-                    id = other_id,
-                    username = other_p.username,
-                    hp = other_p.health,
+                    id         = other_id,
+                    username   = other_p.username,
+                    hp         = other_p.health,
                     hand_count = #other_p.hand,
-                    hero = other_p.hero,
-                    role = visible_role,
-                    equipment = other_p.equipment
+                    hero       = other_p.hero,
+                    role       = visible_role,
+                    equipment  = other_p.equipment,
+                    skin_id    = other_p.skin_id,
                 })
             end
         end

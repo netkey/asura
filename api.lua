@@ -1,8 +1,9 @@
-local nk        = require("nakama")
-local catalog   = require("hero_catalog")
-local gconfig   = require("game_config")
-local season_mgr = require("season_manager")
-local ach_mgr   = require("achievement_manager")
+local nk          = require("nakama")
+local catalog     = require("hero_catalog")
+local gconfig     = require("game_config")
+local season_mgr  = require("season_manager")
+local ach_mgr     = require("achievement_manager")
+local skin_catalog = require("skin_catalog")
 
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
@@ -637,3 +638,285 @@ local function get_achievement_list(context, payload)
     return nk.json_encode({ achievements = defs })
 end
 nk.register_rpc(get_achievement_list, "get_achievement_list")
+
+-- ==========================================
+-- 皮肤系统 RPC
+-- ==========================================
+
+-- 金币充值档位：product_id → gold 数量
+local PRODUCT_MAP = {
+    ["com.asura.gold_60"]   = 60,
+    ["com.asura.gold_198"]  = 198,
+    ["com.asura.gold_648"]  = 648,
+    ["com.asura.gold_1998"] = 1998,
+}
+
+-- 内部：调用 Apple IAP 验证接口
+-- 先请求 Production，status=21007 时降级 Sandbox（审核环境）
+local function verify_apple_receipt(receipt_data)
+    local secret = nk.context and nk.context.env and nk.context.env["APPLE_IAP_SECRET"] or ""
+    local body   = nk.json_encode({ ["receipt-data"] = receipt_data, password = secret })
+    local headers = { ["Content-Type"] = "application/json" }
+
+    local function call(url)
+        local code, _, resp_body = nk.http_request(url, "POST", headers, body)
+        if code ~= 200 then return nil, "http_error_" .. tostring(code) end
+        return nk.json_decode(resp_body), nil
+    end
+
+    local resp, err = call("https://buy.itunes.apple.com/verifyReceipt")
+    if err then return nil, err end
+
+    -- 21007: receipt 是 Sandbox 签发，降级重试
+    if resp.status == 21007 then
+        resp, err = call("https://sandbox.itunes.apple.com/verifyReceipt")
+        if err then return nil, err end
+        resp._env = "sandbox"
+    else
+        resp._env = "production"
+    end
+
+    if resp.status ~= 0 then
+        return nil, "invalid_receipt_status_" .. tostring(resp.status)
+    end
+
+    -- 取 in_app 列表中 purchase_date_ms 最大的那笔
+    local in_app = resp.receipt and resp.receipt.in_app or {}
+    if #in_app == 0 then return nil, "no_in_app_purchase" end
+
+    local latest = in_app[1]
+    for _, item in ipairs(in_app) do
+        if tonumber(item.purchase_date_ms or 0) > tonumber(latest.purchase_date_ms or 0) then
+            latest = item
+        end
+    end
+
+    return {
+        transaction_id = latest.transaction_id,
+        product_id     = latest.product_id,
+        environment    = resp._env,
+    }, nil
+end
+
+-- RPC：verify_iap_receipt
+-- 入参：{ product_id, receipt_data }
+-- 出参：{ success, gold_granted, new_balance } 或 { success=false, error }
+local function verify_iap_receipt(context, payload)
+    local req = nk.json_decode(payload)
+    if type(req) ~= "table" then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
+
+    local product_id  = req.product_id
+    local receipt_data = req.receipt_data
+    local gold = PRODUCT_MAP[product_id]
+    if not gold then
+        return nk.json_encode({ success = false, error = "unknown_product" })
+    end
+
+    local result, err = verify_apple_receipt(receipt_data)
+    if not result then
+        return nk.json_encode({ success = false, error = err or "invalid_receipt" })
+    end
+
+    local txn_id = result.transaction_id
+    if not txn_id then
+        return nk.json_encode({ success = false, error = "missing_transaction_id" })
+    end
+
+    -- 防重放：全局唯一 transaction_id
+    local existing = nk.storage_read({{
+        collection = "iap_receipts",
+        key        = txn_id,
+        user_id    = nil,
+    }})
+    if #existing > 0 then
+        return nk.json_encode({ success = false, error = "duplicate_transaction" })
+    end
+
+    -- 先写防重放记录，再发金币（保守顺序：防止重复发币）
+    nk.storage_write({{
+        collection       = "iap_receipts",
+        key              = txn_id,
+        user_id          = nil,
+        value            = {
+            uid          = context.user_id,
+            product_id   = product_id,
+            gold_granted = gold,
+            verified_at  = os.time(),
+            environment  = result.environment,
+        },
+        permission_read  = 0,
+        permission_write = 0,
+    }})
+
+    local ok, wallet_err = pcall(nk.wallet_update, context.user_id,
+        { gold = gold }, { reason = "iap", product_id = product_id }, true)
+    if not ok then
+        nk.logger_warn("IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err))
+        return nk.json_encode({ success = false, error = "wallet_error" })
+    end
+
+    local account = nk.account_get_id(context.user_id)
+    local balance = account and account.wallet and (account.wallet.gold or 0) or 0
+    return nk.json_encode({ success = true, gold_granted = gold, new_balance = balance })
+end
+nk.register_rpc(verify_iap_receipt, "verify_iap_receipt")
+
+-- RPC：get_skin_catalog
+-- 入参：{} 或 { hero_id }（可选过滤）
+-- 出参：{ skins: [...] }（不含默认皮肤）
+local function get_skin_catalog(context, payload)
+    local req = (payload and payload ~= "") and nk.json_decode(payload) or {}
+    local filter_hero = type(req) == "table" and req.hero_id or nil
+
+    local result = {}
+    for skin_id, info in pairs(skin_catalog.SKINS) do
+        if not info.is_default then
+            if not filter_hero or info.hero_id == filter_hero then
+                table.insert(result, {
+                    id        = skin_id,
+                    hero_id   = info.hero_id,
+                    name_cn   = info.name_cn,
+                    price     = info.price,
+                    asset_url = info.asset_url,
+                })
+            end
+        end
+    end
+    return nk.json_encode({ skins = result })
+end
+nk.register_rpc(get_skin_catalog, "get_skin_catalog")
+
+-- RPC：get_my_skins
+-- 出参：{ owned:[skin_id,...], equipped:{hero_id:skin_id,...} }
+local function get_my_skins(context, payload)
+    local uid = context.user_id
+    local objects = nk.storage_read({
+        { collection = "skin_inventory", key = "owned_skins",    user_id = uid },
+        { collection = "skin_inventory", key = "equipped_skins", user_id = uid },
+    })
+    local owned, equipped = {}, {}
+    for _, obj in ipairs(objects) do
+        if obj.key == "owned_skins"    then owned    = obj.value end
+        if obj.key == "equipped_skins" then equipped = obj.value end
+    end
+    return nk.json_encode({ owned = owned, equipped = equipped })
+end
+nk.register_rpc(get_my_skins, "get_my_skins")
+
+-- RPC：purchase_skin
+-- 入参：{ skin_id }
+-- 出参：{ success, new_balance } 或 { success=false, error }
+local function purchase_skin(context, payload)
+    local req = nk.json_decode(payload)
+    if type(req) ~= "table" or not req.skin_id then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
+
+    local skin_id = req.skin_id
+    local uid     = context.user_id
+
+    if not skin_catalog.exists(skin_id) then
+        return nk.json_encode({ success = false, error = "skin_not_found" })
+    end
+    local info = skin_catalog.SKINS[skin_id]
+    if info.is_default then
+        return nk.json_encode({ success = false, error = "default_skin" })
+    end
+
+    -- 读取已拥有皮肤
+    local objects = nk.storage_read({{
+        collection = "skin_inventory", key = "owned_skins", user_id = uid
+    }})
+    local owned = (#objects > 0) and objects[1].value or {}
+
+    -- 检查是否已拥有（owned 为数组）
+    for _, s in ipairs(owned) do
+        if s == skin_id then
+            return nk.json_encode({ success = false, error = "already_owned" })
+        end
+    end
+
+    -- 扣金币
+    local ok, err = pcall(nk.wallet_update, uid, { gold = -info.price }, {}, true)
+    if not ok then
+        return nk.json_encode({ success = false, error = "insufficient_gold" })
+    end
+
+    -- 写入拥有记录
+    table.insert(owned, skin_id)
+    nk.storage_write({{
+        collection       = "skin_inventory",
+        key              = "owned_skins",
+        user_id          = uid,
+        value            = owned,
+        permission_read  = 1,
+        permission_write = 0,
+    }})
+
+    local account = nk.account_get_id(uid)
+    local balance = account and account.wallet and (account.wallet.gold or 0) or 0
+    return nk.json_encode({ success = true, new_balance = balance })
+end
+nk.register_rpc(purchase_skin, "purchase_skin")
+
+-- RPC：equip_skin
+-- 入参：{ hero_id, skin_id }（skin_id=nil 表示卸下皮肤，恢复默认）
+-- 出参：{ success } 或 { success=false, error }
+local function equip_skin(context, payload)
+    local req = nk.json_decode(payload)
+    if type(req) ~= "table" or not req.hero_id then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
+
+    local hero_id = req.hero_id
+    local skin_id = req.skin_id  -- nil 表示卸下
+    local uid     = context.user_id
+
+    if skin_id then
+        if not skin_catalog.exists(skin_id) then
+            return nk.json_encode({ success = false, error = "skin_not_found" })
+        end
+        local info = skin_catalog.SKINS[skin_id]
+        if info.hero_id ~= hero_id then
+            return nk.json_encode({ success = false, error = "wrong_hero" })
+        end
+        -- 默认皮肤无需拥有检查，其余皮肤须已购买
+        if not info.is_default then
+            local objects = nk.storage_read({{
+                collection = "skin_inventory", key = "owned_skins", user_id = uid
+            }})
+            local owned = (#objects > 0) and objects[1].value or {}
+            local has = false
+            for _, s in ipairs(owned) do if s == skin_id then has = true; break end end
+            if not has then
+                return nk.json_encode({ success = false, error = "not_owned" })
+            end
+        end
+    end
+
+    -- 读取并更新装备表
+    local objects = nk.storage_read({{
+        collection = "skin_inventory", key = "equipped_skins", user_id = uid
+    }})
+    local equipped = (#objects > 0) and objects[1].value or {}
+
+    if skin_id then
+        equipped[hero_id] = skin_id
+    else
+        equipped[hero_id] = nil  -- 卸下，恢复默认
+    end
+
+    nk.storage_write({{
+        collection       = "skin_inventory",
+        key              = "equipped_skins",
+        user_id          = uid,
+        value            = equipped,
+        permission_read  = 1,
+        permission_write = 0,
+    }})
+
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(equip_skin, "equip_skin")

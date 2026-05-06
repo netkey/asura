@@ -22,6 +22,8 @@ local nk = {
     storage_delete           = function() end,
     wallet_update            = function() end,
     notifications_send       = function() end,
+    http_request             = function() return 200, {}, '{"status":0,"receipt":{"in_app":[{"transaction_id":"txn_test","product_id":"com.asura.gold_60","purchase_date_ms":"1000000"}]}}' end,
+    account_get_id           = function() return { wallet = { gold = 500 } } end,
     register_rpc             = function() end,
     leaderboard_create       = function() end,
     leaderboard_record_write = function() end,
