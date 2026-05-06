@@ -167,37 +167,98 @@ end
 --------------------------------------------------------------------------------
 local function ai_choose(state, uid)
     local p = state.players[uid]
-    -- 找一个对手
-    local target_id
+
+    -- ── 角色感知目标选择 ────────────────────────────────────────────────
+    -- Demo 是服务端模拟，可直接读取 role 字段，无需雾战限制
+    local monarch_id, target_id
+    local rebel_count, minister_count = 0, 0
     for oid, op in pairs(state.players) do
-        if oid ~= uid and op.health > 0 then target_id = oid; break end
+        if op.health > 0 then
+            if op.role == "MONARCH" then monarch_id = oid end
+            if op.role == "REBEL"   then rebel_count   = rebel_count   + 1 end
+            if op.role == "MINISTER" then minister_count = minister_count + 1 end
+        end
     end
 
-    -- 1. 优先装备（武器/防具/马）
+    -- 按身份选主攻目标
+    if p.role == "REBEL" then
+        target_id = monarch_id          -- 反贼专打主公
+
+    elseif p.role == "TRAITOR" then
+        -- 内奸：先消灭反贼配合主公，再打忠臣，最后弑君
+        if rebel_count > 0 then
+            for oid, op in pairs(state.players) do
+                if oid ~= uid and op.health > 0 and op.role == "REBEL" then
+                    if not target_id or op.health < state.players[target_id].health then
+                        target_id = oid
+                    end
+                end
+            end
+        elseif minister_count > 0 then
+            for oid, op in pairs(state.players) do
+                if oid ~= uid and op.health > 0 and op.role == "MINISTER" then
+                    target_id = oid; break
+                end
+            end
+        else
+            target_id = monarch_id      -- 无反贼/忠臣时弑君
+        end
+
+    else
+        -- MONARCH / MINISTER：集火最低血量的反贼或内奸
+        for oid, op in pairs(state.players) do
+            if oid ~= uid and op.health > 0
+               and (op.role == "REBEL" or op.role == "TRAITOR") then
+                if not target_id or op.health < state.players[target_id].health then
+                    target_id = oid
+                end
+            end
+        end
+    end
+
+    -- 兜底：找任意存活对手
+    if not target_id then
+        for oid, op in pairs(state.players) do
+            if oid ~= uid and op.health > 0 then target_id = oid; break end
+        end
+    end
+
+    -- ── 出牌优先级 ───────────────────────────────────────────────────────
+    -- 1. 装备（武器/防具/马）
     for _, c in ipairs(p.hand) do
         if c.type == "WEAPON" or c.type == "ARMOR" or c.type == "HORSE" then
             return {card_id=c.id}
         end
     end
-    -- 2. 血量不满优先回血
-    if p.health < p.max_health then
+    -- 2. 濒死才回血（HP≤2）
+    if p.health <= 2 then
         for _, c in ipairs(p.hand) do
             if c.type == "HEAL" then return {card_id=c.id} end
         end
     end
-    -- 3. 酒牌（叠攻击buff）
+    -- 3. 攻击（主要输出，提前）
+    if target_id then
+        for _, c in ipairs(p.hand) do
+            if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
+        end
+    end
+    -- 4. AOE（多目标伤害）
+    for _, c in ipairs(p.hand) do
+        if c.type == "AOE_SANDSTORM" then return {card_id=c.id} end
+    end
+    -- 5. 酒牌（增强下次攻击）
     if not p.weapon_buff then
         for _, c in ipairs(p.hand) do
             if c.type == "WINE" then return {card_id=c.id} end
         end
     end
-    -- 4. 延时锦囊挂到对手（触发判定阶段逻辑）
+    -- 6. 延时锦囊挂到对手
     if target_id then
         for _, c in ipairs(p.hand) do
             if c.type == "DELAYED_TRICK" then return {card_id=c.id, target_id=target_id} end
         end
     end
-    -- 5. 即时锦囊
+    -- 7. 即时锦囊
     for _, c in ipairs(p.hand) do
         if c.type == "INSTANT_TRICK" then
             local needs_target = c.subtype == "discard_enemy_card" or c.subtype == "swap_hands"
@@ -205,21 +266,11 @@ local function ai_choose(state, uid)
             elseif not needs_target then return {card_id=c.id} end
         end
     end
-    -- 6. AOE
-    for _, c in ipairs(p.hand) do
-        if c.type == "AOE_SANDSTORM" then return {card_id=c.id} end
-    end
-    -- 7. 攻击
-    if target_id then
-        for _, c in ipairs(p.hand) do
-            if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
-        end
-    end
     -- 8. 无中生有
     for _, c in ipairs(p.hand) do
         if c.type == "DRAW_TWO" then return {card_id=c.id} end
     end
-    -- 9. 天谴（测试判定阶段与哈基姆技能）
+    -- 9. 天谴
     if target_id then
         for _, c in ipairs(p.hand) do
             if c.type == "JUDGE_STORM" then return {card_id=c.id, target_id=target_id} end
