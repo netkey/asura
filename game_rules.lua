@@ -313,6 +313,15 @@ end
 
 -- 胜负判定逻辑
 function M.check_victory(dispatcher, state)
+    -- PVP 模式：任意玩家死亡即结束
+    if state.mode == "pvp" then
+        for _, p in pairs(state.players) do
+            if p.health <= 0 then return true, "PVP_WIN" end
+        end
+        return false, nil
+    end
+
+    -- identity 模式：按角色阵营判定
     local alive = { MONARCH = 0, MINISTER = 0, REBEL = 0, TRAITOR = 0 }
     for _, p in pairs(state.players) do
         if p.health > 0 then
@@ -322,11 +331,10 @@ function M.check_victory(dispatcher, state)
 
     -- 1. 主公阵亡
     if alive.MONARCH == 0 then
-        -- 仅剩一名内奸，且其他人都死光了，内奸胜
         if alive.REBEL == 0 and alive.MINISTER == 0 and alive.TRAITOR == 1 then
             return true, "TRAITOR_WIN"
         end
-        return true, "REBEL_WIN" -- 否则均为反贼胜
+        return true, "REBEL_WIN"
     end
 
     -- 2. 反贼和内奸全灭
@@ -649,6 +657,14 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         end
     end
 
+    -- 累计伤害统计
+    if amount > 0 then
+        if source and source_id then
+            source.damage_dealt = (source.damage_dealt or 0) + amount
+        end
+        target.damage_received = (target.damage_received or 0) + amount
+    end
+
     target.health = target.health - amount
 
     local hero_mgr = require("hero_manager")
@@ -671,8 +687,9 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         target.equipment = {weapon = nil, armor = nil, horse = nil}
         nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
         local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
+        local role_tag = ROLE_CN[target.role]
         dispatcher.broadcast_message(11, nk.json_encode({
-            content   = target.username .. "（" .. (ROLE_CN[target.role] or target.role) .. "）阵亡！",
+            content   = target.username .. (role_tag and "（" .. role_tag .. "）" or "") .. "阵亡！",
             event     = "player_death",
             player_id = target_id,
             role      = target.role,

@@ -1,7 +1,8 @@
-local nk     = require("nakama")
-local hero_mgr = require("hero_manager")
-local rules  = require("game_rules")
-local config = require("game_config")
+local nk        = require("nakama")
+local hero_mgr  = require("hero_manager")
+local rules     = require("game_rules")
+local config    = require("game_config")
+local season_mgr = require("season_manager")
 
 local M = {}
 
@@ -9,19 +10,16 @@ local M = {}
 local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 
 -- ==========================================
--- 内部工具：分配身份 (新增)
+-- 内部工具：分配身份
+-- pvp 模式无身份，identity 模式按人数分配
 -- ==========================================
-local function assign_roles(player_count)
+local function assign_roles(player_count, mode)
+    if mode == "pvp" then return {} end
     local roles = {}
-    if player_count == 2 then
-        -- 2人局: 主公 + 反贼
-        roles = {"MONARCH", "REBEL"}
-    elseif player_count == 5 then
-        -- 5人局: 主公 + 忠臣 + 反贼x2 + 内奸
+    if player_count == 5 then
         roles = {"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"}
     else
-        -- 仅支持 2/5 人
-        error("Unsupported player count: " .. tostring(player_count) .. ". Only 2 or 5 players are supported.")
+        error("identity 模式仅支持 5 人局，收到: " .. tostring(player_count))
     end
     return rules.shuffle(roles)
 end
@@ -31,7 +29,8 @@ end
 -- ==========================================
 function M.match_init(context, params)
     local max_players = params.max_players or 2
-	local mode = params.mode or "classic"
+    -- 2人局默认 pvp（公平对战），5人局默认 identity（身份局）
+    local mode = params.mode or (max_players == 2 and "pvp" or "identity")
     local state = {
         status = STATE.WAITING,
         max_players = max_players,
@@ -106,17 +105,18 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 max_health = ph,
                 hand = {},
                 hero = want_hero,
-                role = "UNKNOWN",
+                role = "NONE",        -- pvp 模式为 "NONE"，identity 模式后续覆写
                 judgments = {},
-                -- 装备区
                 equipment = {
                     weapon = nil,
                     armor = nil,
                     horse = nil
                 },
-                weapon_buff = false,  -- 酒牌buff
-                delayed_effects = {}, -- 延时锦囊
-                attacks_this_turn = 0 -- 本回合攻击次数
+                weapon_buff = false,
+                delayed_effects = {},
+                attacks_this_turn = 0,
+                damage_dealt = 0,
+                damage_received = 0,
             }
 			nk.logger_info("Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
         end
@@ -150,18 +150,23 @@ function M.match_join(context, dispatcher, tick, state, presences)
 		for _, p in pairs(state.players) do
 			p.hero = hero_list[math.random(#hero_list)]
 		end
-        -- 【合并：身份分配逻辑】
-        local roles = assign_roles(current_count)
+        -- 身份分配（pvp 模式跳过，identity 模式按角色分配）
+        local roles = assign_roles(current_count, state.mode)
         for i, uid in ipairs(state.presence_ids) do
             local p = state.players[uid]
-            p.role = roles[i]
-            -- 主公特权：血量上限提升至 monarch_health，并回满血
-            if p.role == "MONARCH" then
-                local mh = state.config.match.monarch_health
-                p.health = mh
-                p.max_health = mh
-                state.current_turn_id = uid -- 主公默认首发
+            if roles[i] then
+                p.role = roles[i]
+                if p.role == "MONARCH" then
+                    local mh = state.config.match.monarch_health
+                    p.health = mh
+                    p.max_health = mh
+                    state.current_turn_id = uid
+                end
             end
+        end
+        -- pvp 模式无主公，第一个加入的玩家先手
+        if state.mode == "pvp" and not state.current_turn_id then
+            state.current_turn_id = state.presence_ids[1]
         end
 
         rules.start_game(dispatcher, state)
@@ -259,8 +264,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         -- 广播游戏结束消息 (OpCode 30)
         dispatcher.broadcast_message(30, nk.json_encode({winner = winner}))
         
-        -- 【可选】在这里可以立即调用金币结算逻辑
-        -- M.settle_game(dispatcher, state, winner)
+        season_mgr.record_match(nk, state, winner)
     end
 
     return state

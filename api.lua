@@ -1,6 +1,7 @@
-local nk      = require("nakama")
-local catalog = require("hero_catalog")
-local gconfig = require("game_config")
+local nk        = require("nakama")
+local catalog   = require("hero_catalog")
+local gconfig   = require("game_config")
+local season_mgr = require("season_manager")
 
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
@@ -306,3 +307,172 @@ local function admin_set_config(context, payload)
     return nk.json_encode({ success = true, effective_config = effective })
 end
 nk.register_rpc(admin_set_config, "admin_set_config")
+
+-- ==========================================
+-- 查询当前赛季信息（公开）
+-- ==========================================
+local function get_season_info(context, payload)
+    local season = season_mgr.get_current_season(nk)
+    if not season then
+        return nk.json_encode({ active = false })
+    end
+    return nk.json_encode({ active = true, season = season })
+end
+nk.register_rpc(get_season_info, "get_season_info")
+
+-- ==========================================
+-- 查询当前玩家本赛季统计
+-- ==========================================
+local function get_my_stats(context, payload)
+    local user_id = context.user_id
+    local season  = season_mgr.get_current_season(nk)
+    if not season then
+        return nk.json_encode({ error = "当前无进行中的赛季" })
+    end
+    local objects = nk.storage_read({{
+        collection = "season_stats",
+        key        = season.season_id,
+        user_id    = user_id,
+    }})
+    local stats = (#objects > 0) and objects[1].value or {
+        season_id = season.season_id, games = 0, wins = 0, losses = 0,
+        rating = 1000, best_streak = 0, current_streak = 0,
+        hero_stats = {}, role_stats = {},
+    }
+    return nk.json_encode({ stats = stats })
+end
+nk.register_rpc(get_my_stats, "get_my_stats")
+
+-- ==========================================
+-- 查询对局历史（玩家自身）
+-- payload: { "season_id": "2026_Q2" }  可选，默认当前赛季
+-- ==========================================
+local function get_match_history(context, payload)
+    local user_id  = context.user_id
+    local json     = nk.json_decode(payload)
+    local season   = season_mgr.get_current_season(nk)
+    local sid      = (json and json.season_id) or (season and season.season_id)
+    if not sid then
+        return nk.json_encode({ error = "请指定 season_id 或先开启赛季" })
+    end
+
+    local list = nk.storage_list(user_id, "match_history", 50, "")
+    local records = {}
+    if list then
+        -- 筛选本赛季记录，按时间倒序
+        for _, item in ipairs(list) do
+            if item.value and item.value.season_id == sid then
+                table.insert(records, item.value)
+            end
+        end
+        table.sort(records, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+    end
+    return nk.json_encode({ season_id = sid, records = records })
+end
+nk.register_rpc(get_match_history, "get_match_history")
+
+-- ==========================================
+-- 赛季排行榜（公开）
+-- payload: { "limit": 20 }
+-- ==========================================
+local function get_leaderboard(context, payload)
+    local season = season_mgr.get_current_season(nk)
+    if not season then
+        return nk.json_encode({ error = "当前无进行中的赛季" })
+    end
+    local json  = nk.json_decode(payload)
+    local limit = (json and tonumber(json.limit)) or 20
+    limit = math.max(1, math.min(limit, 100))
+
+    local records, _, _ = nk.leaderboard_records_list(season.leaderboard_id, nil, limit, nil, 0)
+    local board = {}
+    if records then
+        for i, r in ipairs(records) do
+            table.insert(board, {
+                rank     = i,
+                user_id  = r.owner_id,
+                username = r.username,
+                rating   = r.score,
+            })
+        end
+    end
+    return nk.json_encode({ season_id = season.season_id, leaderboard = board })
+end
+nk.register_rpc(get_leaderboard, "get_leaderboard")
+
+-- ==========================================
+-- 管理员开启新赛季（仅服务端调用）
+-- payload: { "name":"2026年第二赛季", "start_time":1746057600, "end_time":1753833600 }
+-- ==========================================
+local function admin_start_season(context, payload)
+    if context.user_id and context.user_id ~= "" then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local json       = nk.json_decode(payload)
+    local name       = json.name
+    local start_time = tonumber(json.start_time)
+    local end_time   = tonumber(json.end_time)
+
+    if not name or not start_time or not end_time or start_time >= end_time then
+        return nk.json_encode({ success = false, error = "参数无效：需要 name, start_time, end_time" })
+    end
+
+    -- 按 start_time 生成赛季 ID（格式 YYYY_QN）
+    local t = os.date("*t", start_time)
+    local q = math.ceil(t.month / 3)
+    local season_id = string.format("%d_Q%d", t.year, q)
+    local lb_id     = "season_" .. season_id
+
+    -- 创建 Nakama leaderboard（已存在时忽略错误）
+    pcall(nk.leaderboard_create, lb_id, true, "desc", "set", "", {})
+
+    local season = {
+        season_id      = season_id,
+        name           = name,
+        start_time     = start_time,
+        end_time       = end_time,
+        leaderboard_id = lb_id,
+    }
+    nk.storage_write({{
+        collection       = "season_config",
+        key              = "current",
+        user_id          = nil,
+        value            = season,
+        permission_read  = 2,
+        permission_write = 0,
+    }})
+
+    return nk.json_encode({ success = true, season = season })
+end
+nk.register_rpc(admin_start_season, "admin_start_season")
+
+-- ==========================================
+-- 管理员结束当前赛季（仅服务端调用）
+-- ==========================================
+local function admin_end_season(context, payload)
+    if context.user_id and context.user_id ~= "" then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local season = season_mgr.get_current_season(nk)
+    if not season then
+        return nk.json_encode({ success = false, error = "当前没有进行中的赛季" })
+    end
+
+    -- 归档：将当前赛季配置写入历史记录
+    nk.storage_write({{
+        collection       = "season_config",
+        key              = "archive_" .. season.season_id,
+        user_id          = nil,
+        value            = season,
+        permission_read  = 2,
+        permission_write = 0,
+    }})
+
+    -- 删除 current 赛季配置
+    nk.storage_delete({{ collection = "season_config", key = "current", user_id = nil }})
+
+    return nk.json_encode({ success = true, archived_season = season.season_id })
+end
+nk.register_rpc(admin_end_season, "admin_end_season")

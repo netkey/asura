@@ -6,12 +6,18 @@
 -- Mock Setup
 --------------------------------------------------------------------------------
 local nk = {
-    json_encode  = function(t) return type(t) == "table" and t or tostring(t) end,
-    json_decode  = function(s) return type(s) == "table" and s or {} end,
-    logger_info  = function() end,
-    logger_warn  = function() end,
-    storage_read = function() return {} end,
-    register_rpc = function() end,
+    json_encode              = function(t) return type(t) == "table" and t or tostring(t) end,
+    json_decode              = function(s) return type(s) == "table" and s or {} end,
+    logger_info              = function() end,
+    logger_warn              = function() end,
+    storage_read             = function() return {} end,
+    storage_write            = function() end,
+    storage_list             = function() return {} end,
+    storage_delete           = function() end,
+    register_rpc             = function() end,
+    leaderboard_create       = function() end,
+    leaderboard_record_write = function() end,
+    leaderboard_records_list = function() return {}, nil, nil end,
 }
 package.loaded["nakama"] = nk
 os.time = function() return 1000000 end
@@ -168,58 +174,69 @@ end
 local function ai_choose(state, uid)
     local p = state.players[uid]
 
-    -- ── 角色感知目标选择 ────────────────────────────────────────────────
-    -- Demo 是服务端模拟，可直接读取 role 字段，无需雾战限制
-    local monarch_id, target_id
-    local rebel_count, minister_count = 0, 0
-    for oid, op in pairs(state.players) do
-        if op.health > 0 then
-            if op.role == "MONARCH" then monarch_id = oid end
-            if op.role == "REBEL"   then rebel_count   = rebel_count   + 1 end
-            if op.role == "MINISTER" then minister_count = minister_count + 1 end
-        end
-    end
+    -- ── 目标选择 ─────────────────────────────────────────────────────────
+    local target_id
 
-    -- 按身份选主攻目标
-    if p.role == "REBEL" then
-        target_id = monarch_id          -- 反贼专打主公
-
-    elseif p.role == "TRAITOR" then
-        -- 内奸：先消灭反贼配合主公，再打忠臣，最后弑君
-        if rebel_count > 0 then
-            for oid, op in pairs(state.players) do
-                if oid ~= uid and op.health > 0 and op.role == "REBEL" then
-                    if not target_id or op.health < state.players[target_id].health then
-                        target_id = oid
-                    end
-                end
-            end
-        elseif minister_count > 0 then
-            for oid, op in pairs(state.players) do
-                if oid ~= uid and op.health > 0 and op.role == "MINISTER" then
-                    target_id = oid; break
-                end
-            end
-        else
-            target_id = monarch_id      -- 无反贼/忠臣时弑君
-        end
-
-    else
-        -- MONARCH / MINISTER：集火最低血量的反贼或内奸
+    if p.role == "NONE" then
+        -- PVP 模式：选最低血量的存活对手
         for oid, op in pairs(state.players) do
-            if oid ~= uid and op.health > 0
-               and (op.role == "REBEL" or op.role == "TRAITOR") then
+            if oid ~= uid and op.health > 0 then
                 if not target_id or op.health < state.players[target_id].health then
                     target_id = oid
                 end
             end
         end
-    end
-
-    -- 兜底：找任意存活对手
-    if not target_id then
+    else
+        -- identity 模式：角色感知选择
+        local monarch_id
+        local rebel_count, minister_count = 0, 0
         for oid, op in pairs(state.players) do
-            if oid ~= uid and op.health > 0 then target_id = oid; break end
+            if op.health > 0 then
+                if op.role == "MONARCH"  then monarch_id     = oid end
+                if op.role == "REBEL"    then rebel_count    = rebel_count    + 1 end
+                if op.role == "MINISTER" then minister_count = minister_count + 1 end
+            end
+        end
+
+        if p.role == "REBEL" then
+            target_id = monarch_id
+
+        elseif p.role == "TRAITOR" then
+            if rebel_count > 0 then
+                for oid, op in pairs(state.players) do
+                    if oid ~= uid and op.health > 0 and op.role == "REBEL" then
+                        if not target_id or op.health < state.players[target_id].health then
+                            target_id = oid
+                        end
+                    end
+                end
+            elseif minister_count > 0 then
+                for oid, op in pairs(state.players) do
+                    if oid ~= uid and op.health > 0 and op.role == "MINISTER" then
+                        target_id = oid; break
+                    end
+                end
+            else
+                target_id = monarch_id
+            end
+
+        else
+            -- MONARCH / MINISTER：集火最低血量的反贼或内奸
+            for oid, op in pairs(state.players) do
+                if oid ~= uid and op.health > 0
+                   and (op.role == "REBEL" or op.role == "TRAITOR") then
+                    if not target_id or op.health < state.players[target_id].health then
+                        target_id = oid
+                    end
+                end
+            end
+        end
+
+        -- 兜底
+        if not target_id then
+            for oid, op in pairs(state.players) do
+                if oid ~= uid and op.health > 0 then target_id = oid; break end
+            end
         end
     end
 
@@ -367,7 +384,8 @@ for i, cfg in ipairs(MATCH_CONFIGS) do
     local plist     = cfg.players or {cfg.p1, cfg.p2}  -- 统一视为玩家列表
     local max_p     = #plist
 
-    local state = handler.match_init(ctx, {max_players=max_p, mode="classic"})
+    -- 不传 mode，由 match_init 根据人数自动选择（2人→pvp，5人→identity）
+    local state = handler.match_init(ctx, {max_players=max_p})
     state._dispatcher = disp
 
     for _, pc in ipairs(plist) do
@@ -427,7 +445,7 @@ end
 --------------------------------------------------------------------------------
 -- 对局结果汇总
 --------------------------------------------------------------------------------
-local WIN_CN = {MONARCH_WIN="主公阵营胜", REBEL_WIN="反贼阵营胜", TRAITOR_WIN="内奸胜"}
+local WIN_CN = {MONARCH_WIN="主公阵营胜", REBEL_WIN="反贼阵营胜", TRAITOR_WIN="内奸胜", PVP_WIN="PVP对决胜"}
 print("\n══════════════════ 对局结果汇总 ══════════════════")
 local crashed_count = 0
 for i, m in ipairs(matches) do
@@ -447,8 +465,9 @@ for i, m in ipairs(matches) do
     for _, pc in ipairs(m.plist) do
         local p = m.state.players[pc.id]
         if p then
+            local role_display = (p.role == "NONE" or not p.role) and "PVP" or p.role
             print(string.format("         %-10s %-8s HP:%d/%d 手牌:%d [%s]",
-                p.username, p.role, p.health, p.max_health, #p.hand, hand_str(p.hand)))
+                p.username, role_display, p.health, p.max_health, #p.hand, hand_str(p.hand)))
         end
     end
     print(string.rep("─", 64))
