@@ -404,6 +404,9 @@ function M.next_turn(dispatcher, state)
     -- 此时触发哈基姆技能，他可以看到接下来的摸牌顺序
     local suspended = hero_mgr.trigger("on_draw_phase_start", dispatcher, state, uid)
 
+    -- 回合计数（供 season_manager 写入 match_history）
+    state.turns = (state.turns or 0) + 1
+
     if not suspended then
         rules.draw_cards(state, uid, 2)
         rules.broadcast_update(dispatcher, state)

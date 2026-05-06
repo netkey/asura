@@ -2,6 +2,7 @@ local nk        = require("nakama")
 local catalog   = require("hero_catalog")
 local gconfig   = require("game_config")
 local season_mgr = require("season_manager")
+local ach_mgr   = require("achievement_manager")
 
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
@@ -593,3 +594,46 @@ local function find_spectatable_match(context, payload)
     return nk.json_encode({ matches = list })
 end
 nk.register_rpc(find_spectatable_match, "find_spectatable_match")
+
+-- ==========================================
+-- 成就 RPC
+-- ==========================================
+
+-- 返回玩家已解锁的成就列表（含解锁时间）
+local function get_my_achievements(context, payload)
+    local objects = nk.storage_read({{
+        collection = "achievements",
+        key        = "unlocked",
+        user_id    = context.user_id,
+    }})
+    local unlocked = (#objects > 0) and objects[1].value or {}
+    return nk.json_encode({ unlocked = unlocked })
+end
+nk.register_rpc(get_my_achievements, "get_my_achievements")
+
+-- 返回全部成就定义，并标注玩家已解锁状态
+local function get_achievement_list(context, payload)
+    local defs = ach_mgr.get_all_definitions()
+
+    local objects = nk.storage_read({{
+        collection = "achievements",
+        key        = "unlocked",
+        user_id    = context.user_id,
+    }})
+    local unlocked = (#objects > 0) and objects[1].value or {}
+
+    -- 为每条定义附加解锁状态
+    for _, d in ipairs(defs) do
+        local info = unlocked[d.id]
+        if info then
+            d.unlocked    = true
+            d.unlocked_at = info.unlocked_at
+            if info.heroes then d.heroes = info.heroes end
+        else
+            d.unlocked = false
+        end
+    end
+
+    return nk.json_encode({ achievements = defs })
+end
+nk.register_rpc(get_achievement_list, "get_achievement_list")

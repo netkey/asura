@@ -10,10 +10,18 @@ local nk = {
     json_decode              = function(s) return type(s) == "table" and s or {} end,
     logger_info              = function() end,
     logger_warn              = function() end,
-    storage_read             = function() return {} end,
+    storage_read             = function(reads)
+        -- 为 season_config/current 返回一个有效赛季，其余返回空
+        if reads and reads[1] and reads[1].collection == "season_config" then
+            return {{ value = { season_id = "s1", leaderboard_id = "lb1" } }}
+        end
+        return {}
+    end,
     storage_write            = function() end,
     storage_list             = function() return {} end,
     storage_delete           = function() end,
+    wallet_update            = function() end,
+    notifications_send       = function() end,
     register_rpc             = function() end,
     leaderboard_create       = function() end,
     leaderboard_record_write = function() end,
