@@ -1,5 +1,6 @@
 local nk      = require("nakama")
 local catalog = require("hero_catalog")
+local gconfig = require("game_config")
 
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
@@ -83,22 +84,24 @@ local function get_hero_shop(context, payload)
         key        = "unlocked_heroes",
         user_id    = user_id
     }})
-    local inventory   = (#objects > 0) and objects[1].value or {}
-    local free_events = load_free_events()
+    local inventory      = (#objects > 0) and objects[1].value or {}
+    local free_events    = load_free_events()
+    local price_override = gconfig.load(nk).hero_price_overrides
 
     local heroes = {}
     for id, info in pairs(catalog.HEROES) do
-        local ev        = free_events[id]
-        local now       = os.time()
+        local ev            = free_events[id]
+        local now           = os.time()
         local is_free_event = ev and now >= ev.start_time and now <= ev.end_time
+        local effective_price = price_override[id] or info.price
         table.insert(heroes, {
             id            = id,
             name          = info.name,
-            price         = info.price,
+            price         = effective_price,
             tier          = info.tier,
             description   = info.description,
             owned         = is_hero_accessible(id, inventory, free_events),
-            free_until    = is_free_event and ev.end_time or nil,  -- 客户端可据此展示倒计时
+            free_until    = is_free_event and ev.end_time or nil,
         })
     end
 
@@ -134,7 +137,9 @@ local function buy_hero(context, payload)
     if not info then
         return nk.json_encode({ success = false, error = "英雄不存在" })
     end
-    if info.price == 0 then
+    -- 优先使用配置覆盖价格（运营活动打折用）
+    local price = gconfig.load(nk).hero_price_overrides[hero_id] or info.price
+    if price == 0 then
         return nk.json_encode({ success = false, error = "该英雄无需购买" })
     end
 
@@ -150,7 +155,7 @@ local function buy_hero(context, payload)
     end
 
     -- 原子扣款：金币不足时 wallet_update 抛出异常
-    local ok, err = pcall(nk.wallet_update, user_id, { gold = -info.price }, {}, true)
+    local ok, err = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
     if not ok then
         return nk.json_encode({ success = false, error = "金币不足" })
     end
@@ -237,3 +242,67 @@ local function admin_set_free_event(context, payload)
     return nk.json_encode({ success = true, active_events = events })
 end
 nk.register_rpc(admin_set_free_event, "admin_set_free_event")
+
+-- ==========================================
+-- 查询当前有效配置（公开，供客户端了解游戏参数）
+-- ==========================================
+local function get_config(context, payload)
+    local cfg = gconfig.load(nk)
+    return nk.json_encode({ config = cfg })
+end
+nk.register_rpc(get_config, "get_config")
+
+-- ==========================================
+-- 管理员更新游戏配置（仅限服务端调用）
+-- 支持深度部分更新，示例：
+--   {"match":{"turn_timeout":60}}
+--   {"hero_price_overrides":{"hakim":300}}
+--   {"combat":{"rebel_kill_reward":5},"hero_price_overrides":{"hulagu":800}}
+-- ==========================================
+local function admin_set_config(context, payload)
+    if context.user_id and context.user_id ~= "" then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local updates = nk.json_decode(payload)
+    if not updates or type(updates) ~= "table" then
+        return nk.json_encode({ success = false, error = "payload 必须为 JSON 对象" })
+    end
+
+    -- 读取当前存储中的覆盖项（不是 DEFAULTS，只存与默认值不同的部分）
+    local objects = nk.storage_read({{
+        collection = "server_config",
+        key        = "game_config",
+        user_id    = nil,
+    }})
+    local stored = (#objects > 0) and objects[1].value or {}
+
+    -- 将本次 updates 深度合并进已存储的覆盖项
+    local function deep_merge(base, over)
+        local r = {}
+        for k, v in pairs(base) do r[k] = v end
+        for k, v in pairs(over) do
+            if type(v) == "table" and type(r[k]) == "table" then
+                r[k] = deep_merge(r[k], v)
+            else
+                r[k] = v
+            end
+        end
+        return r
+    end
+    local new_stored = deep_merge(stored, updates)
+
+    nk.storage_write({{
+        collection       = "server_config",
+        key              = "game_config",
+        user_id          = nil,
+        value            = new_stored,
+        permission_read  = 2,
+        permission_write = 0,
+    }})
+
+    -- 返回合并 DEFAULTS 后的完整有效配置，便于确认
+    local effective = gconfig.load(nk)
+    return nk.json_encode({ success = true, effective_config = effective })
+end
+nk.register_rpc(admin_set_config, "admin_set_config")

@@ -1,6 +1,7 @@
-local nk = require("nakama")
+local nk     = require("nakama")
 local hero_mgr = require("hero_manager")
-local rules = require("game_rules")
+local rules  = require("game_rules")
+local config = require("game_config")
 
 local M = {}
 
@@ -47,9 +48,12 @@ function M.match_init(context, params)
 
 		-- 高并发与托管系统配置
 		tick_rate = 1,              -- 每秒执行1次 match_loop
-        turn_timeout = 30,          -- 默认思考时限30秒
         current_turn_elapsed = 0,   -- 当前玩家已思考的时间
     }
+    -- 加载服务端配置（首局对局初始化时读取，整局复用）
+    local cfg = config.load(nk)
+    state.config       = cfg
+    state.turn_timeout = cfg.match.turn_timeout
 	local label = { 
         mode = mode, 
         open = 1, -- 1表示开放，0表示关闭
@@ -94,11 +98,12 @@ function M.match_join(context, dispatcher, tick, state, presences)
             end
 
 
+            local ph = state.config.match.player_health
             state.players[p.user_id] = {
                 id = p.user_id,
                 username = p.username,
-                health = 4,
-                max_health = 4,
+                health = ph,
+                max_health = ph,
                 hand = {},
                 hero = want_hero,
                 role = "UNKNOWN",
@@ -150,10 +155,11 @@ function M.match_join(context, dispatcher, tick, state, presences)
         for i, uid in ipairs(state.presence_ids) do
             local p = state.players[uid]
             p.role = roles[i]
-            -- 主公特权：血量上限+1，并回满血
+            -- 主公特权：血量上限提升至 monarch_health，并回满血
             if p.role == "MONARCH" then
-                p.health = 5
-                p.max_health = 5
+                local mh = state.config.match.monarch_health
+                p.health = mh
+                p.max_health = mh
                 state.current_turn_id = uid -- 主公默认首发
             end
         end
@@ -339,10 +345,11 @@ function M.next_turn(dispatcher, state)
         -- 暂时按你的基础逻辑：天谴判断
         if j_card.type == "JUDGE_STORM" then
             if result_card.suit == "SPADE" and result_card.number >= 2 and result_card.number <= 9 then
+                local jdmg = state.config and state.config.combat.judge_storm_damage or 3
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【天谴】爆发！" .. current_p.username .. " 受到 3 点天雷伤害！"
+                    content = "【天谴】爆发！" .. current_p.username .. " 受到 " .. jdmg .. " 点天雷伤害！"
                 }))
-                rules.apply_damage(dispatcher, state, uid, 3, j_card.from)
+                rules.apply_damage(dispatcher, state, uid, jdmg, j_card.from)
             else
                 dispatcher.broadcast_message(11, nk.json_encode({
                     content = "【天谴】未命中，传送至下一位玩家。"

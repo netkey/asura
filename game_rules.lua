@@ -302,8 +302,9 @@ function M.handle_role_reward(dispatcher, state, killer_id, victim_id)
     if not killer or not victim then return end
 
     if victim.role == "REBEL" then
-        M.draw_cards(state, killer_id, 3)
-        dispatcher.broadcast_message(11, nk.json_encode({content = killer.username .. " 击毙反贼，奖励 3 张牌"}))
+        local reward = state.config and state.config.combat.rebel_kill_reward or 3
+        M.draw_cards(state, killer_id, reward)
+        dispatcher.broadcast_message(11, nk.json_encode({content = killer.username .. " 击毙反贼，奖励 " .. reward .. " 张牌"}))
     elseif victim.role == "MINISTER" and killer.role == "MONARCH" then
         killer.hand = {}
         dispatcher.broadcast_message(11, nk.json_encode({content = "主公误杀忠臣，对手牌进行了大清洗！"}))
@@ -340,9 +341,9 @@ end
 -- 3. 基础功能 (牌堆、摸牌等)
 -- ==========================================
 function M.start_game(dispatcher, state)
-    -- 初始化发牌（逻辑已移至 match_join 触发）
+    local hand_size = state.config and state.config.match.initial_hand_size or 4
     for uid, _ in pairs(state.players) do
-        M.draw_cards(state, uid, 4)
+        M.draw_cards(state, uid, hand_size)
     end
 end
 
@@ -616,11 +617,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         -- 武器加成
         if source.equipment.weapon then
             local wtype = source.equipment.weapon.subtype
-            if wtype == "sword" then amount = amount + 1 end
+            if wtype == "sword" then
+                amount = amount + (state.config and state.config.combat.sword_damage_bonus or 1)
+            end
         end
         -- 酒牌buff
         if source.weapon_buff then
-            amount = amount + 1
+            amount = amount + (state.config and state.config.combat.wine_damage_bonus or 1)
             source.weapon_buff = nil
             -- 阿拉伯烈酒：击杀额外摸2
             source.pending_wine_kill_draw = (source.wine_subtype == "damage_plus1_kill_draw2")
@@ -632,7 +635,8 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     if target.equipment.armor then
         local atype = target.equipment.armor.subtype
         if atype == "reduce_damage" then
-            amount = math.max(1, amount - 1)
+            local reduce = state.config and state.config.combat.armor_damage_reduce or 1
+            amount = math.max(0, amount - reduce)
         elseif atype == "immortal_once" and amount >= target.health then
             -- 古兰经护盾：免疫致命伤害（每局限1次）
             if not target.immortal_used then
