@@ -119,6 +119,80 @@ end
 nk.register_rpc(get_hero_shop, "get_hero_shop")
 
 -- ==========================================
+-- 统一商城：英雄 + 皮肤一次返回
+-- 客户端按 category 字段分类展示，购买仍走各自 RPC
+-- ==========================================
+local function get_shop(context, payload)
+    local user_id = context.user_id
+
+    -- 批量读取英雄库存 + 皮肤库存（单次 RTT）
+    local objects = nk.storage_read({
+        { collection = "hero_inventory", key = "unlocked_heroes", user_id = user_id },
+        { collection = "skin_inventory", key = "owned_skins",     user_id = user_id },
+    })
+    local hero_inventory, owned_skins = {}, {}
+    for _, obj in ipairs(objects) do
+        if obj.key == "unlocked_heroes" then hero_inventory = obj.value end
+        if obj.key == "owned_skins"     then owned_skins    = obj.value end
+    end
+
+    -- 把 owned_skins 数组转成 set，方便 O(1) 查询
+    local owned_skin_set = {}
+    for _, sid in ipairs(owned_skins) do owned_skin_set[sid] = true end
+
+    local free_events    = load_free_events()
+    local price_override = gconfig.load(nk).hero_price_overrides
+
+    -- 英雄商品
+    local hero_items = {}
+    for id, info in pairs(catalog.HEROES) do
+        local ev              = free_events[id]
+        local now             = os.time()
+        local is_free_event   = ev and now >= ev.start_time and now <= ev.end_time
+        local effective_price = price_override[id] or info.price
+        table.insert(hero_items, {
+            category   = "hero",
+            id         = id,
+            name       = info.name,
+            price      = effective_price,
+            tier       = info.tier,
+            description = info.description,
+            owned      = is_hero_accessible(id, hero_inventory, free_events),
+            free_until = is_free_event and ev.end_time or nil,
+            buy_rpc    = "buy_hero",      -- 客户端购买时调用的 RPC 名
+        })
+    end
+    table.sort(hero_items, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        return a.name < b.name
+    end)
+
+    -- 皮肤商品（不含默认皮肤）
+    local skin_items = {}
+    for skin_id, info in pairs(skin_catalog.SKINS) do
+        if not info.is_default then
+            table.insert(skin_items, {
+                category  = "skin",
+                id        = skin_id,
+                hero_id   = info.hero_id,
+                name      = info.name_cn,
+                price     = info.price,
+                asset_url = info.asset_url,
+                owned     = owned_skin_set[skin_id] == true,
+                buy_rpc   = "purchase_skin",  -- 客户端购买时调用的 RPC 名
+            })
+        end
+    end
+    table.sort(skin_items, function(a, b)
+        if a.hero_id ~= b.hero_id then return a.hero_id < b.hero_id end
+        return a.price < b.price
+    end)
+
+    return nk.json_encode({ items = hero_items, skins = skin_items })
+end
+nk.register_rpc(get_shop, "get_shop")
+
+-- ==========================================
 -- 余额查询
 -- ==========================================
 local function get_wallet(context, payload)
