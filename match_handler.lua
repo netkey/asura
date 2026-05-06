@@ -14,21 +14,25 @@ local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 -- status: "waiting"=等待中  "playing"=游戏中
 -- ==========================================
 local function write_user_status(uid, match_id, status, mode, current_players, max_players)
+    local data = {
+        match_id        = match_id,
+        status          = status,
+        mode            = mode,
+        current_players = current_players,
+        max_players     = max_players,
+        updated_at      = os.time(),
+    }
+    -- 持久化到 storage（供 get_friends_status RPC 兜底拉取）
     nk.storage_write({{
         collection       = "user_status",
         key              = "current_match",
         user_id          = uid,
-        value            = {
-            match_id        = match_id,
-            status          = status,
-            mode            = mode,
-            current_players = current_players,
-            max_players     = max_players,
-            updated_at      = os.time(),
-        },
+        value            = data,
         permission_read  = 1,
         permission_write = 0,
     }})
+    -- 实时推送给已订阅该用户状态的好友（WebSocket StatusPresenceEvent）
+    nk.status_update(uid, nk.json_encode(data))
 end
 
 local function clear_user_status(uid)
@@ -37,6 +41,8 @@ local function clear_user_status(uid)
         key        = "current_match",
         user_id    = uid,
     }})
+    -- 清空实时状态，好友端收到空状态即视为 idle
+    nk.status_update(uid, nil)
 end
 
 -- ==========================================
