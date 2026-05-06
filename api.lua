@@ -649,6 +649,53 @@ end
 nk.register_rpc(invite_to_match, "invite_to_match")
 
 -- ==========================================
+-- 查询好友在线状态（含当前对局信息）
+-- 出参：{ friends: [{ user_id, username, status, match_id, mode,
+--                     current_players, max_players }] }
+-- status: "idle"=空闲  "waiting"=等待中可加入  "playing"=游戏中可观战
+-- ==========================================
+local function get_friends_status(context, payload)
+    local friends_list, _, _ = nk.friends_list(context.user_id, 100, 0, "")
+    if not friends_list or #friends_list == 0 then
+        return nk.json_encode({ friends = {} })
+    end
+
+    -- 批量读取所有好友的在线状态（单次 storage 请求）
+    local reads = {}
+    for _, f in ipairs(friends_list) do
+        table.insert(reads, {
+            collection = "user_status",
+            key        = "current_match",
+            user_id    = f.user.id,
+        })
+    end
+    local objects = nk.storage_read(reads)
+
+    local status_map = {}
+    for _, obj in ipairs(objects) do
+        status_map[obj.user_id] = obj.value
+    end
+
+    local result = {}
+    for _, f in ipairs(friends_list) do
+        local uid = f.user.id
+        local s   = status_map[uid]
+        table.insert(result, {
+            user_id         = uid,
+            username        = f.user.username,
+            status          = s and s.status or "idle",
+            match_id        = s and s.match_id or nil,
+            mode            = s and s.mode or nil,
+            current_players = s and s.current_players or nil,
+            max_players     = s and s.max_players or nil,
+        })
+    end
+
+    return nk.json_encode({ friends = result })
+end
+nk.register_rpc(get_friends_status, "get_friends_status")
+
+-- ==========================================
 -- 观战：查询当前可观战的对局列表
 -- payload: {"mode":"pvp"} 可选，不传则返回全部模式
 -- ==========================================

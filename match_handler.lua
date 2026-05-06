@@ -10,6 +10,36 @@ local M = {}
 local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 
 -- ==========================================
+-- 用户在线状态维护（供好友系统查询）
+-- status: "waiting"=等待中  "playing"=游戏中
+-- ==========================================
+local function write_user_status(uid, match_id, status, mode, current_players, max_players)
+    nk.storage_write({{
+        collection       = "user_status",
+        key              = "current_match",
+        user_id          = uid,
+        value            = {
+            match_id        = match_id,
+            status          = status,
+            mode            = mode,
+            current_players = current_players,
+            max_players     = max_players,
+            updated_at      = os.time(),
+        },
+        permission_read  = 1,
+        permission_write = 0,
+    }})
+end
+
+local function clear_user_status(uid)
+    nk.storage_delete({{
+        collection = "user_status",
+        key        = "current_match",
+        user_id    = uid,
+    }})
+end
+
+-- ==========================================
 -- 内部工具：分配身份
 -- pvp 模式无身份，identity 模式按人数分配
 -- ==========================================
@@ -137,6 +167,9 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 damage_dealt = 0,
                 damage_received = 0,
             }
+            -- 写入等待中状态，好友列表可查
+            write_user_status(p.user_id, context.match_id, "waiting",
+                state.mode, #state.presence_ids, state.max_players)
 			nk.logger_info("Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
         end
         end -- spectator else 分支结束
@@ -191,8 +224,14 @@ function M.match_join(context, dispatcher, tick, state, presences)
             state.current_turn_id = state.presence_ids[1]
         end
 
+        -- 所有玩家状态升级为 playing，好友可进入观战
+        for _, uid in ipairs(state.presence_ids) do
+            write_user_status(uid, context.match_id, "playing",
+                state.mode, current_count, state.max_players)
+        end
+
         rules.start_game(dispatcher, state)
-		rules.broadcast_update(dispatcher, state) 
+		rules.broadcast_update(dispatcher, state)
         -- 如果主公已经确定，next_turn 逻辑里会正确从主公开始
         --M.next_turn(dispatcher, state)
 		-- 开始第一个回合
@@ -289,10 +328,12 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     local is_over, winner = rules.check_victory(dispatcher, state)
     if is_over then
         state.status = STATE.ENDED
-        -- 广播游戏结束消息 (OpCode 30)
         dispatcher.broadcast_message(30, nk.json_encode({winner = winner}))
-        
         season_mgr.record_match(nk, state, winner)
+        -- 对局结束，清除所有玩家在线状态
+        for uid, _ in pairs(state.players) do
+            clear_user_status(uid)
+        end
     end
 
     return state
@@ -437,7 +478,10 @@ function M.match_leave(context, dispatcher, tick, state, presences)
             state.spectators[p.user_id] = nil
             nk.logger_info("旁观者 " .. p.username .. " 离开")
         else
-            -- 仅标记为离线，不要从 state.players 中删除, 提供断线重连功能
+            -- 等待中主动离开：清除状态；游戏中断线保留状态（支持重连）
+            if state.status == STATE.WAITING then
+                clear_user_status(p.user_id)
+            end
             nk.logger_info("玩家 " .. p.username .. " 掉线了")
         end
     end
@@ -538,7 +582,12 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
 end
 
 
-function M.match_terminate(context, dispatcher, tick, state, grace_seconds) return state end
+function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
+    for uid, _ in pairs(state.players) do
+        clear_user_status(uid)
+    end
+    return state
+end
 function M.match_signal(context, dispatcher, tick, state, data) return state, data end
 
 return M
