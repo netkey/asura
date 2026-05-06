@@ -1,101 +1,239 @@
-local nk = require("nakama")
+local nk      = require("nakama")
+local catalog = require("hero_catalog")
 
+-- ==========================================
+-- 内部：统一判断玩家是否可使用某英雄
+-- 后期加限时免费活动只需在此处扩展
+-- ==========================================
+local function is_hero_accessible(hero_id, inventory, free_events)
+    local info = catalog.HEROES[hero_id]
+    if not info then return false end
+    if info.price == 0 then return true end          -- 永久免费
+    if inventory[hero_id] then return true end        -- 已购买
+    if free_events then                               -- 限时免费活动
+        local ev = free_events[hero_id]
+        if ev then
+            local now = os.time()
+            if now >= ev.start_time and now <= ev.end_time then return true end
+        end
+    end
+    return false
+end
 
+-- 读取当前生效的限时免费活动（存于服务端全局 storage）
+local function load_free_events()
+    local objects = nk.storage_read({{
+        collection = "events",
+        key        = "free_heroes",
+        user_id    = nil,
+    }})
+    return (#objects > 0) and objects[1].value or {}
+end
+
+-- ==========================================
+-- 匹配系统
+-- ==========================================
 local function find_or_create_match(context, payload)
-    local json = nk.json_decode(payload)
-    local mode = json.mode or "standard"
-    
-    -- 使用 Nakama 内置的查询功能，寻找正在等待、且未满员、且模式相同的房间
+    local json  = nk.json_decode(payload)
+    local mode  = json.mode or "standard"
     local query = "+label.mode:" .. mode .. " +label.open:1"
     local matches = nk.match_list(10, true, nil, nil, nil, query)
-
     if #matches > 0 then
-        -- 找到已有房间，返回 ID
         return nk.json_encode({ match_id = matches[1].match_id })
-    else
-        -- 没找到，创建一个新房间
-        -- label 里的 open:1 表示该房间还可以加入
-        local match_id = nk.match_create("match_handler", { 
-            max_players = json.max_players, 
-            mode = mode 
-        })
-        return nk.json_encode({ match_id = match_id })
     end
+    local match_id = nk.match_create("match_handler", {
+        max_players = json.max_players,
+        mode = mode
+    })
+    return nk.json_encode({ match_id = match_id })
 end
 nk.register_rpc(find_or_create_match, "find_or_create_match")
 
--- api.lua
+-- ==========================================
+-- 校验英雄使用权
+-- ==========================================
 local function check_hero_access(context, payload)
-    local json = nk.json_decode(payload)
+    local json    = nk.json_decode(payload)
     local user_id = context.user_id
     local hero_id = json.hero_id
 
-    -- 默认英雄无需校验
-    if hero_id == "aladdin" then
-        return nk.json_encode({ has_access = true })
+    if not catalog.HEROES[hero_id] then
+        return nk.json_encode({ has_access = false, error = "英雄不存在" })
     end
 
-    -- 从数据库读取已解锁列表
-    local object_ids = {{
+    local objects = nk.storage_read({{
         collection = "hero_inventory",
-        key = "unlocked_heroes",
-        user_id = user_id
-    }}
-    local objects = nk.storage_read(object_ids)
+        key        = "unlocked_heroes",
+        user_id    = user_id
+    }})
+    local inventory = (#objects > 0) and objects[1].value or {}
 
-    local unlocked = false
-    if #objects > 0 then
-        local inventory = objects[1].value
-        if inventory[hero_id] then
-            unlocked = true
-        end
-    end
-
-    return nk.json_encode({ has_access = unlocked })
+    return nk.json_encode({ has_access = is_hero_accessible(hero_id, inventory, load_free_events()) })
 end
-
--- 注册 RPC 供客户端调用
 nk.register_rpc(check_hero_access, "check_hero_access")
 
+-- ==========================================
+-- 商店列表（含玩家解锁状态）
+-- ==========================================
+local function get_hero_shop(context, payload)
+    local user_id = context.user_id
+
+    local objects = nk.storage_read({{
+        collection = "hero_inventory",
+        key        = "unlocked_heroes",
+        user_id    = user_id
+    }})
+    local inventory   = (#objects > 0) and objects[1].value or {}
+    local free_events = load_free_events()
+
+    local heroes = {}
+    for id, info in pairs(catalog.HEROES) do
+        local ev        = free_events[id]
+        local now       = os.time()
+        local is_free_event = ev and now >= ev.start_time and now <= ev.end_time
+        table.insert(heroes, {
+            id            = id,
+            name          = info.name,
+            price         = info.price,
+            tier          = info.tier,
+            description   = info.description,
+            owned         = is_hero_accessible(id, inventory, free_events),
+            free_until    = is_free_event and ev.end_time or nil,  -- 客户端可据此展示倒计时
+        })
+    end
+
+    -- 按 tier 升序、name 升序，保证展示顺序稳定
+    table.sort(heroes, function(a, b)
+        if a.tier ~= b.tier then return a.tier < b.tier end
+        return a.name < b.name
+    end)
+
+    return nk.json_encode({ heroes = heroes })
+end
+nk.register_rpc(get_hero_shop, "get_hero_shop")
+
+-- ==========================================
+-- 余额查询
+-- ==========================================
+local function get_wallet(context, payload)
+    local account = nk.account_get_id(context.user_id)
+    local wallet  = nk.json_decode(account.wallet)
+    return nk.json_encode({ gold = wallet.gold or 0 })
+end
+nk.register_rpc(get_wallet, "get_wallet")
+
+-- ==========================================
+-- 购买英雄
+-- ==========================================
 local function buy_hero(context, payload)
-    local json = nk.json_decode(payload)
+    local json    = nk.json_decode(payload)
     local user_id = context.user_id
     local hero_id = json.hero_id
-    
-    -- 英雄价格配置 (实际应存在一个单独的配置表里)
-    local HERO_PRICES = {
-        hakim = 1000,
-        saladin = 2000
-    }
-    local price = HERO_PRICES[hero_id]
-    if not price then return nk.json_encode({success = false, error = "英雄不存在"}) end
 
-    -- 1. 检查并扣除金币 (使用原子操作 wallet_update)
-    -- 如果金币不足，这个函数会抛出异常，我们用 pcall 捕获
-    local status, err = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
-    if not status then
+    local info = catalog.HEROES[hero_id]
+    if not info then
+        return nk.json_encode({ success = false, error = "英雄不存在" })
+    end
+    if info.price == 0 then
+        return nk.json_encode({ success = false, error = "该英雄无需购买" })
+    end
+
+    -- 检查是否已拥有（避免重复扣款）
+    local objects = nk.storage_read({{
+        collection = "hero_inventory",
+        key        = "unlocked_heroes",
+        user_id    = user_id
+    }})
+    local inventory = (#objects > 0) and objects[1].value or {}
+    if inventory[hero_id] then
+        return nk.json_encode({ success = false, error = "already_owned" })
+    end
+
+    -- 原子扣款：金币不足时 wallet_update 抛出异常
+    local ok, err = pcall(nk.wallet_update, user_id, { gold = -info.price }, {}, true)
+    if not ok then
         return nk.json_encode({ success = false, error = "金币不足" })
     end
 
-    -- 2. 更新解锁列表
-    local objects = nk.storage_read({{ collection = "hero_inventory", key = "unlocked_heroes", user_id = user_id }})
-    local inventory = {}
-    if #objects > 0 then
-        inventory = objects[1].value
-    end
-    
-    inventory[hero_id] = true -- 标记为已拥有
-
+    inventory[hero_id] = true
     nk.storage_write({{
-        collection = "hero_inventory",
-        key = "unlocked_heroes",
-        user_id = user_id,
-        value = inventory,
-        permission_read = 1,
-        permission_write = 0
+        collection       = "hero_inventory",
+        key              = "unlocked_heroes",
+        user_id          = user_id,
+        value            = inventory,
+        permission_read  = 1,
+        permission_write = 0,
     }})
 
     return nk.json_encode({ success = true })
 end
-
 nk.register_rpc(buy_hero, "buy_hero")
+
+-- ==========================================
+-- 管理员充值（仅限服务端 HTTP Key 调用）
+-- 客户端调用时 context.user_id 非空，会被拒绝
+-- ==========================================
+local function admin_grant_gold(context, payload)
+    if context.user_id and context.user_id ~= "" then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local json   = nk.json_decode(payload)
+    local target = json.user_id
+    local amount = tonumber(json.amount)
+
+    if not target or not amount or amount <= 0 then
+        return nk.json_encode({ success = false, error = "参数无效：需要 user_id 和正整数 amount" })
+    end
+
+    nk.wallet_update(target, { gold = amount }, { reason = "admin_grant" }, true)
+
+    local account = nk.account_get_id(target)
+    local wallet  = nk.json_decode(account.wallet)
+
+    return nk.json_encode({ success = true, new_balance = wallet.gold or 0 })
+end
+nk.register_rpc(admin_grant_gold, "admin_grant_gold")
+
+-- ==========================================
+-- 管理员设置限时免费活动（仅限服务端调用）
+-- payload: { "heroes": ["hakim","hulagu"], "start_time": 1746000000, "end_time": 1746604800 }
+-- ==========================================
+local function admin_set_free_event(context, payload)
+    if context.user_id and context.user_id ~= "" then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local json       = nk.json_decode(payload)
+    local hero_ids   = json.heroes
+    local start_time = tonumber(json.start_time)
+    local end_time   = tonumber(json.end_time)
+
+    if not hero_ids or not start_time or not end_time or start_time >= end_time then
+        return nk.json_encode({ success = false, error = "参数无效" })
+    end
+
+    -- 读取现有活动数据，合并写入（支持多个独立活动并存）
+    local objects = nk.storage_read({{
+        collection = "events", key = "free_heroes", user_id = nil
+    }})
+    local events = (#objects > 0) and objects[1].value or {}
+
+    for _, hid in ipairs(hero_ids) do
+        if catalog.HEROES[hid] then
+            events[hid] = { start_time = start_time, end_time = end_time }
+        end
+    end
+
+    nk.storage_write({{
+        collection       = "events",
+        key              = "free_heroes",
+        user_id          = nil,
+        value            = events,
+        permission_read  = 2,  -- 所有人可读（客户端可查询活动列表）
+        permission_write = 0,
+    }})
+
+    return nk.json_encode({ success = true, active_events = events })
+end
+nk.register_rpc(admin_set_free_event, "admin_set_free_event")
