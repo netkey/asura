@@ -4,6 +4,7 @@ local gconfig     = require("game_config")
 local season_mgr  = require("season_manager")
 local ach_mgr     = require("achievement_manager")
 local skin_catalog = require("skin_catalog")
+local rate_limiter = require("rate_limiter")
 
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
@@ -197,7 +198,8 @@ nk.register_rpc(get_shop, "get_shop")
 -- ==========================================
 local function get_wallet(context, payload)
     local account = nk.account_get_id(context.user_id)
-    local wallet  = nk.json_decode(account.wallet)
+    local raw     = account and account.wallet or {}
+    local wallet  = type(raw) == "string" and nk.json_decode(raw) or raw
     return nk.json_encode({ gold = wallet.gold or 0 })
 end
 nk.register_rpc(get_wallet, "get_wallet")
@@ -223,13 +225,18 @@ local function buy_hero(context, payload)
         return nk.json_encode({ success = false, error = "该英雄无需购买" })
     end
 
-    -- 检查是否已拥有（避免重复扣款）
+    if not rate_limiter.check(nk, user_id, "buy_hero", 10, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+
+    -- 检查是否已拥有（避免重复扣款），同时记录 version 用于 OCC 写入
     local objects = nk.storage_read({{
         collection = "hero_inventory",
         key        = "unlocked_heroes",
         user_id    = user_id
     }})
-    local inventory = (#objects > 0) and objects[1].value or {}
+    local inv_version = (#objects > 0) and objects[1].version or "*"
+    local inventory   = (#objects > 0) and objects[1].value   or {}
     if inventory[hero_id] then
         return nk.json_encode({ success = false, error = "already_owned" })
     end
@@ -241,14 +248,20 @@ local function buy_hero(context, payload)
     end
 
     inventory[hero_id] = true
-    nk.storage_write({{
+    -- OCC 写入：version 不匹配说明并发写入，回滚金币并返回冲突
+    local ok2, _ = pcall(nk.storage_write, {{
         collection       = "hero_inventory",
         key              = "unlocked_heroes",
         user_id          = user_id,
         value            = inventory,
+        version          = inv_version,
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok2 then
+        pcall(nk.wallet_update, user_id, { gold = price }, {}, true)
+        return nk.json_encode({ success = false, error = "conflict_retry" })
+    end
 
     return nk.json_encode({ success = true })
 end
@@ -271,10 +284,14 @@ local function admin_grant_gold(context, payload)
         return nk.json_encode({ success = false, error = "参数无效：需要 user_id 和正整数 amount" })
     end
 
-    nk.wallet_update(target, { gold = amount }, { reason = "admin_grant" }, true)
+    local ok, wallet_err = pcall(nk.wallet_update, target, { gold = amount }, { reason = "admin_grant" }, true)
+    if not ok then
+        return nk.json_encode({ success = false, error = "wallet_update 失败: " .. tostring(wallet_err) })
+    end
 
     local account = nk.account_get_id(target)
-    local wallet  = nk.json_decode(account.wallet)
+    local raw     = account and account.wallet or {}
+    local wallet  = type(raw) == "string" and nk.json_decode(raw) or raw
 
     return nk.json_encode({ success = true, new_balance = wallet.gold or 0 })
 end
@@ -838,6 +855,10 @@ local function verify_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "unknown_product" })
     end
 
+    if not rate_limiter.check(nk, context.user_id, "iap_verify", 5, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+
     local result, err = verify_apple_receipt(receipt_data)
     if not result then
         return nk.json_encode({ success = false, error = err or "invalid_receipt" })
@@ -880,6 +901,22 @@ local function verify_iap_receipt(context, payload)
         nk.logger_warn("IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err))
         return nk.json_encode({ success = false, error = "wallet_error" })
     end
+
+    -- 写 per-user 充值历史（供 get_iap_history 查询）
+    pcall(nk.storage_write, {{
+        collection       = "iap_history",
+        key              = txn_id,
+        user_id          = context.user_id,
+        value            = {
+            transaction_id = txn_id,
+            product_id     = product_id,
+            gold_granted   = gold,
+            verified_at    = os.time(),
+            environment    = result.environment,
+        },
+        permission_read  = 1,
+        permission_write = 0,
+    }})
 
     local account = nk.account_get_id(context.user_id)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
@@ -949,11 +986,16 @@ local function purchase_skin(context, payload)
         return nk.json_encode({ success = false, error = "default_skin" })
     end
 
-    -- 读取已拥有皮肤
+    if not rate_limiter.check(nk, uid, "purchase_skin", 10, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+
+    -- 读取已拥有皮肤，同时记录 version 用于 OCC 写入
     local objects = nk.storage_read({{
         collection = "skin_inventory", key = "owned_skins", user_id = uid
     }})
-    local owned = (#objects > 0) and objects[1].value or {}
+    local owned_ver = (#objects > 0) and objects[1].version or "*"
+    local owned     = (#objects > 0) and objects[1].value   or {}
 
     -- 检查是否已拥有（owned 为数组）
     for _, s in ipairs(owned) do
@@ -968,16 +1010,21 @@ local function purchase_skin(context, payload)
         return nk.json_encode({ success = false, error = "insufficient_gold" })
     end
 
-    -- 写入拥有记录
+    -- OCC 写入：version 不匹配说明并发购买，回滚金币
     table.insert(owned, skin_id)
-    nk.storage_write({{
+    local ok2, _ = pcall(nk.storage_write, {{
         collection       = "skin_inventory",
         key              = "owned_skins",
         user_id          = uid,
         value            = owned,
+        version          = owned_ver,
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok2 then
+        pcall(nk.wallet_update, uid, { gold = info.price }, {}, true)
+        return nk.json_encode({ success = false, error = "conflict_retry" })
+    end
 
     local account = nk.account_get_id(uid)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
@@ -1044,3 +1091,70 @@ local function equip_skin(context, payload)
     return nk.json_encode({ success = true })
 end
 nk.register_rpc(equip_skin, "equip_skin")
+
+-- ==========================================
+-- RPC：get_iap_history
+-- 返回当前用户所有 IAP 充值记录（按 verified_at 倒序）
+-- ==========================================
+local function get_iap_history(context, _payload)
+    local uid = context.user_id
+    local list, _cursor = nk.storage_list(uid, "iap_history", 100, "")
+    local records = {}
+    if list then
+        for _, obj in ipairs(list) do
+            table.insert(records, obj.value)
+        end
+        table.sort(records, function(a, b)
+            return (a.verified_at or 0) > (b.verified_at or 0)
+        end)
+    end
+    return nk.json_encode({ records = records })
+end
+nk.register_rpc(get_iap_history, "get_iap_history")
+
+-- ==========================================
+-- RPC：delete_account
+-- 删除玩家所有游戏数据并注销 Nakama 账号（Apple/Google 审核要求）
+-- iap_receipts（全局防重放记录）保留用于审计
+-- ==========================================
+local function delete_account(context, _payload)
+    local uid = context.user_id
+
+    -- 删除固定 key 的用户数据
+    local fixed_keys = {
+        { collection = "hero_inventory",  key = "unlocked_heroes" },
+        { collection = "skin_inventory",  key = "owned_skins"     },
+        { collection = "skin_inventory",  key = "equipped_skins"  },
+        { collection = "achievements",    key = "unlocked"        },
+        { collection = "user_status",     key = "current_match"   },
+    }
+    local to_delete = {}
+    for _, item in ipairs(fixed_keys) do
+        table.insert(to_delete, { collection = item.collection, key = item.key, user_id = uid })
+    end
+    pcall(nk.storage_delete, to_delete)
+
+    -- 删除动态 key 的用户数据（列举后批量删除）
+    local dynamic_cols = { "season_stats", "match_history", "iap_history", "rate_limits" }
+    for _, col in ipairs(dynamic_cols) do
+        local list, _cur = nk.storage_list(uid, col, 200, "")
+        if list and #list > 0 then
+            local batch = {}
+            for _, obj in ipairs(list) do
+                table.insert(batch, { collection = col, key = obj.key, user_id = uid })
+            end
+            pcall(nk.storage_delete, batch)
+        end
+    end
+
+    -- 注销 Nakama 账号（不可恢复）
+    local ok, err = pcall(nk.users_delete, { uid })
+    if not ok then
+        nk.logger_warn("delete_account: users_delete 失败 uid=" .. uid .. " err=" .. tostring(err))
+        return nk.json_encode({ success = false, error = "内部错误，请重试" })
+    end
+
+    nk.logger_info("delete_account: 账号已注销 uid=" .. uid)
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(delete_account, "delete_account")

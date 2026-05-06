@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.3.0 · 最后更新：2026-05-06  
+> 版本：v0.3.2 · 最后更新：2026-05-06  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -16,11 +16,12 @@
    - [商城系统](#33-商城系统)
    - [皮肤系统](#34-皮肤系统)
    - [充值系统（Apple IAP）](#35-充值系统apple-iap)
-   - [赛季与战绩](#36-赛季与战绩)
-   - [好友系统](#37-好友系统)
-   - [观战系统](#38-观战系统)
-   - [成就系统](#39-成就系统)
-   - [管理员接口](#310-管理员接口)
+   - [账号管理](#36-账号管理)
+   - [赛季与战绩](#37-赛季与战绩)
+   - [好友系统](#38-好友系统)
+   - [观战系统](#39-观战系统)
+   - [成就系统](#310-成就系统)
+   - [管理员接口](#311-管理员接口)
 4. [存储结构（Storage Schema）](#4-存储结构storage-schema)
 5. [成就列表（19 枚）](#5-成就列表19-枚)
 6. [关键设计决策](#6-关键设计决策)
@@ -184,7 +185,7 @@
 {"success": true}
 
 // 出参（失败）
-{"success": false, "error": "insufficient_gold | already_owned | 英雄不存在"}
+{"success": false, "error": "insufficient_gold | already_owned | 英雄不存在 | conflict_retry | too_many_requests"}
 ```
 
 #### `check_hero_access`
@@ -288,8 +289,11 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 // 入参
 {"skin_id": "aladdin_golden"}
 
-// 出参
+// 出参（成功）
 {"success": true, "new_balance": 600}
+
+// 出参（失败）
+{"success": false, "error": "insufficient_gold | already_owned | skin_not_found | default_skin | conflict_retry | too_many_requests"}
 ```
 
 #### `equip_skin`
@@ -334,11 +338,50 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 | `com.asura.gold_1998` | 1998 |
 
 > **防重放**：服务端记录每个 `transaction_id`（全局唯一），同一凭据只能兑换一次。  
-> **环境变量**：需在部署时配置 `APPLE_IAP_SECRET`（App Shared Secret）。
+> **环境变量**：需在部署时配置 `APPLE_IAP_SECRET`（App Shared Secret）。  
+> **限流**：每用户每分钟最多 5 次调用，超限返回 `too_many_requests`。
+
+#### `get_iap_history`
+获取当前用户所有 IAP 充值记录（按时间倒序）。
+
+```json
+// 出参
+{
+  "records": [
+    {
+      "transaction_id": "txn_abc123",
+      "product_id": "com.asura.gold_648",
+      "gold_granted": 648,
+      "verified_at": 1746000000,
+      "environment": "production"
+    }
+  ]
+}
+```
 
 ---
 
-### 3.6 赛季与战绩
+### 3.6 账号管理
+
+#### `delete_account`
+永久删除玩家所有游戏数据并注销 Nakama 账号（Apple/Google 审核要求）。
+
+> **不可逆**：操作完成后账号无法恢复。客户端需在调用前弹出确认对话框。  
+> **保留数据**：全局防重放记录（`iap_receipts`）保留用于审计，不随账号删除。
+
+```json
+// 无需入参
+
+// 出参（成功）
+{"success": true}
+
+// 出参（失败）
+{"success": false, "error": "内部错误，请重试"}
+```
+
+---
+
+### 3.7 赛季与战绩
 
 #### `get_season_info`
 获取当前赛季信息。
@@ -356,6 +399,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {
   "stats": {
     "games": 42, "wins": 28, "losses": 14,
+    "pvp_wins": 18, "identity_wins": 10,
     "rating": 1350, "best_streak": 7, "current_streak": 3,
     "hero_stats": {"aladdin": {"games": 15, "wins": 10}},
     "role_stats": {"MONARCH": {"games": 5, "wins": 4}}
@@ -389,7 +433,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 
 ---
 
-### 3.7 好友系统
+### 3.8 好友系统
 
 #### `add_friend`
 发送好友申请或接受申请。
@@ -465,7 +509,7 @@ onStatusPresenceEvent(event) → JSON.parse(event.joins[i].status) → 更新 UI
 
 ---
 
-### 3.8 观战系统
+### 3.9 观战系统
 
 #### `find_spectatable_match`
 查询当前可观战的对局列表。
@@ -485,9 +529,16 @@ onStatusPresenceEvent(event) → JSON.parse(event.joins[i].status) → 更新 UI
 JoinMatch(match_id, metadata={"is_spectator": true, "target_player_id": "user-uuid"})
 ```
 
+**加入对局时选择英雄（通过 Nakama 客户端 SDK）：**
+
+```
+// metadata 中携带英雄 ID，服务端校验已解锁后生效；未携带或不合法则默认使用阿拉丁
+JoinMatch(match_id, metadata={"hero_id": "hakim"})
+```
+
 ---
 
-### 3.9 成就系统
+### 3.10 成就系统
 
 #### `get_my_achievements`
 获取玩家已解锁成就（含解锁时间）。
@@ -519,7 +570,7 @@ JoinMatch(match_id, metadata={"is_spectator": true, "target_player_id": "user-uu
 
 ---
 
-### 3.10 管理员接口
+### 3.11 管理员接口
 
 > 以下接口仅限通过 Nakama HTTP Key 调用，客户端调用将被拒绝。
 
@@ -544,7 +595,9 @@ JoinMatch(match_id, metadata={"is_spectator": true, "target_player_id": "user-uu
 | `season_stats` | `{season_id}` | uid | 赛季积分/胜负/连胜等统计 |
 | `match_history` | `{season_id}_{ts}` | uid | 单场对局记录（最多保留 50 条）|
 | `user_status` | `current_match` | uid | 当前对局状态（等待/游戏中），供好友查询 |
-| `iap_receipts` | `{transaction_id}` | nil | IAP 防重放记录（全局） |
+| `iap_receipts` | `{transaction_id}` | nil | IAP 防重放记录（全局，永久保留） |
+| `iap_history` | `{transaction_id}` | uid | 用户 IAP 充值历史（`get_iap_history` 查询） |
+| `rate_limits` | `{action}` | uid | 接口调用频率窗口计数（临时） |
 | `season_config` | `current` | nil | 当前赛季配置（管理员写入） |
 | `events` | `free_heroes` | nil | 限时免费英雄活动配置 |
 

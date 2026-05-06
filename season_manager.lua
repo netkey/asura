@@ -63,6 +63,8 @@ local function load_season_stats(nk, uid, season_id)
         games           = 0,
         wins            = 0,
         losses          = 0,
+        pvp_wins        = 0,
+        identity_wins   = 0,
         rating          = 1000,
         best_streak     = 0,
         current_streak  = 0,
@@ -74,8 +76,11 @@ end
 -- ==========================================
 -- 更新并持久化赛季统计
 -- ==========================================
-local function update_season_stats(nk, uid, p, season_id, is_win, delta)
+local function update_season_stats(nk, uid, p, season_id, is_win, delta, mode)
     local stats = load_season_stats(nk, uid, season_id)
+    -- 兼容旧记录：字段不存在时补零
+    stats.pvp_wins      = stats.pvp_wins      or 0
+    stats.identity_wins = stats.identity_wins or 0
 
     stats.games   = stats.games + 1
     stats.rating  = math.max(0, stats.rating + delta)
@@ -85,6 +90,11 @@ local function update_season_stats(nk, uid, p, season_id, is_win, delta)
         stats.current_streak = stats.current_streak + 1
         if stats.current_streak > stats.best_streak then
             stats.best_streak = stats.current_streak
+        end
+        if mode == "pvp" then
+            stats.pvp_wins = stats.pvp_wins + 1
+        elseif mode == "identity" then
+            stats.identity_wins = stats.identity_wins + 1
         end
     else
         stats.losses         = stats.losses + 1
@@ -104,7 +114,7 @@ local function update_season_stats(nk, uid, p, season_id, is_win, delta)
         if is_win then stats.role_stats[p.role].wins = stats.role_stats[p.role].wins + 1 end
     end
 
-    nk.storage_write({{
+    local ok, err = pcall(nk.storage_write, {{
         collection       = "season_stats",
         key              = season_id,
         user_id          = uid,
@@ -112,6 +122,9 @@ local function update_season_stats(nk, uid, p, season_id, is_win, delta)
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok then
+        nk.logger_warn("update_season_stats: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
+    end
 
     return stats
 end
@@ -121,7 +134,7 @@ end
 -- ==========================================
 local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_win, turns, delta, rating_after)
     local key = season_id .. "_" .. tostring(ts)
-    nk.storage_write({{
+    local ok, err = pcall(nk.storage_write, {{
         collection       = "match_history",
         key              = key,
         user_id          = uid,
@@ -142,6 +155,9 @@ local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_w
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok then
+        nk.logger_warn("write_match_history: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
+    end
 
     -- 裁剪：超出 HISTORY_LIMIT 时删最旧一条
     local list = nk.storage_list(uid, "match_history", 200, "")
@@ -171,7 +187,7 @@ function M.record_match(nk, state, winner)
     for uid, p in pairs(state.players) do
         local delta   = deltas[uid] or 0
         local is_win  = delta > 0
-        local updated = update_season_stats(nk, uid, p, season.season_id, is_win, delta)
+        local updated = update_season_stats(nk, uid, p, season.season_id, is_win, delta, state.mode)
 
         write_match_history(nk, uid, season.season_id, ts, p,
             state.mode, winner, is_win, turns, delta, updated.rating)

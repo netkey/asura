@@ -1,5 +1,6 @@
 local nk        = require("nakama")
 local hero_mgr  = require("hero_manager")
+local catalog   = require("hero_catalog")
 local rules     = require("game_rules")
 local config    = require("game_config")
 local season_mgr = require("season_manager")
@@ -84,6 +85,7 @@ function M.match_init(context, params)
         -- 观战
         spectators         = {},    -- user_id → presence
         pending_spectators = {},    -- 跨 join_attempt→join 传递旁观者标记
+        pending_heroes     = {},    -- 跨 join_attempt→join 传递客户端英雄选择
 
 		-- 高并发与托管系统配置
 		tick_rate = 1,              -- 每秒执行1次 match_loop
@@ -143,11 +145,14 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 if obj.key == "equipped_skins"  then equipped_skins  = obj.value end
             end
 
-            -- 实际应从客户端 metadata 获取想选的英雄
+            -- 从 join 时的 metadata 读取英雄选择，未携带则默认阿拉丁
+            local requested = state.pending_heroes[p.user_id]
+            state.pending_heroes[p.user_id] = nil
             local want_hero = "aladdin"
-            if not unlocked_heroes[want_hero] then
-                nk.logger_warn("玩家 " .. p.username .. " 尝试使用未解锁英雄，重置为阿拉丁")
-                want_hero = "aladdin"
+            if type(requested) == "string" and catalog.HEROES[requested] and unlocked_heroes[requested] then
+                want_hero = requested
+            elseif requested then
+                nk.logger_warn("玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
             end
 
             local ph = state.config.match.player_health
@@ -196,17 +201,11 @@ function M.match_join(context, dispatcher, tick, state, presences)
         }
         dispatcher.match_label_update(nk.json_encode(new_label))
 
-		-- 随机分配英雄
-		local hero_list = {
-            -- 原版 6 英雄
-            "aladdin", "alibaba", "saladin", "hakim", "scheherazade", "jafar",
-            -- 第一批 12 英雄
-            "ibn_battuta", "al_khwarizmi", "avicenna", "sinbad", "hulagu", "rumi",
-            "zubaydah", "al_biruni", "tamerlane", "dunyazad", "antar", "nefertiti",
-            -- 第二批 12 英雄
-            "harun_al_rashid", "suleiman", "khayyam", "zenobia", "muawiyah", "nizamulmulk",
-            "enheduanna", "al_mansur", "gilgamesh", "imru_al_qais", "basira", "dhul_qarnayn"
-        }
+		-- 随机分配英雄（从 hero_catalog 动态取，避免双维护）
+		local hero_list = {}
+        for id in pairs(catalog.HEROES) do
+            table.insert(hero_list, id)
+        end
 		for _, p in pairs(state.players) do
 			p.hero    = hero_list[math.random(#hero_list)]
             p.skin_id = (p.equipped_skins or {})[p.hero] or nil
@@ -582,6 +581,11 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
     -- 如果是新玩家想中途加入已开始的游戏，拒绝
     if state.status == 1 then
         return state, false, "对局已开始，无法中途加入"
+    end
+
+    -- 记录客户端期望的英雄（match_join 消费）
+    if metadata and type(metadata.hero_id) == "string" then
+        state.pending_heroes[presence.user_id] = metadata.hero_id
     end
 
     return state, true

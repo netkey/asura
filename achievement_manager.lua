@@ -2,7 +2,7 @@
 -- 成就永久有效，跨赛季不重置，每个成就只能解锁一次
 -- hero_mastery 类按英雄单独记录，同一英雄不重复颁发
 
-local nk_lib = require("nakama")
+local nk = require("nakama")
 
 local M = {}
 
@@ -17,9 +17,9 @@ local ACHIEVEMENTS = {
     { id = "first_win",          name = "初出茅庐", gold = 100,
       check = function(s, m) return m.is_win and s.wins == 1 end },
     { id = "pvp_first_win",      name = "擂台初鸣", gold = 50,
-      check = function(s, m) return m.is_win and m.mode == "pvp" and s.wins == 1 end },
+      check = function(s, m) return m.is_win and m.mode == "pvp" and (s.pvp_wins or 0) == 1 end },
     { id = "identity_first_win", name = "身份初显", gold = 50,
-      check = function(s, m) return m.is_win and m.mode == "identity" and s.wins == 1 end },
+      check = function(s, m) return m.is_win and m.mode == "identity" and (s.identity_wins or 0) == 1 end },
 
     -- 连胜类
     { id = "streak_3",  name = "势如破竹", gold = 80,
@@ -116,7 +116,7 @@ local function grant(nk, uid, username, ach_id, ach_name, gold, unlocked)
         user_id    = uid,
     }})
 
-    nk_lib.logger_info("成就解锁 uid=" .. uid .. " ach=" .. ach_id .. " gold=" .. gold)
+    nk.logger_info("成就解锁 uid=" .. uid .. " ach=" .. ach_id .. " gold=" .. gold)
 end
 
 -- ==========================================
