@@ -287,6 +287,21 @@ local MATCH_CONFIGS = {
     { seed=88,  p1={id="m1", name="祖拜达",       hero="zubaydah"},       p2={id="m2", name="比鲁尼",      hero="al_biruni"}     },
     { seed=123, p1={id="n1", name="杜尼亚扎德",   hero="dunyazad"},       p2={id="n2", name="安塔拉",      hero="antar"}         },
     { seed=456, p1={id="o1", name="苏莱曼",       hero="suleiman"},       p2={id="o2", name="双角王",      hero="dhul_qarnayn"}  },
+    -- 5 人身份局（验证角色系统与多目标 AOE）
+    { seed=200, players={
+        {id="q1", name="阿拉丁",     hero="aladdin"},
+        {id="q2", name="哈基姆",     hero="hakim"},
+        {id="q3", name="萨拉丁",     hero="saladin"},
+        {id="q4", name="贾法尔",     hero="jafar"},
+        {id="q5", name="舍赫拉莎德", hero="scheherazade"},
+    }},
+    { seed=201, players={
+        {id="r1", name="旭烈兀",     hero="hulagu"},
+        {id="r2", name="鲁米",       hero="rumi"},
+        {id="r3", name="帖木儿",     hero="tamerlane"},
+        {id="r4", name="祖拜达",     hero="zubaydah"},
+        {id="r5", name="辛巴达",     hero="sinbad"},
+    }},
 }
 
 --------------------------------------------------------------------------------
@@ -295,35 +310,44 @@ local MATCH_CONFIGS = {
 local matches = {}
 for i, cfg in ipairs(MATCH_CONFIGS) do
     math.randomseed(cfg.seed)
-    local label = string.format("[对局%02d]", i)
-    local disp  = make_dispatcher(label)
-    local ctx   = {}
+    local label     = string.format("[对局%02d]", i)
+    local disp      = make_dispatcher(label)
+    local ctx       = {}
+    local plist     = cfg.players or {cfg.p1, cfg.p2}  -- 统一视为玩家列表
+    local max_p     = #plist
 
-    local state = handler.match_init(ctx, {max_players=2, mode="classic"})
+    local state = handler.match_init(ctx, {max_players=max_p, mode="classic"})
     state._dispatcher = disp
 
-    local pr1 = {user_id=cfg.p1.id, username=cfg.p1.name}
-    local pr2 = {user_id=cfg.p2.id, username=cfg.p2.name}
-    state = handler.match_join(ctx, disp, 0, state, {pr1})
-    state = handler.match_join(ctx, disp, 0, state, {pr2})
-    state._dispatcher = disp
+    for _, pc in ipairs(plist) do
+        local pr = {user_id=pc.id, username=pc.name}
+        state = handler.match_join(ctx, disp, 0, state, {pr})
+        state._dispatcher = disp
+    end
 
     -- 强制指定英雄（覆盖随机分配）
-    state.players[cfg.p1.id].hero = cfg.p1.hero
-    state.players[cfg.p2.id].hero = cfg.p2.hero
+    for _, pc in ipairs(plist) do
+        state.players[pc.id].hero = pc.hero
+    end
 
-    matches[i] = {state=state, dispatcher=disp, label=label, winner=nil, turns=0, crashed=false}
+    matches[i] = {state=state, dispatcher=disp, label=label, winner=nil, turns=0, crashed=false, plist=plist}
 end
 
 --------------------------------------------------------------------------------
 -- Round-Robin：15 局交替推进
 --------------------------------------------------------------------------------
-print("╔══════════════════════════════════════════════════════════╗")
-print("║   阿苏拉 · 全英雄并发验证 Demo（15局 / 覆盖30名英雄）    ║")
-print("╚══════════════════════════════════════════════════════════╝")
+print("╔════════════════════════════════════════════════════════════════╗")
+print("║  阿苏拉 · 并发验证 Demo（15局2人+2局5人 / 覆盖30名英雄）      ║")
+print("╚════════════════════════════════════════════════════════════════╝")
 for i, cfg in ipairs(MATCH_CONFIGS) do
-    print(string.format("  对局%02d: %-10s(%s)  vs  %-10s(%s)  seed=%d",
-        i, cfg.p1.name, cfg.p1.hero, cfg.p2.name, cfg.p2.hero, cfg.seed))
+    if cfg.players then
+        local parts = {}
+        for _, pc in ipairs(cfg.players) do table.insert(parts, pc.name.."("..pc.hero..")") end
+        print(string.format("  对局%02d: [5人局] %s  seed=%d", i, table.concat(parts, " / "), cfg.seed))
+    else
+        print(string.format("  对局%02d: %-10s(%s)  vs  %-10s(%s)  seed=%d",
+            i, cfg.p1.name, cfg.p1.hero, cfg.p2.name, cfg.p2.hero, cfg.seed))
+    end
 end
 print(string.rep("─", 64))
 
@@ -356,18 +380,21 @@ local WIN_CN = {MONARCH_WIN="主公阵营胜", REBEL_WIN="反贼阵营胜", TRAI
 print("\n══════════════════ 对局结果汇总 ══════════════════")
 local crashed_count = 0
 for i, m in ipairs(matches) do
-    local cfg = MATCH_CONFIGS[i]
+    local cfg    = MATCH_CONFIGS[i]
     local result = WIN_CN[m.winner] or m.winner or "未结束"
     local status = m.crashed and "✗ 崩溃" or "✓"
-    print(string.format("  对局%02d  %-8s vs %-8s  %s  共%d回合  %s",
-        i, cfg.p1.hero, cfg.p2.hero, result, m.turns, status))
+    if cfg.players then
+        print(string.format("  对局%02d  [5人局]  %s  共%d回合  %s", i, result, m.turns, status))
+    else
+        print(string.format("  对局%02d  %-8s vs %-8s  %s  共%d回合  %s",
+            i, cfg.p1.hero, cfg.p2.hero, result, m.turns, status))
+    end
     if m.crashed then
         print("         错误: " .. m.crash_msg)
         crashed_count = crashed_count + 1
     end
-    -- 各玩家最终状态
-    for _, pid in ipairs({cfg.p1.id, cfg.p2.id}) do
-        local p = m.state.players[pid]
+    for _, pc in ipairs(m.plist) do
+        local p = m.state.players[pc.id]
         if p then
             print(string.format("         %-10s %-8s HP:%d/%d 手牌:%d [%s]",
                 p.username, p.role, p.health, p.max_health, #p.hand, hand_str(p.hand)))
@@ -408,8 +435,8 @@ for _, hero in ipairs(ALL_HEROES) do
 end
 
 print(string.rep("─", 64))
-print(string.format("\n英雄技能触发: %d/30  崩溃对局: %d/15\n",
-    triggered_count, crashed_count))
+print(string.format("\n英雄技能触发: %d/30  崩溃对局: %d/%d\n",
+    triggered_count, crashed_count, #MATCH_CONFIGS))
 
 if crashed_count == 0 then
     print("全部对局运行完毕，无崩溃 ✓")

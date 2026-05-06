@@ -666,6 +666,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         end
         target.equipment = {weapon = nil, armor = nil, horse = nil}
         nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
+        local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content   = target.username .. "（" .. (ROLE_CN[target.role] or target.role) .. "）阵亡！",
+            event     = "player_death",
+            player_id = target_id,
+            role      = target.role,
+        }))
 
         -- 阿拉伯烈酒：击杀后摸2
         if source and source.pending_wine_kill_draw then
