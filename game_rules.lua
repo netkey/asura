@@ -509,6 +509,17 @@ end
 -- ==========================================
 function M.handle_play_card(dispatcher, state, player_id, payload)
     local player = state.players[player_id]
+    if not player or player.health <= 0 then return false end
+
+    -- 校验 target_id：若牌需要目标，目标必须是存活玩家（AOE/无目标牌 target_id 可为 nil）
+    local target_id = payload.target_id
+    if target_id ~= nil then
+        local target = state.players[target_id]
+        if not target or target.health <= 0 then
+            return false
+        end
+    end
+
     local card_idx = nil
     for i, c in ipairs(player.hand) do
         if c.id == payload.card_id then card_idx = i; break end
@@ -522,12 +533,10 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
             table.insert(state.discard_pile, card)
         end
 
-        -- 【改进点】：执行卡牌效果
         if CARD_EFFECTS[card.type] then
-            -- 传入 card 对象，因为后续可能需要判断卡牌花色/点数
-            CARD_EFFECTS[card.type](dispatcher, state, player_id, payload.target_id, card)
+            CARD_EFFECTS[card.type](dispatcher, state, player_id, target_id, card)
         end
-        
+
         M.broadcast_update(dispatcher, state)
         return true
     end

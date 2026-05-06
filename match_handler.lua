@@ -268,9 +268,15 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         else
             -- 情况 B：常规回合操作
             if message.op_code == 3 then -- 出牌
-                rules.handle_play_card(dispatcher, state, uid, payload)
+                -- 只有当前回合玩家才能出牌
+                if uid == state.current_turn_id then
+                    rules.handle_play_card(dispatcher, state, uid, payload)
+                end
             elseif message.op_code == 4 then -- 手动结束回合
-                M.next_turn(dispatcher, state)
+                -- 只有当前回合玩家才能结束回合
+                if uid == state.current_turn_id then
+                    M.next_turn(dispatcher, state)
+                end
             elseif message.op_code == 5 then -- 防御/AOE 响应 {confirm: true/false}
                 rules.handle_response(dispatcher, state, uid, payload)
             end

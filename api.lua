@@ -206,7 +206,10 @@ nk.register_rpc(get_wallet, "get_wallet")
 -- 购买英雄
 -- ==========================================
 local function buy_hero(context, payload)
-    local json    = nk.json_decode(payload)
+    local json    = (payload and payload ~= "") and nk.json_decode(payload) or nil
+    if type(json) ~= "table" or type(json.hero_id) ~= "string" then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
     local user_id = context.user_id
     local hero_id = json.hero_id
 
