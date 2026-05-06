@@ -476,3 +476,120 @@ local function admin_end_season(context, payload)
     return nk.json_encode({ success = true, archived_season = season.season_id })
 end
 nk.register_rpc(admin_end_season, "admin_end_season")
+
+-- ==========================================
+-- 好友系统
+-- ==========================================
+
+-- 发送好友请求 / 接受请求（Nakama 双向调用自动升为好友）
+-- payload: {"username":"xxx"} 或 {"user_id":"xxx"}
+local function add_friend(context, payload)
+    local json = nk.json_decode(payload)
+    if not json or (not json.username and not json.user_id) then
+        return nk.json_encode({ success = false, error = "需要 username 或 user_id" })
+    end
+    local user_ids  = json.user_id  and { json.user_id  } or {}
+    local usernames = json.username and { json.username } or {}
+    nk.friends_add(context.user_id, user_ids, usernames)
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(add_friend, "add_friend")
+
+-- 删除好友 / 拒绝请求
+-- payload: {"user_id":"xxx"}
+local function remove_friend(context, payload)
+    local json = nk.json_decode(payload)
+    if not json or not json.user_id then
+        return nk.json_encode({ success = false, error = "需要 user_id" })
+    end
+    nk.friends_delete(context.user_id, { json.user_id }, {})
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(remove_friend, "remove_friend")
+
+-- 屏蔽用户
+-- payload: {"user_id":"xxx"}
+local function block_user(context, payload)
+    local json = nk.json_decode(payload)
+    if not json or not json.user_id then
+        return nk.json_encode({ success = false, error = "需要 user_id" })
+    end
+    nk.friends_block(context.user_id, { json.user_id }, {})
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(block_user, "block_user")
+
+-- 查询好友列表 / 请求列表
+-- payload: {"state":0}  0=好友 1=已发请求 2=收到请求 3=已屏蔽，不传则返回全部
+local function get_friends(context, payload)
+    local json      = nk.json_decode(payload)
+    local req_state = json and json["state"]  -- 可为 nil（查全部）
+
+    local result = {}
+    local states_to_query = req_state ~= nil and { req_state } or { 0, 1, 2, 3 }
+
+    for _, s in ipairs(states_to_query) do
+        local friends, _, _ = nk.friends_list(context.user_id, 100, s, "")
+        if friends then
+            for _, f in ipairs(friends) do
+                table.insert(result, {
+                    user_id  = f.user.id,
+                    username = f.user.username,
+                    state    = s,  -- 0=好友 1=我发出 2=对方发来 3=屏蔽
+                })
+            end
+        end
+    end
+    return nk.json_encode({ friends = result })
+end
+nk.register_rpc(get_friends, "get_friends")
+
+-- 邀请好友加入对局（通过 Nakama 通知推送，非持久化）
+-- payload: {"user_id":"xxx","match_id":"yyy"}
+local function invite_to_match(context, payload)
+    local json     = nk.json_decode(payload)
+    local target   = json and json.user_id
+    local match_id = json and json.match_id
+    if not target or not match_id then
+        return nk.json_encode({ success = false, error = "需要 user_id 和 match_id" })
+    end
+
+    local account  = nk.account_get_id(context.user_id)
+    local username = account and account.user and account.user.username or "某人"
+
+    nk.notifications_send({{
+        user_id    = target,
+        subject    = username .. " 邀请你加入对局",
+        content    = { match_id = match_id, from_user_id = context.user_id, from_username = username },
+        code       = 1,      -- 1 = 对局邀请
+        sender_id  = context.user_id,
+        persistent = false,
+    }})
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(invite_to_match, "invite_to_match")
+
+-- ==========================================
+-- 观战：查询当前可观战的对局列表
+-- payload: {"mode":"pvp"} 可选，不传则返回全部模式
+-- ==========================================
+local function find_spectatable_match(context, payload)
+    local json  = nk.json_decode(payload)
+    local mode  = json and json.mode
+    local query = "+label.spectatable:1"
+    if mode then
+        query = query .. " +label.mode:" .. mode
+    end
+    local matches = nk.match_list(20, true, nil, nil, nil, query)
+    local list = {}
+    for _, m in ipairs(matches) do
+        local label = nk.json_decode(m.label)
+        table.insert(list, {
+            match_id      = m.match_id,
+            mode          = label and label.mode,
+            player_count  = m.size,
+        })
+    end
+    return nk.json_encode({ matches = list })
+end
+nk.register_rpc(find_spectatable_match, "find_spectatable_match")

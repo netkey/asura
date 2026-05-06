@@ -748,6 +748,22 @@ function M.broadcast_update(dispatcher, state)
             end
         end
         dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
+
+        -- 同步给所有旁观该玩家的旁观者（视野与该玩家完全相同）
+        if state.spectators then
+            for _, spec in pairs(state.spectators) do
+                if spec.target_player_id == uid then
+                    local spec_payload = {
+                        is_spectator    = true,
+                        current_turn    = payload.current_turn,
+                        pending         = payload.pending,
+                        me              = payload.me,
+                        others          = payload.others,
+                    }
+                    dispatcher.broadcast_message(10, nk.json_encode(spec_payload), {spec.presence})
+                end
+            end
+        end
     end
 end
 

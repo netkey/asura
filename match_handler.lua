@@ -45,6 +45,10 @@ function M.match_init(context, params)
         current_turn_id = nil,
         pending_action = nil,		-- 用于挂起等待技能响应
 
+        -- 观战
+        spectators         = {},    -- user_id → presence
+        pending_spectators = {},    -- 跨 join_attempt→join 传递旁观者标记
+
 		-- 高并发与托管系统配置
 		tick_rate = 1,              -- 每秒执行1次 match_loop
         current_turn_elapsed = 0,   -- 当前玩家已思考的时间
@@ -64,10 +68,24 @@ function M.match_init(context, params)
 end
 
 function M.match_join(context, dispatcher, tick, state, presences)
-	for _, p in ipairs(presences) do
+    for _, p in ipairs(presences) do
+        -- 旁观者分流：pending_spectators 由 match_join_attempt 标记
+        if state.pending_spectators[p.user_id] then
+            local spec_info = state.pending_spectators[p.user_id]
+            state.pending_spectators[p.user_id] = nil
+            -- 旁观目标：优先使用请求中的 target_player_id，否则默认第一个玩家
+            local target_id = spec_info.target_player_id
+            if not target_id or not state.players[target_id] then
+                target_id = state.presence_ids[1]
+            end
+            state.spectators[p.user_id] = { presence = p, target_player_id = target_id }
+            M.send_spectator_state(dispatcher, state, p, target_id)
+            nk.logger_info("旁观者 " .. p.username .. " 加入观战，跟随 " .. tostring(target_id))
+
+        else
         -- 1. 更新 Presence 引用，确保后续消息能发给他
         state.presences[p.user_id] = p
-        
+
         -- 2. 如果是重连玩家（已经在 players 列表里）
         if state.status == STATE.PLAYING then
             -- 立即单独发一份全量数据给他，同步当前战场
@@ -120,9 +138,10 @@ function M.match_join(context, dispatcher, tick, state, presences)
             }
 			nk.logger_info("Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
         end
+        end -- spectator else 分支结束
     end
 
-	-- 检查是否达到设定的最大人数
+    -- 检查是否达到设定的最大人数
     local current_count = #state.presence_ids
     if state.status == STATE.WAITING and current_count >= state.max_players then
         state.status = STATE.PLAYING
@@ -130,9 +149,10 @@ function M.match_join(context, dispatcher, tick, state, presences)
 		-- 【核心修改：更新房间标签】
         -- 将 open 设为 0，这样 match_list 的查询语句 +label.open:1 就搜不到这个房间了
         local new_label = {
-            mode = state.mode, -- 建议在 match_init 把 mode 存入 state
-			open = 0,
-            max = state.max_players
+            mode        = state.mode,
+            open        = 0,
+            max         = state.max_players,
+            spectatable = 1,  -- 对局开始后允许旁观者加入
         }
         dispatcher.match_label_update(nk.json_encode(new_label))
 
@@ -402,11 +422,57 @@ end
 
 function M.match_leave(context, dispatcher, tick, state, presences)
     for _, p in ipairs(presences) do
-        -- 仅标记为离线，不要从 state.players 中删除, 提供断线重连功能
-        -- 这样他的英雄、手牌、血量都会保留在原位
-        nk.logger_info("玩家 " .. p.username .. " 掉线了")
+        if state.spectators[p.user_id] then
+            state.spectators[p.user_id] = nil
+            nk.logger_info("旁观者 " .. p.username .. " 离开")
+        else
+            -- 仅标记为离线，不要从 state.players 中删除, 提供断线重连功能
+            nk.logger_info("玩家 " .. p.username .. " 掉线了")
+        end
     end
     return state
+end
+
+-- 辅助函数：向旁观者同步当前战场（与目标玩家完全相同的视野）
+-- 旁观者使用 OpCode 10，payload 格式与普通玩家一致
+function M.send_spectator_state(dispatcher, state, presence, target_player_id)
+    local target = state.players[target_player_id]
+    if not target then return end
+
+    local payload = {
+        is_spectator = true,
+        current_turn = state.current_turn_id,
+        pending      = state.pending_action,
+        me = {  -- 旁观者"以目标视角"看自己
+            hand            = target.hand,
+            hp              = target.health,
+            role            = target.role,
+            hero            = target.hero,
+            equipment       = target.equipment,
+            delayed_effects = target.delayed_effects,
+            weapon_buff     = target.weapon_buff,
+        },
+        others = {},
+    }
+    for other_id, other_p in pairs(state.players) do
+        if other_id ~= target_player_id then
+            -- 与目标玩家视角相同的迷雾规则
+            local visible_role = "UNKNOWN"
+            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
+                visible_role = other_p.role
+            end
+            table.insert(payload.others, {
+                id         = other_id,
+                username   = other_p.username,
+                hp         = other_p.health,
+                hand_count = #other_p.hand,
+                hero       = other_p.hero,
+                role       = visible_role,
+                equipment  = other_p.equipment,
+            })
+        end
+    end
+    dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
 end
 
 -- 辅助函数：专门给重连者同步信息
@@ -438,6 +504,14 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
     -- 核心逻辑：如果是已经在游戏里的玩家回来，无条件允许
     if state.players[presence.user_id] then
         nk.logger_info("检测到玩家 " .. presence.username .. " 正在重连...")
+        return state, true
+    end
+
+    -- 旁观者：对局进行中也允许，标记并记录目标玩家
+    if metadata and metadata.is_spectator then
+        state.pending_spectators[presence.user_id] = {
+            target_player_id = metadata.target_player_id
+        }
         return state, true
     end
 
