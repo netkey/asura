@@ -73,7 +73,7 @@ local function check_hero_access(context, payload)
     }})
     local inventory = (#objects > 0) and objects[1].value or {}
 
-    return nk.json_encode({ has_access = is_hero_accessible(hero_id, inventory, load_free_events()) })
+    return nk.json_encode({ accessible = is_hero_accessible(hero_id, inventory, load_free_events()) })
 end
 nk.register_rpc(check_hero_access, "check_hero_access")
 
@@ -244,7 +244,7 @@ local function buy_hero(context, payload)
     -- 原子扣款：金币不足时 wallet_update 抛出异常
     local ok, err = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
     if not ok then
-        return nk.json_encode({ success = false, error = "金币不足" })
+        return nk.json_encode({ success = false, error = "insufficient_gold" })
     end
 
     inventory[hero_id] = true
@@ -311,7 +311,7 @@ local function admin_set_free_event(context, payload)
     local start_time = tonumber(json.start_time)
     local end_time   = tonumber(json.end_time)
 
-    if not hero_ids or not start_time or not end_time or start_time >= end_time then
+    if type(hero_ids) ~= "table" or not start_time or not end_time or start_time >= end_time then
         return nk.json_encode({ success = false, error = "参数无效" })
     end
 
@@ -618,6 +618,9 @@ nk.register_rpc(block_user, "block_user")
 -- 查询好友列表 / 请求列表
 -- payload: {"state":0}  0=好友 1=已发请求 2=收到请求 3=已屏蔽，不传则返回全部
 local function get_friends(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_friends", 20, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json      = nk.json_decode(payload)
     local req_state = json and json["state"]  -- 可为 nil（查全部）
 
@@ -672,6 +675,9 @@ nk.register_rpc(invite_to_match, "invite_to_match")
 -- status: "idle"=空闲  "waiting"=等待中可加入  "playing"=游戏中可观战
 -- ==========================================
 local function get_friends_status(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_friends_status", 20, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local friends_list, _, _ = nk.friends_list(context.user_id, 100, 0, "")
     if not friends_list or #friends_list == 0 then
         return nk.json_encode({ friends = {} })
@@ -716,11 +722,16 @@ nk.register_rpc(get_friends_status, "get_friends_status")
 -- 观战：查询当前可观战的对局列表
 -- payload: {"mode":"pvp"} 可选，不传则返回全部模式
 -- ==========================================
+local VALID_MODES = { pvp = true, identity = true }
+
 local function find_spectatable_match(context, payload)
     local json  = nk.json_decode(payload)
     local mode  = json and json.mode
     local query = "+label.spectatable:1"
     if mode then
+        if not VALID_MODES[mode] then
+            return nk.json_encode({ success = false, error = "invalid_mode" })
+        end
         query = query .. " +label.mode:" .. mode
     end
     local matches = nk.match_list(20, true, nil, nil, nil, query)
@@ -794,8 +805,12 @@ local PRODUCT_MAP = {
 
 -- 内部：调用 Apple IAP 验证接口
 -- 先请求 Production，status=21007 时降级 Sandbox（审核环境）
-local function verify_apple_receipt(receipt_data)
-    local secret = nk.context and nk.context.env and nk.context.env["APPLE_IAP_SECRET"] or ""
+local function verify_apple_receipt(receipt_data, context)
+    local secret = context and context.env and context.env["APPLE_IAP_SECRET"] or ""
+    if secret == "" then
+        nk.logger_warn("APPLE_IAP_SECRET 未配置，IAP 验证将失败")
+        return nil, "iap_secret_not_configured"
+    end
     local body   = nk.json_encode({ ["receipt-data"] = receipt_data, password = secret })
     local headers = { ["Content-Type"] = "application/json" }
 
@@ -859,7 +874,7 @@ local function verify_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "too_many_requests" })
     end
 
-    local result, err = verify_apple_receipt(receipt_data)
+    local result, err = verify_apple_receipt(receipt_data, context)
     if not result then
         return nk.json_encode({ success = false, error = err or "invalid_receipt" })
     end
@@ -869,18 +884,8 @@ local function verify_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "missing_transaction_id" })
     end
 
-    -- 防重放：全局唯一 transaction_id
-    local existing = nk.storage_read({{
-        collection = "iap_receipts",
-        key        = txn_id,
-        user_id    = nil,
-    }})
-    if #existing > 0 then
-        return nk.json_encode({ success = false, error = "duplicate_transaction" })
-    end
-
-    -- 先写防重放记录，再发金币（保守顺序：防止重复发币）
-    nk.storage_write({{
+    -- 防重放：OCC insert-only（version="*" 仅在记录不存在时写入，消除 TOCTOU 窗口）
+    local ok_ar, ar_err = pcall(nk.storage_write, {{
         collection       = "iap_receipts",
         key              = txn_id,
         user_id          = nil,
@@ -891,9 +896,13 @@ local function verify_iap_receipt(context, payload)
             verified_at  = os.time(),
             environment  = result.environment,
         },
+        version          = "*",
         permission_read  = 0,
         permission_write = 0,
     }})
+    if not ok_ar then
+        return nk.json_encode({ success = false, error = "duplicate_transaction" })
+    end
 
     local ok, wallet_err = pcall(nk.wallet_update, context.user_id,
         { gold = gold }, { reason = "iap", product_id = product_id }, true)
@@ -1067,26 +1076,32 @@ local function equip_skin(context, payload)
         end
     end
 
-    -- 读取并更新装备表
+    -- 读取并更新装备表（OCC：携带 version 防并发写覆盖）
     local objects = nk.storage_read({{
         collection = "skin_inventory", key = "equipped_skins", user_id = uid
     }})
-    local equipped = (#objects > 0) and objects[1].value or {}
+    local eq_rec  = (#objects > 0) and objects[1] or nil
+    local equipped = eq_rec and eq_rec.value or {}
+    local eq_ver   = eq_rec and eq_rec.version or nil
 
     if skin_id then
         equipped[hero_id] = skin_id
     else
-        equipped[hero_id] = nil  -- 卸下，恢复默认
+        equipped[hero_id] = nil
     end
 
-    nk.storage_write({{
+    local ok, err = pcall(nk.storage_write, {{
         collection       = "skin_inventory",
         key              = "equipped_skins",
         user_id          = uid,
         value            = equipped,
+        version          = eq_ver,
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok then
+        return nk.json_encode({ success = false, error = "conflict_retry" })
+    end
 
     return nk.json_encode({ success = true })
 end

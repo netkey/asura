@@ -4,7 +4,7 @@ local M = {}
 -- 萨拉丁 - 战士主题英雄
 -- 技能：【坚守】 - 受到伤害后，摸1张牌
 
-function M.on_damaged(dispatcher, state, player_id, amount)
+function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     local player = state.players[player_id]
 
     -- 检查是否是萨拉丁

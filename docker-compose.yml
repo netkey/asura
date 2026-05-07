@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       nakama
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nakama:
+    image: heroiclabs/nakama:3.22.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ecx
+      - >
+        /nakama/nakama migrate up
+        --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
+        && exec /nakama/nakama
+        --name asura
+        --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
+        --socket.server_key ${NAKAMA_SERVER_KEY:-defaultkey}
+        --session.token_expiry_sec 86400
+        --runtime.path /nakama/data/modules
+        --logger.level ${LOG_LEVEL:-INFO}
+    ports:
+      - "7349:7349"  # gRPC
+      - "7350:7350"  # HTTP API
+      - "7351:7351"  # Console
+    volumes:
+      - .:/nakama/data/modules
+    environment:
+      APPLE_IAP_SECRET: ${APPLE_IAP_SECRET:-}
+
+volumes:
+  pgdata:

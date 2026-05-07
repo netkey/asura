@@ -4,7 +4,7 @@ local M = {}
 -- 祖拜达 - 哈里发哈伦·拉希德之妻，以慷慨仁慈著称
 -- 技能：【仁济】 - 受伤时，令场上血量最低的其他存活玩家回复1点血量
 
-function M.on_damaged(dispatcher, state, player_id, amount)
+function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     local player = state.players[player_id]
     if player.hero ~= "zubaydah" then return false end
     if player.health <= 0 then return false end

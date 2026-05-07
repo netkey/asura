@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.3.2 · 最后更新：2026-05-06  
+> 版本：v0.4.0 · 最后更新：2026-05-07  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -75,7 +75,20 @@
 |--------|------|-------------|
 | `3` | 出牌 | `{"card_id":"c_001","target_id":"user-uuid"}` |
 | `4` | 手动结束回合 | `{}` |
-| `5` | 防御/AOE 响应 | `{"confirm":true}` |
+| `5` | 防御/AOE/救援 响应 | `{"confirm":true}` 或 `{"confirm":true,"card_id":"c_002"}` |
+
+**OpCode 5 详细说明：**
+
+| 场景 | 服务端状态 | 客户端应发送 |
+|------|-----------|------------|
+| 出示【防御】 | `pending.type = "WAITING_FOR_DEFENSE"` | `{"confirm":true}` |
+| 放弃防御 | `pending.type = "WAITING_FOR_DEFENSE"` | `{"confirm":false}` |
+| AOE 出示防御 | `pending.type = "WAITING_FOR_AOE"` | `{"confirm":true}` |
+| AOE 放弃防御 | `pending.type = "WAITING_FOR_AOE"` | `{"confirm":false}` |
+| 救援（出桃/酒）| `pending.type = "WAITING_FOR_RESCUE"` | `{"confirm":true,"card_id":"c_002"}` |
+| 放弃救援 | `pending.type = "WAITING_FOR_RESCUE"` | `{"confirm":false}` |
+
+> **超时自动处理**：各等待阶段均有 deadline（DEFENSE/AOE 15s，RESCUE 10s），超时后服务端自动以 `confirm=false` 推进。
 
 > **安全说明**：OpCode 3/4 服务端会校验发送方是否为当前回合玩家，非当前回合消息将被丢弃。`target_id` 必须是存活玩家，否则出牌无效。
 
@@ -303,9 +316,14 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 // 入参（skin_id=null 表示卸下，恢复默认）
 {"hero_id": "aladdin", "skin_id": "aladdin_golden"}
 
-// 出参
+// 出参（成功）
 {"success": true}
+
+// 出参（失败）
+{"success": false, "error": "bad_request | skin_not_found | wrong_hero | not_owned | conflict_retry"}
 ```
+
+> `conflict_retry`：并发写冲突（OCC），客户端重试即可。
 
 ---
 
@@ -325,7 +343,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"success": true, "gold_granted": 648, "new_balance": 1928}
 
 // 出参（失败）
-{"success": false, "error": "duplicate_transaction | invalid_receipt | unknown_product"}
+{"success": false, "error": "duplicate_transaction | invalid_receipt | unknown_product | iap_secret_not_configured | too_many_requests"}
 ```
 
 **金币充值档位：**
@@ -337,8 +355,8 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 | `com.asura.gold_648` | 648 |
 | `com.asura.gold_1998` | 1998 |
 
-> **防重放**：服务端记录每个 `transaction_id`（全局唯一），同一凭据只能兑换一次。  
-> **环境变量**：需在部署时配置 `APPLE_IAP_SECRET`（App Shared Secret）。  
+> **防重放**：OCC insert-only（`version="*"`）写入，消除并发重复兑换 TOCTOU 漏洞；同一 `transaction_id` 只能兑换一次。  
+> **环境变量**：需在部署时配置 `APPLE_IAP_SECRET`（App Shared Secret），缺失时返回 `iap_secret_not_configured`。  
 > **限流**：每用户每分钟最多 5 次调用，超限返回 `too_many_requests`。
 
 #### `get_iap_history`
@@ -459,6 +477,8 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"friends": [{"user_id": "...", "username": "PlayerA", "state": 0}]}
 ```
 
+> **限流**：每用户每分钟最多 20 次调用，超限返回 `{"success":false,"error":"too_many_requests"}`。
+
 #### `get_friends_status`
 获取所有好友的在线/对局状态（含 match_id，支持直接加入或观战）。
 
@@ -488,7 +508,8 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 | `playing` | 游戏中 | 显示「观战」按钮，用 `match_id` + `is_spectator=true` 加入 |
 
 > **实时推送**：服务端状态变更时调用 `nk.status_update`，客户端通过 WebSocket `StatusFollow` 实时接收，无需轮询。  
-> **兜底方案**：进入好友列表页时调用一次 `get_friends_status` 同步最新状态。
+> **兜底方案**：进入好友列表页时调用一次 `get_friends_status` 同步最新状态。  
+> **限流**：每用户每分钟最多 20 次调用，超限返回 `{"success":false,"error":"too_many_requests"}`。
 
 **客户端订阅好友状态（WebSocket）：**
 
@@ -515,11 +536,14 @@ onStatusPresenceEvent(event) → JSON.parse(event.joins[i].status) → 更新 UI
 查询当前可观战的对局列表。
 
 ```json
-// 入参（可选）
+// 入参（可选，mode 仅接受 "pvp" 或 "identity"）
 {"mode": "pvp"}
 
 // 出参
 {"matches": [{"match_id": "...", "mode": "pvp", "player_count": 2}]}
+
+// 出参（失败）
+{"success": false, "error": "invalid_mode"}
 ```
 
 **加入观战（通过 Nakama 客户端 SDK）：**
@@ -643,14 +667,22 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 ### 6.3 皮肤系统前向兼容
 `skin_catalog.lua` 中每套皮肤预留 `asset_url` 字段（当前为 `null`）。早期皮肤资源随客户端打包，按 `skins/{hero_id}/{skin_id}/` 路径加载。后期切换 CDN 时，只需服务端填写 `asset_url`，客户端代码无需修改。
 
-### 6.4 IAP 防重放
-Apple IAP `transaction_id` 以 `user_id=nil` 全局存储，防止同一凭据跨账号重复兑换。写入防重放记录和发放金币顺序为：先写记录，再发金币（保守顺序，极端情况下补发由运营手工处理）。
+### 6.4 IAP 防重放（OCC）
+Apple IAP `transaction_id` 以 `user_id=nil` 全局存储，防止同一凭据跨账号重复兑换。使用 OCC `version="*"` 写入（仅当记录不存在时成功），消除并发请求同时通过读检查的 TOCTOU 窗口。写入防重放记录和发放金币顺序为：先写记录，再发金币（保守顺序，极端情况下补发由运营手工处理）。
 
 ### 6.5 好友状态双轨机制
 - **主路径**：服务端状态变更时调用 `nk.status_update`，好友通过 WebSocket `StatusFollow` 实时接收（零轮询，毫秒级延迟）。
 - **兜底路径**：客户端进入好友列表页时主动调用 `get_friends_status` RPC，覆盖断线重连后的状态同步。
 
-### 6.6 货币体系
+### 6.6 濒死求救流程（WAITING_FOR_RESCUE）
+当玩家 HP 降至 0 时，不立即死亡，而是进入濒死状态。从该玩家的下一个存活玩家开始，依次询问是否出手救援（桃/酒）：
+- 救援成功：目标 HP 恢复至 1，游戏继续（AOE 中触发时，救援结束后恢复 AOE 推进）
+- 所有人放弃：正式处决（弃牌、奖惩结算）
+- 每位救援者有 10 秒响应时间，超时自动视为放弃
+
+响应格式：`{"confirm":true,"card_id":"桃/酒的card_id"}` 或 `{"confirm":false}`
+
+### 6.7 货币体系
 单一金币体系（`wallet.gold`），来源：IAP 充值、成就奖励；消耗：购买英雄、购买皮肤。  
 *待规划*：每日任务奖励金币、英雄碎片兑换英雄。
 

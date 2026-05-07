@@ -285,6 +285,20 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- ==========================================
     -- 只有在对局进行中才计时
     if state.status == STATE.PLAYING then
+        -- 检查 pending_action 超时（防止防御/AOE/求救等待永久卡死）
+        if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
+            local act   = state.pending_action
+            local rules = require("game_rules")
+            if act.type == "WAITING_FOR_DEFENSE" then
+                rules.handle_response(dispatcher, state, act.target_id, {confirm=false})
+            elseif act.type == "WAITING_FOR_AOE" then
+                rules.handle_response(dispatcher, state, act.current_target, {confirm=false})
+            elseif act.type == "WAITING_FOR_RESCUE" then
+                rules.handle_response(dispatcher, state, act.rescuers[act.current_rescuer_idx], {confirm=false})
+            end
+            return state
+        end
+
         state.current_turn_elapsed = state.current_turn_elapsed + 1
 
         -- 检查是否思考超时
@@ -486,6 +500,7 @@ function M.match_leave(context, dispatcher, tick, state, presences)
             -- 等待中主动离开：清除状态；游戏中断线保留状态（支持重连）
             if state.status == STATE.WAITING then
                 clear_user_status(p.user_id)
+                state.pending_heroes[p.user_id] = nil
             end
             nk.logger_info("玩家 " .. p.username .. " 掉线了")
         end
@@ -539,21 +554,43 @@ end
 
 -- 辅助函数：专门给重连者同步信息
 function M.send_full_state_to_player(dispatcher, state, presence)
-    local p_data = state.players[presence.user_id]
+    local uid    = presence.user_id
+    local p_data = state.players[uid]
     local payload = {
         is_reconnect = true,
         current_turn = state.current_turn_id,
+        pending      = state.pending_action,
         me = {
-            hand      = p_data.hand,
-            hp        = p_data.health,
-            role      = p_data.role,
-            hero      = p_data.hero,
-            judgments = p_data.judgments,
-            skin_id   = p_data.skin_id,
+            hand            = p_data.hand,
+            hp              = p_data.health,
+            role            = p_data.role,
+            hero            = p_data.hero,
+            equipment       = p_data.equipment,
+            delayed_effects = p_data.delayed_effects,
+            weapon_buff     = p_data.weapon_buff,
+            judgments       = p_data.judgments,
+            skin_id         = p_data.skin_id,
         },
-        others = {} -- 同样的逻辑，根据权限过滤身份
+        others = {}
     }
-    -- 填充 others... (复用 broadcast_update 里的逻辑)
+    for other_id, other_p in pairs(state.players) do
+        if other_id ~= uid then
+            local visible_role = "UNKNOWN"
+            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
+                visible_role = other_p.role
+            end
+            table.insert(payload.others, {
+                id         = other_id,
+                username   = other_p.username,
+                hp         = other_p.health,
+                hand_count = #other_p.hand,
+                hero       = other_p.hero,
+                role       = visible_role,
+                equipment  = other_p.equipment,
+                skin_id    = other_p.skin_id,
+            })
+        end
+    end
     dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
 end
 

@@ -101,9 +101,10 @@ local CARD_EFFECTS = {
         state.pending_action = {
             type = "WAITING_FOR_AOE",
             attacker_id = source_id,
-            remaining_targets = targets, -- 存下还没结算防御的人
+            remaining_targets = targets,
             current_target = table.remove(targets, 1),
-            aoe_type = "SANDSTORM"
+            aoe_type = "SANDSTORM",
+            deadline = os.time() + 15,
         }
         
         -- 通知当前第一个目标出牌
@@ -543,6 +544,38 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     return false
 end
 
+-- 真正处决一名濒死玩家（弃牌、广播、奖惩）
+local function execute_death(dispatcher, state, target_id, source_id)
+    local target = state.players[target_id]
+    local hero_mgr = require("hero_manager")
+    if source_id then
+        hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
+    end
+    for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
+    for _, card in pairs(target.equipment) do
+        if card then table.insert(state.discard_pile, card) end
+    end
+    target.equipment = {weapon = nil, armor = nil, horse = nil}
+    nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
+    local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
+    local role_tag = ROLE_CN[target.role]
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content   = target.username .. (role_tag and "（" .. role_tag .. "）" or "") .. "阵亡！",
+        event     = "player_death",
+        player_id = target_id,
+        role      = target.role,
+    }))
+    local source = source_id and state.players[source_id]
+    if source and source.pending_wine_kill_draw then
+        source.pending_wine_kill_draw = nil
+        M.draw_cards(state, source_id, 2)
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = source.username .. " 因【阿拉伯烈酒】效果额外摸2张"
+        }))
+    end
+    M.handle_role_reward(dispatcher, state, source_id, target_id)
+end
+
 function M.handle_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
     if not action then return end
@@ -562,7 +595,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
             -- 旭烈兀【铁蹄】：attack_bonus 已整合进 action.damage
             state.attack_bonus = nil
             M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
-            state.pending_action = nil
+            -- 若 apply_damage 触发了濒死求救，不覆盖 pending_action
+            if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
+                state.pending_action = nil
+            end
         end
 
     elseif action.type == "WAITING_FOR_AOE" then
@@ -570,6 +606,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
         if payload.confirm ~= true then
             -- 未防御，扣血
             M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
+            -- 若扣血触发了濒死求救，暂停 AOE 等待救援，parent_action 已在 apply_damage 中设好
+            if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
+                return
+            end
         end
         -- 推进到下一个目标
         if #action.remaining_targets > 0 then
@@ -578,6 +618,67 @@ function M.handle_response(dispatcher, state, player_id, payload)
         else
             state.pending_action = nil
             M.broadcast_update(dispatcher, state)
+        end
+
+    elseif action.type == "WAITING_FOR_RESCUE" then
+        local dying_id    = action.dying_player_id
+        local rescuer_id  = action.rescuers[action.current_rescuer_idx]
+        if player_id ~= rescuer_id then return end
+
+        local rescued = false
+        if payload.confirm == true and payload.card_id then
+            local rescuer = state.players[player_id]
+            for i, card in ipairs(rescuer.hand) do
+                if card.id == payload.card_id and (card.type == "HEAL" or card.type == "WINE") then
+                    table.remove(rescuer.hand, i)
+                    table.insert(state.discard_pile, card)
+                    state.players[dying_id].health = 1
+                    rescued = true
+                    dispatcher.broadcast_message(11, nk.json_encode({
+                        content         = rescuer.username .. " 救了 " .. state.players[dying_id].username .. "！",
+                        event           = "rescue_success",
+                        rescuer_id      = player_id,
+                        dying_player_id = dying_id,
+                    }))
+                    break
+                end
+            end
+        end
+
+        local parent = action.parent_action
+        local function resume_aoe_or_end(p)
+            state.pending_action = p
+            if p then
+                if #p.remaining_targets > 0 then
+                    p.current_target = table.remove(p.remaining_targets, 1)
+                    M.notify_aoe_target(dispatcher, state)
+                else
+                    state.pending_action = nil
+                    M.broadcast_update(dispatcher, state)
+                end
+            else
+                M.broadcast_update(dispatcher, state)
+            end
+        end
+
+        if rescued then
+            resume_aoe_or_end(parent)
+        else
+            action.current_rescuer_idx = action.current_rescuer_idx + 1
+            action.deadline = os.time() + 10
+            if action.current_rescuer_idx <= #action.rescuers then
+                local next_id = action.rescuers[action.current_rescuer_idx]
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content         = state.players[dying_id].username .. " 仍在濒死，轮到 " .. state.players[next_id].username .. " 救援",
+                    event           = "rescue_needed",
+                    dying_player_id = dying_id,
+                    rescuer_id      = next_id,
+                }))
+            else
+                -- 无人救援，正式处决
+                execute_death(dispatcher, state, dying_id, action.attacker_id)
+                resume_aoe_or_end(parent)
+            end
         end
     end
 end
@@ -682,39 +783,45 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     dispatcher.broadcast_message(20, nk.json_encode({ event = "damage", target = target_id, source = source_id, amount = amount }))
 
     if target.health <= 0 then
-        target.health = 0
-        -- on_kill 钩子（需在弃牌前触发，双角王可在此夺牌）
-        if source_id then
-            hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
+        -- 进入濒死求救流程：从濒死者的下一位存活玩家开始，依次询问是否救援
+        local rescuers = {}
+        local start_idx = 1
+        for i, uid in ipairs(state.presence_ids) do
+            if uid == target_id then start_idx = i + 1; break end
         end
-        -- 手牌弃置
-        for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
-        -- 装备区回收（防止装备牌永久流失）
-        for _, card in pairs(target.equipment) do
-            if card then table.insert(state.discard_pile, card) end
+        local n = #state.presence_ids
+        for i = 0, n - 1 do
+            local uid = state.presence_ids[((start_idx - 1 + i) % n) + 1]
+            if uid ~= target_id and state.players[uid] and state.players[uid].health > 0 then
+                table.insert(rescuers, uid)
+            end
         end
-        target.equipment = {weapon = nil, armor = nil, horse = nil}
-        nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
-        local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
-        local role_tag = ROLE_CN[target.role]
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content   = target.username .. (role_tag and "（" .. role_tag .. "）" or "") .. "阵亡！",
-            event     = "player_death",
-            player_id = target_id,
-            role      = target.role,
-        }))
 
-        -- 阿拉伯烈酒：击杀后摸2
-        if source and source.pending_wine_kill_draw then
-            source.pending_wine_kill_draw = nil
-            M.draw_cards(state, source_id, 2)
+        -- 保存父 pending_action（AOE 中触发求救时，需在求救结束后继续 AOE）
+        local parent = (state.pending_action and state.pending_action.type == "WAITING_FOR_AOE")
+                       and state.pending_action or nil
+
+        if #rescuers > 0 then
+            state.pending_action = {
+                type                = "WAITING_FOR_RESCUE",
+                dying_player_id     = target_id,
+                attacker_id         = source_id,
+                rescuers            = rescuers,
+                current_rescuer_idx = 1,
+                deadline            = os.time() + 10,
+                parent_action       = parent,
+            }
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = source.username .. " 因【阿拉伯烈酒】效果额外摸2张"
+                content         = target.username .. " 濒死，请求救援！",
+                event           = "rescue_needed",
+                dying_player_id = target_id,
+                rescuer_id      = rescuers[1],
             }))
+        else
+            -- 没有人可以救援，直接处决
+            execute_death(dispatcher, state, target_id, source_id)
+            state.pending_action = parent
         end
-
-        -- 触发奖惩
-        M.handle_role_reward(dispatcher, state, source_id, target_id)
     end
 end
 

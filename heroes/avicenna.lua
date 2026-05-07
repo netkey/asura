@@ -4,7 +4,7 @@ local M = {}
 -- 伊本·西拿（阿维森纳）- 伊斯兰医学泰斗
 -- 技能：【医典】 - 受伤时若手牌数为0，立即回复1点血量
 
-function M.on_damaged(dispatcher, state, player_id, amount)
+function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     local player = state.players[player_id]
     if player.hero ~= "avicenna" then return false end
     if player.health <= 0 then return false end
