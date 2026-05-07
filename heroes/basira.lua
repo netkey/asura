@@ -47,10 +47,18 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     local guess = payload.guess or action.guess or "HEART"
 
-    -- 摸第1张并检查花色
+    -- 摸第1张并检查花色（draw_cards 内已处理牌堆耗尽/洗牌逻辑）
+    if #state.deck == 0 and #state.discard_pile == 0 then
+        state.pending_action = nil
+        return
+    end
     if #state.deck == 0 then
         state.deck = rules.shuffle(state.discard_pile)
         state.discard_pile = {}
+    end
+    if #state.deck == 0 then
+        state.pending_action = nil
+        return
     end
     local first_card = table.remove(state.deck, 1)
     table.insert(player.hand, first_card)

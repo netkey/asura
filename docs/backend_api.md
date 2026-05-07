@@ -346,7 +346,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"success": false, "error": "duplicate_transaction | invalid_receipt | unknown_product | iap_secret_not_configured | too_many_requests"}
 ```
 
-**金币充值档位：**
+**金币充值档位（Apple / Google 共用）：**
 
 | product_id | 金币数量 |
 |------------|---------|
@@ -359,8 +359,44 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 > **环境变量**：需在部署时配置 `APPLE_IAP_SECRET`（App Shared Secret），缺失时返回 `iap_secret_not_configured`。  
 > **限流**：每用户每分钟最多 5 次调用，超限返回 `too_many_requests`。
 
+---
+
+### 3.5b 充值系统（Google Play IAP）
+
+#### `verify_google_iap_receipt`
+验证 Google Play 购买凭据并发放金币。
+
+```json
+// 入参
+{
+  "product_id": "com.asura.gold_648",
+  "purchase_token": "<Google Play purchase token>"
+}
+
+// 出参（成功）
+{"success": true, "gold_granted": 648, "new_balance": 1928}
+
+// 出参（失败）
+{"success": false, "error": "duplicate_transaction | google_credentials_not_configured | google_api_error_xxx | purchase_not_completed | unknown_product | too_many_requests"}
+```
+
+> **验证方式**：通过 Google Play Developer API（`purchases.products.get`）服务端验证 `purchaseState == 0`（已完成），`orderId` 作为全局唯一交易 ID 用于防重放。  
+> **OAuth Token 缓存**：access_token 缓存于 `system_config/google_token`，到期前 60s 自动刷新；缓存失效时自动重新获取。  
+> **环境变量**：需配置 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`（Google Play Console → API access → Service account OAuth credentials）。  
+> **防重放 / 限流**：与 Apple IAP 共用同一套 `iap_receipts` 防重放表和 5次/分钟 限流。
+
+#### `admin_refresh_google_token`（管理员）
+强制清除并刷新 Google OAuth access token 缓存（仅限 Nakama HTTP Key 调用）。
+
+```json
+// 出参（成功）
+{"success": true}
+// 出参（失败）
+{"success": false, "error": "google_credentials_not_configured | google_token_refresh_failed_xxx"}
+```
+
 #### `get_iap_history`
-获取当前用户所有 IAP 充值记录（按时间倒序）。
+获取当前用户所有充值记录（Apple + Google，按时间倒序）。
 
 ```json
 // 出参
@@ -371,11 +407,14 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
       "product_id": "com.asura.gold_648",
       "gold_granted": 648,
       "verified_at": 1746000000,
-      "environment": "production"
+      "environment": "production",
+      "platform": "android"
     }
   ]
 }
 ```
+
+> `platform` 字段：`"android"` 为 Google Play 充值，Apple IAP 记录无此字段。
 
 ---
 
@@ -605,6 +644,7 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `admin_set_config` | 更新游戏参数配置 | 见 game_config.lua |
 | `admin_start_season` | 开启新赛季 | `{"season_id":"s2","leaderboard_id":"lb2"}` |
 | `admin_end_season` | 结束当前赛季 | `{}` |
+| `admin_refresh_google_token` | 强制刷新 Google OAuth token 缓存 | `{}` |
 
 ---
 
@@ -619,11 +659,12 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `season_stats` | `{season_id}` | uid | 赛季积分/胜负/连胜等统计 |
 | `match_history` | `{season_id}_{ts}` | uid | 单场对局记录（最多保留 50 条）|
 | `user_status` | `current_match` | uid | 当前对局状态（等待/游戏中），供好友查询 |
-| `iap_receipts` | `{transaction_id}` | nil | IAP 防重放记录（全局，永久保留） |
+| `iap_receipts` | `{transaction_id}` | nil | IAP 防重放记录（Apple+Google 共用，永久保留） |
 | `iap_history` | `{transaction_id}` | uid | 用户 IAP 充值历史（`get_iap_history` 查询） |
 | `rate_limits` | `{action}` | uid | 接口调用频率窗口计数（临时） |
 | `season_config` | `current` | nil | 当前赛季配置（管理员写入） |
 | `events` | `free_heroes` | nil | 限时免费英雄活动配置 |
+| `system_config` | `google_token` | nil | Google OAuth access_token 缓存（含 expires_at） |
 
 ---
 

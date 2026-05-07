@@ -94,7 +94,7 @@ local function grant(nk, uid, username, ach_id, ach_name, gold, unlocked)
     local ts = os.time()
     unlocked[ach_id] = { unlocked_at = ts }
 
-    nk.storage_write({{
+    local ok, err = pcall(nk.storage_write, {{
         collection       = "achievements",
         key              = "unlocked",
         user_id          = uid,
@@ -102,12 +102,17 @@ local function grant(nk, uid, username, ach_id, ach_name, gold, unlocked)
         permission_read  = 1,
         permission_write = 0,
     }})
+    if not ok then
+        nk.logger_warn("grant: storage_write 失败 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err))
+        return
+    end
 
-    -- 金币奖励
-    nk.wallet_update(uid, { gold = gold }, {}, true)
+    local ok2, err2 = pcall(nk.wallet_update, uid, { gold = gold }, {}, true)
+    if not ok2 then
+        nk.logger_warn("grant: wallet_update 失败 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err2))
+    end
 
-    -- 站内通知（code=2 成就解锁）
-    nk.notifications_send({{
+    pcall(nk.notifications_send, {{
         code       = 2,
         content    = { achievement_id = ach_id, name = ach_name, gold = gold },
         persistent = true,

@@ -37,6 +37,7 @@ local heroes = {
 }
 
 function M.trigger(hook_name, dispatcher, state, player_id, ...)
+    if not player_id or not state.players[player_id] then return false end
     local hero_id = state.players[player_id].hero
     local hero_mod = heroes[hero_id]
     if hero_mod and hero_mod[hook_name] then

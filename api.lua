@@ -332,6 +332,7 @@ local function admin_set_free_event(context, payload)
         key              = "free_heroes",
         user_id          = nil,
         value            = events,
+        version          = (#objects > 0) and objects[1].version or nil,
         permission_read  = 2,  -- 所有人可读（客户端可查询活动列表）
         permission_write = 0,
     }})
@@ -394,6 +395,7 @@ local function admin_set_config(context, payload)
         key              = "game_config",
         user_id          = nil,
         value            = new_stored,
+        version          = (#objects > 0) and objects[1].version or nil,
         permission_read  = 2,
         permission_write = 0,
     }})
@@ -452,16 +454,31 @@ local function get_match_history(context, payload)
         return nk.json_encode({ error = "请指定 season_id 或先开启赛季" })
     end
 
-    local list = nk.storage_list(user_id, "match_history", 50, "")
-    local records = {}
-    if list then
-        -- 筛选本赛季记录，按时间倒序
-        for _, item in ipairs(list) do
-            if item.value and item.value.season_id == sid then
-                table.insert(records, item.value)
+    -- cursor 翻页取全量（season_manager 已裁剪至 50 条，翻页保证不遗漏边界数据）
+    local all_items = {}
+    local cursor = ""
+    repeat
+        local page, next_cursor = nk.storage_list(user_id, "match_history", 100, cursor)
+        if page then
+            for _, item in ipairs(page) do
+                table.insert(all_items, item)
             end
         end
-        table.sort(records, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+        cursor = next_cursor or ""
+    until cursor == ""
+
+    local records = {}
+    for _, item in ipairs(all_items) do
+        if item.value and item.value.season_id == sid then
+            table.insert(records, item.value)
+        end
+    end
+    -- 按时间倒序，最多返回 50 条
+    table.sort(records, function(a, b) return (a.timestamp or 0) > (b.timestamp or 0) end)
+    if #records > 50 then
+        local trimmed = {}
+        for i = 1, 50 do trimmed[i] = records[i] end
+        records = trimmed
     end
     return nk.json_encode({ season_id = sid, records = records })
 end
@@ -933,6 +950,209 @@ local function verify_iap_receipt(context, payload)
 end
 nk.register_rpc(verify_iap_receipt, "verify_iap_receipt")
 
+-- ==========================================
+-- Google Play IAP
+-- ==========================================
+
+-- 内部：从 Storage 读取缓存的 Google OAuth access token
+local function get_google_access_token(context)
+    local env = context and context.env or {}
+    local client_id     = env["GOOGLE_CLIENT_ID"]     or ""
+    local client_secret = env["GOOGLE_CLIENT_SECRET"] or ""
+    local refresh_token = env["GOOGLE_REFRESH_TOKEN"] or ""
+
+    if client_id == "" or client_secret == "" or refresh_token == "" then
+        return nil, "google_credentials_not_configured"
+    end
+
+    -- 尝试使用缓存 token（存于全局 Storage，key=google_token）
+    local cached_list = nk.storage_read({{ collection="system_config", key="google_token", user_id=nil }})
+    if cached_list and #cached_list > 0 then
+        local t = cached_list[1].value
+        if t and t.access_token and t.expires_at and os.time() < t.expires_at - 60 then
+            return t.access_token, nil
+        end
+    end
+
+    -- token 过期或不存在：用 refresh_token 换取新 access_token
+    local body = table.concat({
+        "client_id=" .. client_id,
+        "client_secret=" .. client_secret,
+        "refresh_token=" .. refresh_token,
+        "grant_type=refresh_token",
+    }, "&")
+    local code, _, resp_body = nk.http_request(
+        "https://oauth2.googleapis.com/token", "POST",
+        { ["Content-Type"] = "application/x-www-form-urlencoded" }, body)
+
+    if code ~= 200 then
+        return nil, "google_token_refresh_failed_" .. tostring(code)
+    end
+    local resp = nk.json_decode(resp_body)
+    if not resp or not resp.access_token then
+        return nil, "google_token_parse_error"
+    end
+
+    local new_token = {
+        access_token = resp.access_token,
+        expires_at   = os.time() + (resp.expires_in or 3600),
+    }
+    pcall(nk.storage_write, {{
+        collection       = "system_config",
+        key              = "google_token",
+        user_id          = nil,
+        value            = new_token,
+        permission_read  = 0,
+        permission_write = 0,
+    }})
+    return new_token.access_token, nil
+end
+
+-- 内部：通过 Google Play Developer API 验证购买凭据
+local GOOGLE_PACKAGE_NAME = "com.asura.game"
+local function verify_google_purchase(product_id, purchase_token, context)
+    local access_token, err = get_google_access_token(context)
+    if not access_token then
+        return nil, err
+    end
+
+    local url = string.format(
+        "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/%s/purchases/products/%s/tokens/%s",
+        GOOGLE_PACKAGE_NAME, product_id, purchase_token)
+
+    local code, _, resp_body = nk.http_request(url, "GET",
+        { ["Authorization"] = "Bearer " .. access_token }, nil)
+
+    if code == 401 then
+        -- token 可能过期，清除缓存，单次重试
+        pcall(nk.storage_delete, {{ collection="system_config", key="google_token", user_id=nil }})
+        access_token, err = get_google_access_token(context)
+        if not access_token then return nil, err end
+        code, _, resp_body = nk.http_request(url, "GET",
+            { ["Authorization"] = "Bearer " .. access_token }, nil)
+    end
+
+    if code ~= 200 then
+        return nil, "google_api_error_" .. tostring(code)
+    end
+
+    local resp = nk.json_decode(resp_body)
+    if not resp then return nil, "google_response_parse_error" end
+
+    -- purchaseState: 0=purchased, 1=cancelled, 2=pending
+    if resp.purchaseState ~= 0 then
+        return nil, "purchase_not_completed"
+    end
+
+    -- orderId 作为全局唯一交易 ID
+    local order_id = resp.orderId
+    if not order_id or order_id == "" then
+        return nil, "missing_order_id"
+    end
+
+    return {
+        transaction_id = order_id,
+        product_id     = product_id,
+        -- purchaseType: 0=sandbox/test, nil=production (field absent), 1=promo code (treated as production)
+        environment    = (resp.purchaseType == 0) and "sandbox" or "production",
+    }, nil
+end
+
+-- RPC：verify_google_iap_receipt
+-- 入参：{ product_id, purchase_token }
+-- 出参：{ success, gold_granted, new_balance } 或 { success=false, error }
+local function verify_google_iap_receipt(context, payload)
+    local req = nk.json_decode(payload)
+    if type(req) ~= "table" then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
+
+    local product_id     = req.product_id
+    local purchase_token = req.purchase_token
+    local gold = PRODUCT_MAP[product_id]
+    if not gold then
+        return nk.json_encode({ success = false, error = "unknown_product" })
+    end
+    if type(purchase_token) ~= "string" or purchase_token == "" then
+        return nk.json_encode({ success = false, error = "bad_request" })
+    end
+
+    if not rate_limiter.check(nk, context.user_id, "iap_verify", 5, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+
+    local result, err = verify_google_purchase(product_id, purchase_token, context)
+    if not result then
+        return nk.json_encode({ success = false, error = err or "invalid_receipt" })
+    end
+
+    local txn_id = result.transaction_id
+
+    -- 防重放：OCC insert-only（与 Apple IAP 共用同一个 iap_receipts collection）
+    local ok_ar, _ = pcall(nk.storage_write, {{
+        collection       = "iap_receipts",
+        key              = txn_id,
+        user_id          = nil,
+        value            = {
+            uid          = context.user_id,
+            product_id   = product_id,
+            gold_granted = gold,
+            verified_at  = os.time(),
+            environment  = result.environment,
+            platform     = "android",
+        },
+        version          = "*",
+        permission_read  = 0,
+        permission_write = 0,
+    }})
+    if not ok_ar then
+        return nk.json_encode({ success = false, error = "duplicate_transaction" })
+    end
+
+    local ok, wallet_err = pcall(nk.wallet_update, context.user_id,
+        { gold = gold }, { reason = "iap", product_id = product_id }, true)
+    if not ok then
+        nk.logger_warn("Google IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err))
+        return nk.json_encode({ success = false, error = "wallet_error" })
+    end
+
+    pcall(nk.storage_write, {{
+        collection       = "iap_history",
+        key              = txn_id,
+        user_id          = context.user_id,
+        value            = {
+            transaction_id = txn_id,
+            product_id     = product_id,
+            gold_granted   = gold,
+            verified_at    = os.time(),
+            environment    = result.environment,
+            platform       = "android",
+        },
+        permission_read  = 1,
+        permission_write = 0,
+    }})
+
+    local account = nk.account_get_id(context.user_id)
+    local balance = account and account.wallet and (account.wallet.gold or 0) or 0
+    return nk.json_encode({ success = true, gold_granted = gold, new_balance = balance })
+end
+nk.register_rpc(verify_google_iap_receipt, "verify_google_iap_receipt")
+
+-- RPC：admin_refresh_google_token（管理员强制刷新 Google OAuth token 缓存）
+local function admin_refresh_google_token(context, _payload)
+    if context.user_id and context.user_id ~= "" then
+        error("unauthorized")
+    end
+    pcall(nk.storage_delete, {{ collection="system_config", key="google_token", user_id=nil }})
+    local token, err = get_google_access_token(context)
+    if token then
+        return nk.json_encode({ success = true })
+    else
+        return nk.json_encode({ success = false, error = err })
+    end
+end
+nk.register_rpc(admin_refresh_google_token, "admin_refresh_google_token")
+
 -- RPC：get_skin_catalog
 -- 入参：{} 或 { hero_id }（可选过滤）
 -- 出参：{ skins: [...] }（不含默认皮肤）
@@ -1149,17 +1369,21 @@ local function delete_account(context, _payload)
     end
     pcall(nk.storage_delete, to_delete)
 
-    -- 删除动态 key 的用户数据（列举后批量删除）
+    -- 删除动态 key 的用户数据（cursor 翻页确保全量删除，满足 Apple/Google 账号注销要求）
     local dynamic_cols = { "season_stats", "match_history", "iap_history", "rate_limits" }
     for _, col in ipairs(dynamic_cols) do
-        local list, _cur = nk.storage_list(uid, col, 200, "")
-        if list and #list > 0 then
-            local batch = {}
-            for _, obj in ipairs(list) do
-                table.insert(batch, { collection = col, key = obj.key, user_id = uid })
+        local cursor = ""
+        repeat
+            local list, next_cursor = nk.storage_list(uid, col, 200, cursor)
+            if list and #list > 0 then
+                local batch = {}
+                for _, obj in ipairs(list) do
+                    table.insert(batch, { collection = col, key = obj.key, user_id = uid })
+                end
+                pcall(nk.storage_delete, batch)
             end
-            pcall(nk.storage_delete, batch)
-        end
+            cursor = next_cursor or ""
+        until cursor == ""
     end
 
     -- 注销 Nakama 账号（不可恢复）

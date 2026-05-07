@@ -88,19 +88,18 @@ function M.match_init(context, params)
         pending_heroes     = {},    -- 跨 join_attempt→join 传递客户端英雄选择
 
 		-- 高并发与托管系统配置
-		tick_rate = 1,              -- 每秒执行1次 match_loop
         current_turn_elapsed = 0,   -- 当前玩家已思考的时间
     }
     -- 加载服务端配置（首局对局初始化时读取，整局复用）
     local cfg = config.load(nk)
     state.config       = cfg
     state.turn_timeout = cfg.match.turn_timeout
-	local label = { 
-        mode = mode, 
+	local label = {
+        mode = mode,
         open = 1, -- 1表示开放，0表示关闭
-        max = max_players 
+        max = max_players
     }
-    return state, state.tick_rate, nk.json_encode(label)
+    return state, 1, nk.json_encode(label)
     --local label = nk.json_encode({ mode = params.mode, max = max_players })
     --return state, state.tick_rate, label
 end
@@ -206,10 +205,13 @@ function M.match_join(context, dispatcher, tick, state, presences)
         for id in pairs(catalog.HEROES) do
             table.insert(hero_list, id)
         end
-		for _, p in pairs(state.players) do
-			p.hero    = hero_list[math.random(#hero_list)]
+        for _, p in pairs(state.players) do
+            -- 保留玩家在 join 时自选的英雄；未选择或选择无效则随机分配
+            if not p.hero or not catalog.HEROES[p.hero] then
+                p.hero = hero_list[math.random(#hero_list)]
+            end
             p.skin_id = (p.equipped_skins or {})[p.hero] or nil
-		end
+        end
         -- 身份分配（pvp 模式跳过，identity 模式按角色分配）
         local roles = assign_roles(current_count, state.mode)
         for i, uid in ipairs(state.presence_ids) do
@@ -280,6 +282,9 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 如果游戏已结束，返回 nil 销毁对局实例，释放服务器内存
     if state.status == STATE.ENDED then return nil end
 
+    -- 每个 tick 开始时重置 next_turn 递归深度计数器
+    state._turn_depth = 0
+
     -- ==========================================
     -- 1. 托管计时逻辑 (新增)
     -- ==========================================
@@ -288,14 +293,27 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         -- 检查 pending_action 超时（防止防御/AOE/求救等待永久卡死）
         if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
             local act   = state.pending_action
-            local rules = require("game_rules")
             if act.type == "WAITING_FOR_DEFENSE" then
                 rules.handle_response(dispatcher, state, act.target_id, {confirm=false})
             elseif act.type == "WAITING_FOR_AOE" then
                 rules.handle_response(dispatcher, state, act.current_target, {confirm=false})
             elseif act.type == "WAITING_FOR_RESCUE" then
                 rules.handle_response(dispatcher, state, act.rescuers[act.current_rescuer_idx], {confirm=false})
+            elseif act.type == "WAITING_FOR_TRICK_SELECT" then
+                rules.handle_response(dispatcher, state, act.chooser_id, {confirm=false})
+            elseif act.type == "HAKIM_XING_XIANG"
+                or act.type == "SULEIMAN_SEAL"
+                or act.type == "HARUN_CHOOSE" then
+                local hero_mgr = require("hero_manager")
+                hero_mgr.handle_response(dispatcher, state, act.player_id, {confirm=false})
             end
+            return state
+        end
+
+        -- 恢复被哈基姆【星象】挂起的判定+摸牌阶段
+        if state.pending_turn_continuation and not state.pending_action then
+            state.pending_turn_continuation = nil
+            M.do_judgment_and_draw_phase(dispatcher, state)
             return state
         end
 
@@ -360,6 +378,15 @@ end
 
 
 function M.next_turn(dispatcher, state)
+    -- 防止递归过深（极端情况：多人连续死亡 / 全员跳过出牌）
+    state._turn_depth = (state._turn_depth or 0) + 1
+    if state._turn_depth > 20 then
+        nk.logger_warn("next_turn 递归深度超限，延至下一 tick")
+        state._turn_depth = 0
+        state.pending_turn_continuation = {uid = state.current_turn_id}
+        return
+    end
+
     local ending_uid = state.current_turn_id
     -- 清除苏莱曼【封印】状态（新回合开始时失效）
     state.suleiman_sealed = nil
@@ -398,10 +425,12 @@ function M.next_turn(dispatcher, state)
     -- ==========================================
     -- 2. 判定阶段 (处理所有判定牌 + 延时锦囊)
     -- ==========================================
-    -- 先处理延时锦囊
-    while #current_p.delayed_effects > 0 and current_p.health > 0 do
+    -- 先处理延时锦囊（max_iter 防止未来扩展时意外无限循环）
+    local delayed_iter = 0
+    while #current_p.delayed_effects > 0 and current_p.health > 0 and delayed_iter < 20 do
+        delayed_iter = delayed_iter + 1
         local d_eff = table.remove(current_p.delayed_effects, 1)
-        if d_eff.subtype == "discard1_draw2" then
+        if d_eff.subtype == “discard1_draw2” then
             -- 黑血蛊：弃1张牌，摸2张
             if #current_p.hand > 0 then
                 local discarded = table.remove(current_p.hand, math.random(#current_p.hand))
@@ -409,88 +438,94 @@ function M.next_turn(dispatcher, state)
             end
             rules.draw_cards(state, uid, 2)
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【黑血蛊】结算：弃1摸2"
+                content = current_p.username .. “ 的【黑血蛊】结算：弃1摸2”
             }))
-        elseif d_eff.subtype == "skip_play_phase" then
+        elseif d_eff.subtype == “skip_play_phase” then
             -- 沙漠诅咒：跳过出牌阶段
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【沙漠诅咒】结算：跳过出牌阶段"
+                content = current_p.username .. “ 的【沙漠诅咒】结算：跳过出牌阶段”
             }))
             current_p.skip_play_phase = true
-        elseif d_eff.subtype == "attack_minus1" then
+        elseif d_eff.subtype == “attack_minus1” then
             -- 虚弱标记：本回合攻击伤害-1
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【虚弱标记】结算：本回合攻击伤害-1"
+                content = current_p.username .. “ 的【虚弱标记】结算：本回合攻击伤害-1”
             }))
             current_p.attack_debuff = true
         end
     end
 
-    -- 再处理判定牌
+    -- 判定阶段前触发哈基姆【星象】：可以在判定前观看并调整牌堆顶
+    if #current_p.judgments > 0 then
+        local suspended = hero_mgr.trigger(“on_judgment_phase_start”, dispatcher, state, uid)
+        if suspended then
+            state.pending_turn_continuation = {uid = uid}
+            return
+        end
+    end
+
+    M.do_judgment_and_draw_phase(dispatcher, state)
+end
+
+-- 判定阶段 + 摸牌阶段（可从 next_turn 直接调用，也可从 pending_turn_continuation 恢复）
+function M.do_judgment_and_draw_phase(dispatcher, state)
+    local uid       = state.current_turn_id
+    local current_p = state.players[uid]
+    if not current_p or current_p.health <= 0 then
+        return M.next_turn(dispatcher, state)
+    end
+
+    -- 处理判定牌
     while #current_p.judgments > 0 and current_p.health > 0 do
-        local j_card = table.remove(current_p.judgments) -- 弹出最近的判定
-        
-        -- 核心步骤：执行判定
+        local j_card = table.remove(current_p.judgments)
         local result_card = rules.execute_judgment(state)
-        
-        -- 【哈基姆改命埋点】：此处如果要做“强制改判定”，需要挂起流程
-        -- 暂时按你的基础逻辑：天谴判断
-        if j_card.type == "JUDGE_STORM" then
-            if result_card.suit == "SPADE" and result_card.number >= 2 and result_card.number <= 9 then
+
+        if j_card.type == “JUDGE_STORM” then
+            if result_card.suit == “SPADE” and result_card.number >= 2 and result_card.number <= 9 then
                 local jdmg = state.config and state.config.combat.judge_storm_damage or 3
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【天谴】爆发！" .. current_p.username .. " 受到 " .. jdmg .. " 点天雷伤害！"
+                    content = “【天谴】爆发！” .. current_p.username .. “ 受到 “ .. jdmg .. “ 点天雷伤害！”
                 }))
+                state._in_judgment_phase = true
                 rules.apply_damage(dispatcher, state, uid, jdmg, j_card.from)
-                -- 若判定伤害触发了濒死求救，暂停回合推进；救援结束后 match_loop 自然恢复
-                if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
+                state._in_judgment_phase = nil
+                if state.pending_action and state.pending_action.type == “WAITING_FOR_RESCUE” then
                     return
                 end
             else
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【天谴】未命中，传送至下一位玩家。"
+                    content = “【天谴】未命中，传送至下一位玩家。”
                 }))
-                -- 传递给下一个存活玩家
                 if state.status == STATE.PLAYING then
                     local next_uid = rules.get_next_player_id(state)
                     table.insert(state.players[next_uid].judgments, j_card)
                 end
             end
         end
-        
-        -- 判定牌进入弃牌堆
+
         table.insert(state.discard_pile, result_card)
-        
-        -- 如果判定把人劈死了，直接结束此人回合，切到下一个人
+
         if current_p.health <= 0 then
             return M.next_turn(dispatcher, state)
         end
     end
 
-    -- 重置每回合状态标志（immortal_used 是每局一次，不在此重置）
+    -- 重置每回合状态标志
     current_p.attack_debuff = nil
 
-    -- ==========================================
-    -- 3. 摸牌阶段
-    -- ==========================================
-    -- 此时触发哈基姆技能，他可以看到接下来的摸牌顺序
-    local suspended = hero_mgr.trigger("on_draw_phase_start", dispatcher, state, uid)
-
+    -- 摸牌阶段
     -- 回合计数（供 season_manager 写入 match_history）
     state.turns = (state.turns or 0) + 1
 
-    if not suspended then
-        rules.draw_cards(state, uid, 2)
-        rules.broadcast_update(dispatcher, state)
-        -- 检查沙漠诅咒跳过出牌阶段
-        if current_p.skip_play_phase then
-            current_p.skip_play_phase = nil
-            nk.logger_info(current_p.username .. " 跳过出牌阶段")
-            -- 直接进下一个人
-            M.next_turn(dispatcher, state)
-        else
-            hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
-        end
+    rules.draw_cards(state, uid, 2)
+    rules.broadcast_update(dispatcher, state)
+    -- 检查沙漠诅咒跳过出牌阶段
+    if current_p.skip_play_phase then
+        current_p.skip_play_phase = nil
+        nk.logger_info(current_p.username .. “ 跳过出牌阶段”)
+        M.next_turn(dispatcher, state)
+    else
+        hero_mgr.trigger(“on_play_phase_start”, dispatcher, state, uid)
     end
 end
 

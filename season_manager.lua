@@ -159,7 +159,7 @@ local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_w
         nk.logger_warn("write_match_history: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
     end
 
-    -- 裁剪：超出 HISTORY_LIMIT 时删最旧一条
+    -- 裁剪：超出 HISTORY_LIMIT(50) 时删最旧条目；200 远超上限，单次读取足够
     local list = nk.storage_list(uid, "match_history", 200, "")
     if list and #list > HISTORY_LIMIT then
         -- 按 key 升序（key 前缀相同，ts 越小越旧）

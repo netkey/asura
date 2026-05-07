@@ -1,6 +1,9 @@
 local nk = require("nakama")
 local M = {}
 
+-- 每个 Lua VM 实例化时播种，避免多局牌序相同
+math.randomseed(os.time() + math.floor(os.clock() * 1e6))
+
 -- ==========================================
 -- 1. 卡牌效果定义
 -- ==========================================
@@ -74,7 +77,7 @@ local CARD_EFFECTS = {
         local p = state.players[source_id]
         if p.health < p.max_health then
             p.health = p.health + 1
-            dispatcher.broadcast_message(11, p.username .. " 使用了【药】，恢复了 1 点生命值")
+            dispatcher.broadcast_message(11, nk.json_encode({ content = p.username .. " 使用了【药】，恢复了 1 点生命值" }))
         end
     end,
 
@@ -98,6 +101,8 @@ local CARD_EFFECTS = {
             end
         end
 
+        if #targets == 0 then return end   -- 场上只有自己时 AOE 无效
+
         state.pending_action = {
             type = "WAITING_FOR_AOE",
             attacker_id = source_id,
@@ -106,28 +111,19 @@ local CARD_EFFECTS = {
             aoe_type = "SANDSTORM",
             deadline = os.time() + 15,
         }
-        
+
         -- 通知当前第一个目标出牌
         M.notify_aoe_target(dispatcher, state)
     end,
 
 	["DRAW_TWO"] = function(dispatcher, state, source_id)
-        local rules = require("game_rules")
         local player = state.players[source_id]
-        
-        -- 1. 广播：让全场看到玩家使用了【无中生有】的动画
         dispatcher.broadcast_message(11, nk.json_encode({
             content = player.username .. " 使用了【无中生有】",
             card_type = "DRAW_TWO"
         }))
-
-        -- 2. 执行核心逻辑：摸 2 张牌
-        -- 这里直接调用你写的 rules.draw_cards
-        rules.draw_cards(state, source_id, 2)
-
-        -- 3. 因为摸牌改变了手牌数据，同步一次状态给所有玩家
-        -- 确保其他玩家看到该玩家的手牌数 +2，而该玩家看到自己的具体牌面
-        rules.broadcast_update(dispatcher, state)
+        M.draw_cards(state, source_id, 2)
+        M.broadcast_update(dispatcher, state)
     end,
 
 
@@ -211,7 +207,7 @@ local CARD_EFFECTS = {
 	["INSTANT_TRICK"] = function(dispatcher, state, source_id, target_id, card)
 		local p = state.players[source_id]
 		if card.subtype == "peek3_reorder" then
-			-- 沙漠罗盘：看牌堆顶3张，调整顺序后放回
+			-- 沙漠罗盘：取出牌堆顶3张，挂起等待玩家选择放回顺序
 			local peeked = {}
 			for i = 1, 3 do
 				if #state.deck == 0 then
@@ -222,26 +218,48 @@ local CARD_EFFECTS = {
 					table.insert(peeked, table.remove(state.deck, 1))
 				end
 			end
+			if #peeked == 0 then return end
+			state.pending_action = {
+				type       = "WAITING_FOR_TRICK_SELECT",
+				subtype    = "peek3_reorder",
+				chooser_id = source_id,
+				peeked     = peeked,
+				deadline   = os.time() + 20,
+			}
 			dispatcher.broadcast_message(11, nk.json_encode({
-				content = p.username .. " 使用【沙漠罗盘】，查看牌堆顶3张并调整顺序",
-				card = card
+				content = p.username .. " 使用【沙漠罗盘】，正在选择牌堆顺序…",
+				card    = card,
 			}))
-			-- 简单处理：直接放回牌堆顶（不交互排序，按原顺序放回）
-			for i = #peeked, 1, -1 do
-				table.insert(state.deck, 1, peeked[i])
+			-- 仅向使用者私发3张预览
+			if state.presences[source_id] then
+				dispatcher.broadcast_message(106, nk.json_encode({
+					event  = "peek3_choose",
+					peeked = peeked,
+				}), {state.presences[source_id]})
 			end
 
 		elseif card.subtype == "discard_enemy_card" then
-			-- 诱降：指定一名其他玩家，观看其手牌，选择1张弃置
+			-- 诱降：挂起，让使用者看目标手牌并选择弃哪张
 			local target = state.players[target_id]
-			if target and #target.hand > 0 then
-				local idx = math.random(#target.hand)
-				local discarded = table.remove(target.hand, idx)
-				table.insert(state.discard_pile, discarded)
-				dispatcher.broadcast_message(11, nk.json_encode({
-					content = p.username .. " 对 " .. target.username .. " 使用【诱降】，弃置1张牌",
-					card = card
-				}))
+			if not target or #target.hand == 0 then return end
+			state.pending_action = {
+				type       = "WAITING_FOR_TRICK_SELECT",
+				subtype    = "discard_enemy_card",
+				chooser_id = source_id,
+				target_id  = target_id,
+				deadline   = os.time() + 20,
+			}
+			dispatcher.broadcast_message(11, nk.json_encode({
+				content = p.username .. " 对 " .. target.username .. " 使用【诱降】，正在选择弃置…",
+				card    = card,
+			}))
+			-- 仅向使用者私发目标手牌（含 card id，供选择）
+			if state.presences[source_id] then
+				dispatcher.broadcast_message(106, nk.json_encode({
+					event     = "peek_hand_choose",
+					target_id = target_id,
+					hand      = target.hand,
+				}), {state.presences[source_id]})
 			end
 
 		elseif card.subtype == "swap_hands" then
@@ -462,11 +480,13 @@ end
 
 
 function M.shuffle(t)
-    for i = #t, 2, -1 do
+    local result = {}
+    for i = 1, #t do result[i] = t[i] end
+    for i = #result, 2, -1 do
         local j = math.random(i)
-        t[i], t[j] = t[j], t[i]
+        result[i], result[j] = result[j], result[i]
     end
-    return t
+    return result
 end
 
 function M.get_next_player_id(state)
@@ -552,6 +572,8 @@ local function execute_death(dispatcher, state, target_id, source_id)
         hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
     end
     for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
+    -- Equipment ownership: slot card → discard_pile; slot cleared to nil.
+    -- Cards live in exactly one place: hand, an equipment slot, or discard_pile.
     for _, card in pairs(target.equipment) do
         if card then table.insert(state.discard_pile, card) end
     end
@@ -611,9 +633,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 return
             end
         end
-        -- 推进到下一个目标
+        -- 推进到下一个目标（刷新 deadline，避免前一目标救援耗尽时间后下一目标立即超时）
         if #action.remaining_targets > 0 then
             action.current_target = table.remove(action.remaining_targets, 1)
+            action.deadline       = os.time() + 15
             M.notify_aoe_target(dispatcher, state)
         else
             state.pending_action = nil
@@ -647,10 +670,18 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
         local parent = action.parent_action
         local function resume_aoe_or_end(p)
+            if p and p.type == "JUDGMENT_CONTINUATION" then
+                -- 判定阶段中触发了求救，救援结束后通过 pending_turn_continuation 恢复判定+摸牌
+                state.pending_action = nil
+                state.pending_turn_continuation = { uid = state.current_turn_id }
+                M.broadcast_update(dispatcher, state)
+                return
+            end
             state.pending_action = p
             if p then
                 if #p.remaining_targets > 0 then
                     p.current_target = table.remove(p.remaining_targets, 1)
+                    p.deadline       = os.time() + 15
                     M.notify_aoe_target(dispatcher, state)
                 else
                     state.pending_action = nil
@@ -680,6 +711,62 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 resume_aoe_or_end(parent)
             end
         end
+    elseif action.type == "WAITING_FOR_TRICK_SELECT" then
+        if player_id ~= action.chooser_id then return end
+
+        if action.subtype == "peek3_reorder" then
+            local peeked = action.peeked
+            local placed = false
+            if payload.confirm == true and type(payload.sorted_ids) == "table" and #payload.sorted_ids == #peeked then
+                local id_map = {}
+                for _, c in ipairs(peeked) do id_map[c.id] = c end
+                -- validate all ids exist
+                local valid = true
+                for _, sid in ipairs(payload.sorted_ids) do
+                    if not id_map[sid] then valid = false; break end
+                end
+                if valid then
+                    -- put back in the client-chosen order (first in array = top of deck)
+                    for i = #payload.sorted_ids, 1, -1 do
+                        table.insert(state.deck, 1, id_map[payload.sorted_ids[i]])
+                    end
+                    placed = true
+                end
+            end
+            if not placed then
+                -- timeout or invalid: restore original order
+                for i = #peeked, 1, -1 do table.insert(state.deck, 1, peeked[i]) end
+            end
+
+        elseif action.subtype == "discard_enemy_card" then
+            local target = state.players[action.target_id]
+            local discarded = nil
+            if target and #target.hand > 0 then
+                if payload.confirm == true and payload.card_id then
+                    for i, card in ipairs(target.hand) do
+                        if card.id == payload.card_id then
+                            discarded = table.remove(target.hand, i)
+                            break
+                        end
+                    end
+                end
+                -- fallback: random if no valid selection
+                if not discarded then
+                    discarded = table.remove(target.hand, math.random(#target.hand))
+                end
+                table.insert(state.discard_pile, discarded)
+                local chooser = state.players[action.chooser_id]
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content  = (chooser and chooser.username or "?") .. " 使用【诱降】弃置了 " .. (discarded.name or discarded.type),
+                    event    = "trick_discard",
+                    card     = discarded,
+                    target_id = action.target_id,
+                }))
+            end
+        end
+
+        state.pending_action = nil
+        M.broadcast_update(dispatcher, state)
     end
 end
 
@@ -699,25 +786,17 @@ function M.handle_defense_response(dispatcher, state, defender_id, card_id)
         end
     end
 
-    -- 2. 清除挂起状态（攻击已被抵消）
+    -- 清除挂起状态（攻击已被抵消）；此后 handle_defense_success 不再重复清除
     state.pending_action = nil
-    
-    -- 3. 【核心：触发阿里巴巴技能的地方】
-    -- 我们调用之前提到的防御成功函数
     M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
 end
 
--- 具体的防御成功后续逻辑
+-- 防御成功后续逻辑（pending_action 由调用方在进入本函数前已清除）
 function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     nk.logger_info("防御成功，正在检查攻击者是否有追击技能...")
-    
-    -- 尝试触发阿里巴巴的【暗号】
     local hero_mgr = require("hero_manager")
-    -- 注意：trigger 会检查 attacker_id 的英雄是不是阿里巴巴
     local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, defender_id, attacker_id)
-    
     if not suspended then
-        state.pending_action = nil
         dispatcher.broadcast_message(11, "防御成功！")
         M.broadcast_update(dispatcher, state)
     end
@@ -797,9 +876,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
             end
         end
 
-        -- 保存父 pending_action（AOE 中触发求救时，需在求救结束后继续 AOE）
-        local parent = (state.pending_action and state.pending_action.type == "WAITING_FOR_AOE")
-                       and state.pending_action or nil
+        -- 保存父 pending_action：AOE → 继续 AOE；判定阶段 → 继续判定+摸牌；普通攻击 → nil
+        local parent
+        if state.pending_action and state.pending_action.type == "WAITING_FOR_AOE" then
+            parent = state.pending_action
+        elseif state._in_judgment_phase then
+            parent = { type = "JUDGMENT_CONTINUATION" }
+        end
 
         if #rescuers > 0 then
             state.pending_action = {

@@ -42,7 +42,10 @@ services:
     volumes:
       - .:/nakama/data/modules
     environment:
-      APPLE_IAP_SECRET: ${APPLE_IAP_SECRET:-}
+      APPLE_IAP_SECRET:      ${APPLE_IAP_SECRET:-}
+      GOOGLE_CLIENT_ID:      ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET:  ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REFRESH_TOKEN:  ${GOOGLE_REFRESH_TOKEN:-}
 
 volumes:
   pgdata:
