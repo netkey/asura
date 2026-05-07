@@ -442,6 +442,10 @@ function M.next_turn(dispatcher, state)
                     content = "【天谴】爆发！" .. current_p.username .. " 受到 " .. jdmg .. " 点天雷伤害！"
                 }))
                 rules.apply_damage(dispatcher, state, uid, jdmg, j_card.from)
+                -- 若判定伤害触发了濒死求救，暂停回合推进；救援结束后 match_loop 自然恢复
+                if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
+                    return
+                end
             else
                 dispatcher.broadcast_message(11, nk.json_encode({
                     content = "【天谴】未命中，传送至下一位玩家。"
