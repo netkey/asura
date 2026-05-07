@@ -73,10 +73,16 @@ Assets/
 
 ## 核心架构决策
 
-### 1. 状态驱动，不事件驱动
+### 1. 乐观更新 + OpCode 10 校正
 
-服务端每次变更都推送 **OpCode 10 全量状态**，客户端直接用这份数据刷新 UI，不维护增量 diff。
-`MatchState` 替换整个对象，`MatchController` 订阅 `OnStateUpdated` 事件后逐面板刷新。
+玩家操作后**立即**更新本地 UI，不等服务端确认，提升手感流畅度。服务端推送 OpCode 10 时用全量状态覆盖，自动校正任何偏差，无需显式回滚。
+
+**规则：**
+- 出牌（OpCode 3）：立即从 `HandPanel` 移除该牌，播放出牌动画
+- 响应/确认（OpCode 5）：立即关闭弹窗，显示"等待中"状态
+- 收到 OpCode 10：**无条件**用服务端数据整体覆盖本地状态，校正所有偏差
+
+服务端每次变更都推送 **OpCode 10 全量状态**，`MatchState` 替换整个对象，`MatchController` 订阅 `OnStateUpdated` 事件后逐面板刷新。
 
 ```csharp
 // MatchSocket.cs — OpCode 分发
@@ -120,12 +126,18 @@ private void OnMatchStateReceived(IMatchState state)
 所有网络调用使用 `async/await`，不用回调。Unity 主线程更新用 `UniTask`（或 `Task` + `SynchronizationContext`）。
 
 ```csharp
-// 示例：出牌
+// 示例：出牌（乐观更新）
 public async Task PlayCard(string cardId, string targetId)
 {
+    // 1. 乐观更新：立即从手牌移除
+    GameEvents.OnOptimisticCardPlay?.Invoke(cardId);
+
+    // 2. 发送服务端
     var payload = JsonConvert.SerializeObject(new { card_id = cardId, target_id = targetId });
-    var bytes = System.Text.Encoding.UTF8.GetBytes(payload);
-    await _socket.SendMatchStateAsync(_matchId, 3, bytes);
+    await _socket.SendMatchStateAsync(_matchId, 3,
+        System.Text.Encoding.UTF8.GetBytes(payload));
+
+    // 3. 服务端随后推送 OpCode 10，MatchController 用全量数据覆盖，自动校正
 }
 ```
 
@@ -231,7 +243,7 @@ Boot → Login → Lobby → [HeroSelect弹窗] → Match → Result → Lobby
 
 ## 服务端行为约定（客户端需知）
 
-- 服务端是**最终裁判**，客户端预校验仅用于改善体验，不可信任
-- 出牌后不要乐观更新 UI，等服务端推送 OpCode 10 再刷新
+- 服务端是**最终裁判**，乐观更新仅用于改善手感；OpCode 10 到达后无条件覆盖本地状态
+- 出牌后立即播放出牌动画并移除手牌（乐观），等 OpCode 10 到达后刷新完整状态
 - `pending.deadline` 字段为服务端 Unix 时间戳，客户端据此显示倒计时（注意时钟偏差，建议 ±2s 容差）
 - 断线重连后服务端会推送带 `"is_reconnect": true` 的 OpCode 10，客户端重置所有面板状态
