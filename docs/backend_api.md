@@ -79,26 +79,46 @@
 
 **OpCode 5 详细说明：**
 
-| 场景 | 服务端状态 | 客户端应发送 |
-|------|-----------|------------|
-| 出示【防御】 | `pending.type = "WAITING_FOR_DEFENSE"` | `{"confirm":true}` |
-| 放弃防御 | `pending.type = "WAITING_FOR_DEFENSE"` | `{"confirm":false}` |
-| AOE 出示防御 | `pending.type = "WAITING_FOR_AOE"` | `{"confirm":true}` |
-| AOE 放弃防御 | `pending.type = "WAITING_FOR_AOE"` | `{"confirm":false}` |
-| 救援（出桃/酒）| `pending.type = "WAITING_FOR_RESCUE"` | `{"confirm":true,"card_id":"c_002"}` |
-| 放弃救援 | `pending.type = "WAITING_FOR_RESCUE"` | `{"confirm":false}` |
+| 场景 | 服务端 `pending.type` | 客户端应发送 |
+|------|----------------------|------------|
+| 出示【防御】 | `WAITING_FOR_DEFENSE` | `{"confirm":true}` |
+| 放弃防御 | `WAITING_FOR_DEFENSE` | `{"confirm":false}` |
+| AOE 出示防御 | `WAITING_FOR_AOE` | `{"confirm":true}` |
+| AOE 放弃防御 | `WAITING_FOR_AOE` | `{"confirm":false}` |
+| 救援（出桃/酒）| `WAITING_FOR_RESCUE` | `{"confirm":true,"card_id":"c_002"}` |
+| 放弃救援 | `WAITING_FOR_RESCUE` | `{"confirm":false}` |
+| 锦囊【沙漠罗盘】重排 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"sorted_ids":["c_01","c_02","c_03"]}` |
+| 锦囊【诱降】选择弃牌 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"card_id":"c_07"}` 或 `{"confirm":false}`（随机弃） |
+| 英雄技能确认+选目标 | `SULEIMAN_SEAL` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
+| 哈基姆【星象】重排牌堆 | `HAKIM_XING_XIANG` | `{"confirm":true,"sorted_ids":["c_01","c_02"]}` 或 `{"confirm":false}` |
+| 阿拉丁【神灯】弃牌 | `ALADDIN_LAMP` | `{"confirm":true,"card_ids":["c_03","c_04"]}` 或 `{"confirm":false}` |
 
-> **超时自动处理**：各等待阶段均有 deadline（DEFENSE/AOE 15s，RESCUE 10s），超时后服务端自动以 `confirm=false` 推进。
+> **超时自动处理**：各等待阶段均有 deadline（DEFENSE/AOE 15s，RESCUE 10s，TRICK/技能 15-20s），超时后服务端自动以 `confirm=false` 推进。
 
 > **安全说明**：OpCode 3/4 服务端会校验发送方是否为当前回合玩家，非当前回合消息将被丢弃。`target_id` 必须是存活玩家，否则出牌无效。
 
 ### 服务端 → 客户端（接收）
 
-| OpCode | 触发时机 | Payload 关键字段 |
-|--------|---------|----------------|
-| `10` | 每次状态变更后广播 | 见下方详细结构 |
-| `11` | 游戏事件日志（弃牌、技能、判定等）| `{"content":"..."}` |
+#### 广播（所有玩家）
+
+| OpCode | 触发时机 | Payload 示例 |
+|--------|---------|-------------|
+| `10` | 每次状态变更后广播全量状态 | 见下方详细结构 |
+| `11` | 游戏事件日志（弃牌、技能发动、判定、死亡等文本） | `{"content":"萨拉丁 受到1点伤害","event":"skill_used","hero":"saladin"}` |
+| `20` | 伤害结算时广播（动画驱动） | `{"event":"damage","target":"uid-B","source":"uid-A","amount":1}` |
 | `30` | 对局结束 | `{"winner":"MONARCH_WIN"}` |
+| `105` | 攻击或 AOE 命中某玩家，该玩家需要响应（广播全场，非目标玩家可播放攻击动画） | `{"attacker":"uid-A","target":"uid-B","damage":1,"msg":"受到攻击，请出示【防御】"}` |
+
+#### 私发（仅发给特定玩家）
+
+| OpCode | 接收方 | 触发时机 | Payload 示例 |
+|--------|--------|---------|-------------|
+| `100` | 技能使用者 | 英雄主动技能（弃牌类）询问，如阿拉丁【神灯】 | `{"type":"skill_choice","skill":"shen_deng","description":"是否弃置2张牌？","min_cards":2,"max_cards":2}` |
+| `101` | 技能使用者或目标玩家 | 英雄交互技能询问，如苏莱曼【封印】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"feng_yin","description":"是否发动【封印】？","targets":[...]}` |
+| `102` | 哈基姆玩家 | 判定阶段【星象】触发，展示牌堆顶 N 张供重排 | `{"type":"hakim_peek","peeked":[{"id":"c_01","type":"JUDGE_STORM",...}],"count":3}` |
+| `106` | 锦囊使用者 | 锦囊牌【沙漠罗盘】或【诱降】的私有信息（牌堆预览 / 目标手牌） | peek3: `{"event":"peek3_choose","peeked":[...]}` / discard: `{"event":"peek_hand_choose","target_id":"uid","hand":[...]}` |
+
+> **接收 101/102 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
 
 #### OpCode 10 Payload 结构
 
