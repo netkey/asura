@@ -10,8 +10,13 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     if player.hero ~= "nizamulmulk" then return false end
     if player.health <= 0 then return false end
 
+    -- 仅攻击伤害触发：跳过天谴和 AOE
+    if state._in_judgment_phase then return false end
+    local pa = state.pending_action
+    if pa and pa.type == "WAITING_FOR_AOE" then return false end
+
     local attacker = source_id and state.players[source_id]
-    if attacker and #attacker.hand > 0 then
+    if attacker and attacker.health > 0 and #attacker.hand > 0 then
         local ri = math.random(#attacker.hand)
         local card = table.remove(attacker.hand, ri)
         table.insert(state.discard_pile, card)

@@ -303,7 +303,11 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 rules.handle_response(dispatcher, state, act.chooser_id, {confirm=false})
             elseif act.type == "HAKIM_XING_XIANG"
                 or act.type == "SULEIMAN_SEAL"
-                or act.type == "HARUN_CHOOSE" then
+                or act.type == "HARUN_SELECT_TARGET"
+                or act.type == "HARUN_CHOOSE"
+                or act.type == "IBN_BATTUTA_YUAN_XING"
+                or act.type == "RUMI_XUANHUI"
+                or act.type == "SCHEHERAZADE_QIANYE" then
                 local hero_mgr = require("hero_manager")
                 hero_mgr.handle_response(dispatcher, state, act.player_id, {confirm=false})
             end
@@ -314,6 +318,22 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         if state.pending_turn_continuation and not state.pending_action then
             state.pending_turn_continuation = nil
             M.do_judgment_and_draw_phase(dispatcher, state)
+            return state
+        end
+
+        -- 恢复被摸牌阶段英雄技能挂起的出牌阶段
+        if state.pending_draw_continuation and not state.pending_action then
+            state.pending_draw_continuation = nil
+            local uid = state.current_turn_id
+            local current_p = state.players[uid]
+            if current_p and current_p.health > 0 then
+                if current_p.skip_play_phase then
+                    current_p.skip_play_phase = nil
+                    M.next_turn(dispatcher, state)
+                else
+                    hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
+                end
+            end
             return state
         end
 
@@ -332,8 +352,10 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 2. 处理客户端消息
     -- ==========================================
     for _, message in ipairs(messages) do
-        local payload = nk.json_decode(message.data)
+        local ok, payload = pcall(nk.json_decode, message.data)
+        if not ok or type(payload) ~= "table" then goto continue end
         local uid = message.sender.user_id
+        if not state.players[uid] then goto continue end
 
         -- 只要玩家有任何动作，就重置计时器，重新给 30 秒
         state.current_turn_elapsed = 0
@@ -357,6 +379,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 rules.handle_response(dispatcher, state, uid, payload)
             end
         end
+        ::continue::
     end
 
     -- ==========================================
@@ -388,8 +411,16 @@ function M.next_turn(dispatcher, state)
     end
 
     local ending_uid = state.current_turn_id
-    -- 清除苏莱曼【封印】状态（新回合开始时失效）
-    state.suleiman_sealed = nil
+    -- 清除苏莱曼【封印】：仅当被封印目标的回合结束时才清除
+    if state.suleiman_sealed and ending_uid then
+        state.suleiman_sealed[ending_uid] = nil
+        if not next(state.suleiman_sealed) then
+            state.suleiman_sealed = nil
+            state.suleiman_sealed_owner = nil
+        end
+    end
+    -- 清除杜尼亚扎德【续篇】免疫（仅持续当前回合）
+    state.dunyazad_immune = nil
     if ending_uid then
         -- on_turn_end 钩子（弃牌前触发，辛巴达/纳芙蒂蒂等回合结束技能在此触发）
         hero_mgr.trigger("on_turn_end", dispatcher, state, ending_uid)
@@ -516,6 +547,12 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
     -- 摸牌阶段
     -- 回合计数（供 season_manager 写入 match_history）
     state.turns = (state.turns or 0) + 1
+
+    local draw_suspended = hero_mgr.trigger("on_draw_phase_start", dispatcher, state, uid)
+    if draw_suspended then
+        state.pending_draw_continuation = {uid = uid}
+        return
+    end
 
     rules.draw_cards(state, uid, 2)
     rules.broadcast_update(dispatcher, state)

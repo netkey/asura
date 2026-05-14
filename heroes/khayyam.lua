@@ -11,7 +11,10 @@ function M.on_turn_end(dispatcher, state, player_id)
 
     local count = #state.discard_pile
     local rules = require("game_rules")
-    state.deck = rules.shuffle(state.discard_pile)
+    local shuffled = rules.shuffle(state.discard_pile)
+    for _, card in ipairs(shuffled) do
+        table.insert(state.deck, card)
+    end
     state.discard_pile = {}
 
     dispatcher.broadcast_message(11, nk.json_encode({

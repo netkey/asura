@@ -14,6 +14,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         type = "IBN_BATTUTA_YUAN_XING",
         player_id = player_id,
         hero_id = "ibn_battuta",
+        deadline = os.time() + 15,
         description = "是否弃1张牌发动【远行】，取弃牌堆顶1张牌入手？"
     }
     dispatcher.broadcast_message(101, nk.json_encode({
@@ -39,29 +40,31 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     -- 弃指定的1张牌
     local discarded = false
-    for _, cid in ipairs(payload.card_ids or {}) do
-        for i, c in ipairs(player.hand) do
-            if c.id == cid then
-                table.insert(state.discard_pile, table.remove(player.hand, i))
-                discarded = true
-                break
+    if type(payload.card_ids) == "table" then
+        for _, cid in ipairs(payload.card_ids) do
+            if type(cid) ~= "string" then break end
+            for i, c in ipairs(player.hand) do
+                if c.id == cid then
+                    table.insert(state.discard_pile, table.remove(player.hand, i))
+                    discarded = true
+                    break
+                end
             end
+            if discarded then break end
         end
-        if discarded then break end
     end
 
-    if discarded and #state.discard_pile > 0 then
-        -- 取弃牌堆顶最新加入的那张之前的牌（自己刚弃的在堆顶，取倒数第2张）
-        local idx = #state.discard_pile >= 2 and (#state.discard_pile - 1) or 1
-        local taken = table.remove(state.discard_pile, idx)
+    if discarded and #state.discard_pile >= 2 then
+        -- 取弃牌堆中自己刚弃的那张之前的牌（自己刚弃的在堆顶）
+        local taken = table.remove(state.discard_pile, #state.discard_pile - 1)
         table.insert(player.hand, taken)
         dispatcher.broadcast_message(11, nk.json_encode({
             content = player.username .. " 发动【远行】，以牌换牌！",
             hero = "ibn_battuta", skill = "yuan_xing"
         }))
-        rules.broadcast_update(dispatcher, state)
     end
     state.pending_action = nil
+    rules.broadcast_update(dispatcher, state)
 end
 
 return M

@@ -532,13 +532,14 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     local player = state.players[player_id]
     if not player or player.health <= 0 then return false end
 
-    -- 校验 target_id：若牌需要目标，目标必须是存活玩家（AOE/无目标牌 target_id 可为 nil）
+    if type(payload.card_id) ~= "string" then return false end
+
     local target_id = payload.target_id
     if target_id ~= nil then
+        if type(target_id) ~= "string" then return false end
         local target = state.players[target_id]
-        if not target or target.health <= 0 then
-            return false
-        end
+        if not target or target.health <= 0 then return false end
+        if target_id == player_id then return false end
     end
 
     local card_idx = nil
@@ -601,6 +602,8 @@ end
 function M.handle_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
     if not action then return end
+    -- 规范化 confirm 为严格 boolean
+    payload.confirm = (payload.confirm == true)
 
     if action.type == "WAITING_FOR_DEFENSE" then
         if action.target_id ~= player_id then return end
@@ -612,6 +615,24 @@ function M.handle_response(dispatcher, state, player_id, payload)
             return
         end
         if payload.confirm == true then
+            local defender = state.players[player_id]
+            local card_idx = nil
+            for i, card in ipairs(defender.hand) do
+                if card.type == "DEFENSE" then
+                    card_idx = i
+                    break
+                end
+            end
+            if not card_idx then
+                state.attack_bonus = nil
+                M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+                if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
+                    state.pending_action = nil
+                end
+                return
+            end
+            table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
+            state.pending_action = nil
             M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
         else
             -- 旭烈兀【铁蹄】：attack_bonus 已整合进 action.damage
@@ -649,7 +670,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
         if player_id ~= rescuer_id then return end
 
         local rescued = false
-        if payload.confirm == true and payload.card_id then
+        if payload.confirm == true and type(payload.card_id) == "string" then
             local rescuer = state.players[player_id]
             for i, card in ipairs(rescuer.hand) do
                 if card.id == payload.card_id and (card.type == "HEAL" or card.type == "WINE") then
@@ -723,7 +744,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 -- validate all ids exist
                 local valid = true
                 for _, sid in ipairs(payload.sorted_ids) do
-                    if not id_map[sid] then valid = false; break end
+                    if type(sid) ~= "string" or not id_map[sid] then valid = false; break end
                 end
                 if valid then
                     -- put back in the client-chosen order (first in array = top of deck)
@@ -742,7 +763,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
             local target = state.players[action.target_id]
             local discarded = nil
             if target and #target.hand > 0 then
-                if payload.confirm == true and payload.card_id then
+                if payload.confirm == true and type(payload.card_id) == "string" then
                     for i, card in ipairs(target.hand) do
                         if card.id == payload.card_id then
                             discarded = table.remove(target.hand, i)
@@ -770,34 +791,13 @@ function M.handle_response(dispatcher, state, player_id, payload)
     end
 end
 
--- 当玩家 B 打出【防御】牌来响应玩家 A 的【攻击】时调用
-function M.handle_defense_response(dispatcher, state, defender_id, card_id)
-    local action = state.pending_action
-    if not action or action.type ~= "WAITING_FOR_DEFENSE" then return end
-
-    local attacker_id = action.attacker_id
-
-    -- 1. 正常的防御逻辑：将防御牌移入手牌弃牌堆
-    local defender = state.players[defender_id]
-    for i, card in ipairs(defender.hand) do
-        if card.id == card_id then
-            table.insert(state.discard_pile, table.remove(defender.hand, i))
-            break
-        end
-    end
-
-    -- 清除挂起状态（攻击已被抵消）；此后 handle_defense_success 不再重复清除
-    state.pending_action = nil
-    M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
-end
-
 -- 防御成功后续逻辑（pending_action 由调用方在进入本函数前已清除）
 function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     nk.logger_info("防御成功，正在检查攻击者是否有追击技能...")
     local hero_mgr = require("hero_manager")
     local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, defender_id, attacker_id)
     if not suspended then
-        dispatcher.broadcast_message(11, "防御成功！")
+        dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
         M.broadcast_update(dispatcher, state)
     end
 end
@@ -808,9 +808,9 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     local target = state.players[target_id]
     if not target or target.health <= 0 then return end
 
-    -- 计算攻击加成（来源方装备+酒牌）
+    -- 计算攻击加成（来源方装备+酒牌），固定伤害场景跳过
     local source = source_id and state.players[source_id]
-    if source then
+    if source and not state._fixed_damage then
         -- 武器加成
         if source.equipment.weapon then
             local wtype = source.equipment.weapon.subtype
@@ -916,7 +916,13 @@ function M.broadcast_update(dispatcher, state)
         local p_data = state.players[uid]
         local payload = {
             current_turn = state.current_turn_id,
-            pending = state.pending_action,
+            pending = state.pending_action and state.pending_action.player_id == uid
+                and state.pending_action or
+                (state.pending_action and {
+                    type = state.pending_action.type,
+                    player_id = state.pending_action.player_id,
+                    deadline = state.pending_action.deadline,
+                } or nil),
             me = {
                 hand            = p_data.hand,
                 hp              = p_data.health,

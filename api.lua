@@ -38,16 +38,23 @@ end
 -- ==========================================
 -- 匹配系统
 -- ==========================================
+local VALID_MODES = {standard = true, pvp = true}
+local VALID_PLAYER_COUNTS = {[2] = true, [5] = true}
+
 local function find_or_create_match(context, payload)
-    local json  = nk.json_decode(payload)
-    local mode  = json.mode or "standard"
+    local ok, json = pcall(nk.json_decode, payload)
+    if not ok or type(json) ~= "table" then
+        error("invalid payload", 2)
+    end
+    local mode = VALID_MODES[json.mode] and json.mode or "standard"
+    local max_players = VALID_PLAYER_COUNTS[json.max_players] and json.max_players or 5
     local query = "+label.mode:" .. mode .. " +label.open:1"
     local matches = nk.match_list(10, true, nil, nil, nil, query)
     if #matches > 0 then
         return nk.json_encode({ match_id = matches[1].match_id })
     end
     local match_id = nk.match_create("match_handler", {
-        max_players = json.max_players,
+        max_players = max_players,
         mode = mode
     })
     return nk.json_encode({ match_id = match_id })

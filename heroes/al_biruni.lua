@@ -47,7 +47,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    local chosen_id = payload.card_ids and payload.card_ids[1]
+    local chosen_id = type(payload.card_ids) == "table" and type(payload.card_ids[1]) == "string" and payload.card_ids[1]
     local chosen = nil
     if chosen_id then
         for i, c in ipairs(action.cards) do

@@ -18,8 +18,6 @@ function M.on_turn_end(dispatcher, state, player_id)
         content = player.username .. " 发动【古仪】，未攻击他人，回复1点血量！",
         hero = "nefertiti", skill = "gu_yi"
     }))
-    local rules = require("game_rules")
-    rules.broadcast_update(dispatcher, state)
     return false
 end
 

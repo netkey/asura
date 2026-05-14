@@ -15,7 +15,6 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
             player.username),
         hero = "tamerlane", skill = "wan_qi"
     }))
-    rules.broadcast_update(dispatcher, state)
     return false
 end
 

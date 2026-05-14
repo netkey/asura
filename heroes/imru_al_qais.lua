@@ -22,7 +22,6 @@ function M.on_turn_end(dispatcher, state, player_id)
                 player.username, attack_count),
             hero = "imru_al_qais", skill = "xuan_shi"
         }))
-        rules.broadcast_update(dispatcher, state)
     end
     return false
 end

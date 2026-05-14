@@ -40,15 +40,18 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 
     local discarded = false
-    for _, cid in ipairs(payload.card_ids or {}) do
-        for i, c in ipairs(player.hand) do
-            if c.id == cid then
-                table.insert(state.discard_pile, table.remove(player.hand, i))
-                discarded = true
-                break
+    if type(payload.card_ids) == "table" then
+        for _, cid in ipairs(payload.card_ids) do
+            if type(cid) ~= "string" then break end
+            for i, c in ipairs(player.hand) do
+                if c.id == cid then
+                    table.insert(state.discard_pile, table.remove(player.hand, i))
+                    discarded = true
+                    break
+                end
             end
+            if discarded then break end
         end
-        if discarded then break end
     end
 
     if discarded then

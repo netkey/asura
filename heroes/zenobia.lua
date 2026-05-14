@@ -8,13 +8,15 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     local player = state.players[player_id]
     if player.hero ~= "zenobia" then return false end
 
-    -- 找手牌最多的存活玩家
+    -- 找手牌最多的存活玩家（并列时取 id 最小，保证确定性）
     local max_cards = -1
     local top_target = nil
     for uid, p in pairs(state.players) do
-        if uid ~= player_id and p.health > 0 and #p.hand > max_cards then
-            max_cards = #p.hand
-            top_target = uid
+        if uid ~= player_id and p.health > 0 then
+            if #p.hand > max_cards or (#p.hand == max_cards and (not top_target or uid < top_target)) then
+                max_cards = #p.hand
+                top_target = uid
+            end
         end
     end
 

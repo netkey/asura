@@ -10,14 +10,12 @@ function M.on_turn_end(dispatcher, state, player_id)
     if player.health <= 0 then return false end
     if player.health >= 2 then return false end
 
-    player.health = 2  -- base max_health ≥ 4, so 2 is always ≤ max_health
+    player.health = math.min(2, player.max_health)
     dispatcher.broadcast_message(11, nk.json_encode({
         content = string.format("%s 发动【不朽】，血量过低时自动回复至2点！",
             player.username),
         hero = "gilgamesh", skill = "bu_xiu"
     }))
-    local rules = require("game_rules")
-    rules.broadcast_update(dispatcher, state)
     return false
 end
 

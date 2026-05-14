@@ -42,7 +42,7 @@ function M.on_response(dispatcher, state, player_id, payload)
     state.pending_action = nil
 
     -- confirm=false 或超时：放弃技能，直接进入出牌阶段
-    if payload.confirm ~= true or not payload.target_id then
+    if payload.confirm ~= true or type(payload.target_id) ~= "string" then
         local rules = require("game_rules")
         rules.broadcast_update(dispatcher, state)
         return

@@ -19,11 +19,13 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
 
     local rules = require("game_rules")
 
-    -- 摸1张牌
-    rules.draw_cards(state, player_id, 1)
+    -- 每受到1点伤害摸1张牌
+    local draw_count = amount or 1
+    rules.draw_cards(state, player_id, draw_count)
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = player.username .. " 发动【坚守】，受到伤害后摸1张牌！",
+        content = string.format("%s 发动【坚守】，受到 %d 点伤害，摸 %d 张牌！",
+            player.username, draw_count, draw_count),
         hero = "saladin",
         skill = "jian_shou"
     }))

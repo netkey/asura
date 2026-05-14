@@ -74,8 +74,10 @@ function M.on_response(dispatcher, state, player_id, payload)
                 skill = "an_hao"
             }))
 
-            -- 触发攻击效果
+            -- 反击固定1点伤害，不受武器/酒加成
+            state._fixed_damage = true
             rules.apply_damage(dispatcher, state, attacker_id, 1, player_id)
+            state._fixed_damage = nil
             break
         end
     end

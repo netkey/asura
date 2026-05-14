@@ -51,19 +51,34 @@ function M.on_response(dispatcher, state, player_id, payload)
     local rules = require("game_rules")
     local player = state.players[player_id]
 
-    -- 弃置2张牌
-    local discard_count = 0
-    for _, card_id in ipairs(payload.card_ids or {}) do
-        for i, card in ipairs(player.hand) do
+    -- 校验 card_ids
+    if type(payload.card_ids) ~= "table" or #payload.card_ids > 10 then
+        state.pending_action = nil
+        return
+    end
+
+    -- 先验证 2 张牌都存在于手牌中再弃置，避免部分弃牌无回滚
+    local to_discard = {}
+    for _, card_id in ipairs(payload.card_ids) do
+        if type(card_id) ~= "string" then break end
+        for _, card in ipairs(player.hand) do
             if card.id == card_id then
-                table.insert(state.discard_pile, table.remove(player.hand, i))
-                discard_count = discard_count + 1
+                table.insert(to_discard, card_id)
                 break
             end
         end
+        if #to_discard >= 2 then break end
     end
 
-    if discard_count >= 2 then
+    if #to_discard >= 2 then
+        for _, cid in ipairs(to_discard) do
+            for i, card in ipairs(player.hand) do
+                if card.id == cid then
+                    table.insert(state.discard_pile, table.remove(player.hand, i))
+                    break
+                end
+            end
+        end
         -- 摸2张牌
         rules.draw_cards(state, player_id, 2)
 

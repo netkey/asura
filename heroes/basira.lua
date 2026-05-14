@@ -8,7 +8,10 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     local player = state.players[player_id]
     if player.hero ~= "basira" then return false end
 
-    -- 每回合限制1次
+    -- 每回合重置
+    player.basira_used = false
+
+    -- 每回合限制1次（在 on_response 中设为 true）
     if player.basira_used then return false end
 
     local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"}
@@ -45,23 +48,19 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    local guess = payload.guess or action.guess or "HEART"
+    local valid_suits = {HEART = true, SPADE = true, CLUB = true, DIAMOND = true}
+    local guess = valid_suits[payload.guess] and payload.guess or action.guess or "HEART"
 
-    -- 摸第1张并检查花色（draw_cards 内已处理牌堆耗尽/洗牌逻辑）
-    if #state.deck == 0 and #state.discard_pile == 0 then
+    -- 摸第1张并检查花色（draw_cards 内部处理牌堆耗尽/洗牌）
+    local hand_before = #player.hand
+    rules.draw_cards(state, player_id, 1)
+    if #player.hand <= hand_before then
+        -- 牌堆和弃牌堆均为空，无牌可摸
         state.pending_action = nil
+        rules.broadcast_update(dispatcher, state)
         return
     end
-    if #state.deck == 0 then
-        state.deck = rules.shuffle(state.discard_pile)
-        state.discard_pile = {}
-    end
-    if #state.deck == 0 then
-        state.pending_action = nil
-        return
-    end
-    local first_card = table.remove(state.deck, 1)
-    table.insert(player.hand, first_card)
+    local first_card = player.hand[#player.hand]
 
     local hit = (first_card.suit == guess)
     dispatcher.broadcast_message(11, nk.json_encode({

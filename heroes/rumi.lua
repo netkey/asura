@@ -14,6 +14,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         player_id = player_id,
         hero_id = "rumi",
         hand_count = #player.hand,
+        deadline = os.time() + 15,
         description = "是否发动【旋回】，弃置全部手牌并摸等量新牌？"
     }
     dispatcher.broadcast_message(101, nk.json_encode({
@@ -50,8 +51,8 @@ function M.on_response(dispatcher, state, player_id, payload)
             player.username, count, count),
         hero = "rumi", skill = "xuan_hui"
     }))
-    rules.broadcast_update(dispatcher, state)
     state.pending_action = nil
+    rules.broadcast_update(dispatcher, state)
 end
 
 return M

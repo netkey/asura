@@ -20,6 +20,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         type = "SCHEHERAZADE_QIANYE",
         player_id = player_id,
         hero_id = "scheherazade",
+        deadline = os.time() + 15,
         description = "是否弃置 1 张牌发动【千夜】，摸 2 张牌？"
     }
 
@@ -50,15 +51,18 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     -- 弃置指定的 1 张牌
     local discarded = false
-    for _, card_id in ipairs(payload.card_ids or {}) do
-        for i, card in ipairs(player.hand) do
-            if card.id == card_id then
-                table.insert(state.discard_pile, table.remove(player.hand, i))
-                discarded = true
-                break
+    if type(payload.card_ids) == "table" then
+        for _, card_id in ipairs(payload.card_ids) do
+            if type(card_id) ~= "string" then break end
+            for i, card in ipairs(player.hand) do
+                if card.id == card_id then
+                    table.insert(state.discard_pile, table.remove(player.hand, i))
+                    discarded = true
+                    break
+                end
             end
+            if discarded then break end
         end
-        if discarded then break end
     end
 
     if discarded then
@@ -68,10 +72,10 @@ function M.on_response(dispatcher, state, player_id, payload)
             hero = "scheherazade",
             skill = "qian_ye"
         }))
-        rules.broadcast_update(dispatcher, state)
     end
 
     state.pending_action = nil
+    rules.broadcast_update(dispatcher, state)
 end
 
 return M
