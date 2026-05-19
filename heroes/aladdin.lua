@@ -22,6 +22,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         type = "ALADDIN_LAMP",
         player_id = player_id,
         hero_id = "aladdin",
+        deadline = os.time() + 15,
         description = "是否弃置2张牌发动【神灯】？"
     }
 

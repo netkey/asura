@@ -8,11 +8,8 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     local player = state.players[player_id]
     if player.hero ~= "basira" then return false end
 
-    -- 每回合重置
+    -- 每回合重置（on_response 中设为 true，下回合此处清除）
     player.basira_used = false
-
-    -- 每回合限制1次（在 on_response 中设为 true）
-    if player.basira_used then return false end
 
     local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"}
     local guess = suits[math.random(4)]
@@ -22,6 +19,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         player_id = player_id,
         hero_id = "basira",
         guess = guess,
+        deadline = os.time() + 15,
         description = "是否发动【先知】？"
     }
     dispatcher.broadcast_message(101, nk.json_encode({

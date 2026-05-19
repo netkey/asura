@@ -21,6 +21,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         player_id = player_id,
         hero_id = "al_biruni",
         cards = cards,
+        deadline = os.time() + 15,
         description = "是否发动【测量】？选1张牌入手，其余放回"
     }
     dispatcher.broadcast_message(101, nk.json_encode({

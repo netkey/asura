@@ -38,7 +38,7 @@ end
 -- ==========================================
 -- 匹配系统
 -- ==========================================
-local VALID_MODES = {standard = true, pvp = true}
+local VALID_MODES = {pvp = true, identity = true}
 local VALID_PLAYER_COUNTS = {[2] = true, [5] = true}
 
 local function find_or_create_match(context, payload)
@@ -46,7 +46,7 @@ local function find_or_create_match(context, payload)
     if not ok or type(json) ~= "table" then
         error("invalid payload", 2)
     end
-    local mode = VALID_MODES[json.mode] and json.mode or "standard"
+    local mode = VALID_MODES[json.mode] and json.mode or "pvp"
     local max_players = VALID_PLAYER_COUNTS[json.max_players] and json.max_players or 5
     local query = "+label.mode:" .. mode .. " +label.open:1"
     local matches = nk.match_list(10, true, nil, nil, nil, query)

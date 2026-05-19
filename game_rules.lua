@@ -646,8 +646,19 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
     elseif action.type == "WAITING_FOR_AOE" then
         if action.current_target ~= player_id then return end
-        if payload.confirm ~= true then
-            -- 未防御，扣血
+        local defended = false
+        if payload.confirm == true and type(payload.card_id) == "string" then
+            local defender = state.players[player_id]
+            for i, card in ipairs(defender.hand) do
+                if card.id == payload.card_id and card.type == "DEFENSE" then
+                    table.insert(state.discard_pile, table.remove(defender.hand, i))
+                    defended = true
+                    break
+                end
+            end
+        end
+        if not defended then
+            -- 未防御（或防御牌无效/不存在），扣血
             M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
             -- 若扣血触发了濒死求救，暂停 AOE 等待救援，parent_action 已在 apply_damage 中设好
             if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then

@@ -307,7 +307,11 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 or act.type == "HARUN_CHOOSE"
                 or act.type == "IBN_BATTUTA_YUAN_XING"
                 or act.type == "RUMI_XUANHUI"
-                or act.type == "SCHEHERAZADE_QIANYE" then
+                or act.type == "SCHEHERAZADE_QIANYE"
+                or act.type == "ALADDIN_LAMP"
+                or act.type == "ALIBABA_COUNTER"
+                or act.type == "AL_BIRUNI_CELIANG"
+                or act.type == "BASIRA_XIAN_ZHI" then
                 local hero_mgr = require("hero_manager")
                 hero_mgr.handle_response(dispatcher, state, act.player_id, {confirm=false})
             end

@@ -31,6 +31,7 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
         player_id = defender_id,
         hero_id = "alibaba",
         attacker_id = attacker_id,
+        deadline = os.time() + 15,
         description = "是否对攻击者使用一张【攻击】进行反击？"
     }
 
@@ -51,12 +52,14 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
+    local rules = require("game_rules")
+
     if payload.confirm ~= true then
         state.pending_action = nil
+        rules.broadcast_update(dispatcher, state)
         return
     end
 
-    local rules = require("game_rules")
     local defender = state.players[player_id]
     local attacker_id = action.attacker_id
 
@@ -82,7 +85,10 @@ function M.on_response(dispatcher, state, player_id, payload)
         end
     end
 
-    state.pending_action = nil
+    -- 只在 apply_damage 未触发濒死救援时才清除，避免覆盖 WAITING_FOR_RESCUE
+    if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
+        state.pending_action = nil
+    end
 end
 
 return M
