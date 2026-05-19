@@ -61,8 +61,10 @@ local CARD_EFFECTS = {
             attacker_id = source_id,
             target_id = target_id,
             damage = dmg,
+            jafar_du_ji = state.jafar_du_ji,
             deadline = os.time() + 15
         }
+        state.jafar_du_ji = nil
 
         -- 通知客户端：A 攻击 B，B 准备操作
         dispatcher.broadcast_message(105, nk.json_encode({
@@ -607,7 +609,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
     if action.type == "WAITING_FOR_DEFENSE" then
         if action.target_id ~= player_id then return end
-        -- 贾法尔【毒计】：强制命中，忽略防御
+        -- 流星锤：无视防具，强制命中
         if state.attack_forced then
             state.attack_forced = nil
             state.pending_action = nil
@@ -616,11 +618,32 @@ function M.handle_response(dispatcher, state, player_id, payload)
         end
         if payload.confirm == true then
             local defender = state.players[player_id]
+            -- 贾法尔【毒计】第二步：已出1张防御，还需再出1张
+            if action.jafar_step2 then
+                local card_idx = nil
+                for i, card in ipairs(defender.hand) do
+                    if card.id == payload.card_id and card.type == "DEFENSE" then
+                        card_idx = i; break
+                    end
+                end
+                if card_idx then
+                    table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
+                    state.pending_action = nil
+                    dispatcher.broadcast_message(11, nk.json_encode({
+                        content = defender.username .. " 打出第2张【防御】，成功抵挡了贾法尔的【毒计】！",
+                    }))
+                    M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
+                else
+                    state.pending_action = nil
+                    M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+                end
+                return
+            end
+            -- 普通防御 / 贾法尔第一步
             local card_idx = nil
             for i, card in ipairs(defender.hand) do
-                if card.type == "DEFENSE" then
-                    card_idx = i
-                    break
+                if card.id == payload.card_id and card.type == "DEFENSE" then
+                    card_idx = i; break
                 end
             end
             if not card_idx then
@@ -632,6 +655,24 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 return
             end
             table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
+            -- 贾法尔【毒计】第一步完成：提示需要第二张防御
+            if action.jafar_du_ji then
+                state.pending_action = {
+                    type = "WAITING_FOR_DEFENSE",
+                    attacker_id = action.attacker_id,
+                    target_id = action.target_id,
+                    damage = action.damage,
+                    jafar_step2 = true,
+                    deadline = os.time() + 15,
+                }
+                dispatcher.broadcast_message(105, nk.json_encode({
+                    attacker = action.attacker_id,
+                    target = action.target_id,
+                    damage = action.damage,
+                    msg = "贾法尔【毒计】！需要再出1张【防御】才能抵挡",
+                }))
+                return
+            end
             state.pending_action = nil
             M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
         else

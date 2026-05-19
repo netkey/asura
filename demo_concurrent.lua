@@ -89,18 +89,18 @@ local function ai_handle_pending(state)
         if action.type == "WAITING_FOR_DEFENSE" then
             local p = state.players[action.target_id]
             if not p then state.pending_action = nil; break end
-            local di
-            for i, c in ipairs(p.hand) do if c.type == "DEFENSE" then di = i; break end end
-            if di then table.remove(p.hand, di) end
-            rules.handle_response(state._dispatcher, state, action.target_id, {confirm = di ~= nil})
+            local def_card
+            for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
+            rules.handle_response(state._dispatcher, state, action.target_id,
+                {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
 
         elseif action.type == "WAITING_FOR_AOE" then
             local p = state.players[action.current_target]
             if not p then state.pending_action = nil; break end
-            local di
-            for i, c in ipairs(p.hand) do if c.type == "DEFENSE" then di = i; break end end
-            if di then table.remove(p.hand, di) end
-            rules.handle_response(state._dispatcher, state, action.current_target, {confirm = di ~= nil})
+            local def_card
+            for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
+            rules.handle_response(state._dispatcher, state, action.current_target,
+                {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
 
         -- ---- 英雄技能响应 ----
         elseif action.type == "ALADDIN_LAMP" then
@@ -128,12 +128,23 @@ local function ai_handle_pending(state)
             hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
 
         elseif action.type == "HAKIM_XING_XIANG" then
-            local ids = {}
-            for _, c in ipairs(action.cards or {}) do table.insert(ids, c.id) end
-            hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                {confirm=true, sorted_ids=ids})
-            -- hakim.on_response 不含摸牌，需手动补摸以接续挂起的摸牌阶段
-            rules.draw_cards(state, action.player_id, 2)
+            -- 观星：按优先级排序（最好的放前面），on_response 会自己摸2张
+            if action.cards and #action.cards > 0 then
+                local card_priority = { HEAL=10, DEFENSE=9, ATTACK=8, WINE=7,
+                    INSTANT_TRICK=6, DRAW_TWO=5, AOE_SANDSTORM=4,
+                    DELAYED_TRICK=3, JUDGE_STORM=2, WEAPON=1, ARMOR=1, HORSE=1 }
+                local sorted = {}
+                for _, c in ipairs(action.cards) do table.insert(sorted, c) end
+                table.sort(sorted, function(a, b)
+                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                end)
+                local sorted_ids = {}
+                for _, c in ipairs(sorted) do table.insert(sorted_ids, c.id) end
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, sorted_ids=sorted_ids})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
+            end
 
         elseif action.type == "SCHEHERAZADE_QIANYE" then
             -- 受到伤害后反制：弃自己最差的牌，选攻击者展示牌中第一张弃置
@@ -192,9 +203,20 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "AL_BIRUNI_CELIANG" then
+            -- 看4选2：按优先级排序，保留最好的2张
             if action.cards and #action.cards > 0 then
+                local card_priority = { HEAL=10, DEFENSE=9, ATTACK=8, WINE=7,
+                    INSTANT_TRICK=6, DRAW_TWO=5, AOE_SANDSTORM=4,
+                    DELAYED_TRICK=3, JUDGE_STORM=2, WEAPON=1, ARMOR=1, HORSE=1 }
+                local sorted = {}
+                for _, c in ipairs(action.cards) do table.insert(sorted, c) end
+                table.sort(sorted, function(a, b)
+                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                end)
+                local keep = {}
+                for i = 1, math.min(2, #sorted) do table.insert(keep, sorted[i].id) end
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, card_ids={action.cards[1].id}})
+                    {confirm=true, keep_ids=keep})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end

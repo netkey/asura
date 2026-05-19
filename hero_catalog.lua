@@ -15,11 +15,11 @@ M.HEROES = {
     saladin         = { name="萨拉丁",       price=500,  tier=1,
                         description="【坚守】受到伤害后，摸1张牌" },
     hakim           = { name="哈基姆",       price=500,  tier=1,
-                        description="【星象】判定阶段，可观看牌堆顶3张牌并调整顺序" },
+                        description="【星象】摸牌阶段看牌堆顶X张排序（X=存活人数），再摸2张" },
     scheherazade    = { name="舍赫拉莎德",   price=500,  tier=1,
                         description="【千夜】受伤时弃1张，随机看攻击者2张牌选1弃置" },
     jafar           = { name="贾法尔",       price=500,  tier=1,
-                        description="【毒计】你发动的【攻击】强制命中，目标无法使用【防御】" },
+                        description="【毒计】你的攻击需要目标出2张防御才能抵挡" },
 
     -- ── Tier 2: 第一批扩展英雄 1000金 ───────────────────────────────────
     ibn_battuta     = { name="伊本白图泰",   price=1000, tier=2,
@@ -37,7 +37,7 @@ M.HEROES = {
     zubaydah        = { name="祖拜达",       price=1000, tier=2,
                         description="【仁济】受伤时，令场上血量最低的其他存活玩家回复1点血量" },
     al_biruni       = { name="比鲁尼",       price=1000, tier=2,
-                        description="【测量】摸牌阶段，可跳过正常摸牌，看牌堆顶5张选1张入手" },
+                        description="【测量】摸牌阶段，看牌堆顶4张选2张入手，其余弃置" },
     tamerlane       = { name="帖木儿",       price=1000, tier=2,
                         description="【万骑】击杀玩家后立刻摸3张牌" },
     dunyazad        = { name="杜尼亚扎德",   price=1000, tier=2,
