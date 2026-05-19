@@ -1,8 +1,8 @@
 local nk = require("nakama")
 local M = {}
 
--- 双角王（Dhul-Qarnayn）- 《古兰经》第18章提到的传奇统治者，拥有"两角"旗帜
--- 技能：【征服四方】 - 击杀玩家时，在其弃牌之前夺取其1张随机手牌
+-- 双角王（Dhul-Qarnayn）- 古代中东传说中的伟大君主，以铁壁守护弱者
+-- 技能：【铁壁】 - 击杀玩家时，在其弃牌之前收缴其1张随机手牌
 
 function M.on_kill(dispatcher, state, player_id, victim_id)
     local player = state.players[player_id]
@@ -17,9 +17,9 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
     table.insert(player.hand, stolen)
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【征服四方】，击杀 %s 前夺取了1张牌！",
+        content = string.format("%s 发动【铁壁】，击杀 %s 前收缴了1张牌！",
             player.username, victim.username),
-        hero = "dhul_qarnayn", skill = "zheng_fu_si_fang"
+        hero = "dhul_qarnayn", skill = "tie_bi"
     }))
     return false
 end

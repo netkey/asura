@@ -106,8 +106,20 @@ local function ai_handle_pending(state)
         elseif action.type == "ALADDIN_LAMP" then
             local p = state.players[action.player_id]
             if #p.hand >= 2 then
+                -- 废牌优先：天谴 > 延时锦囊 > 沙尘暴 > 装备牌 > 其他
+                local discard_scores = {
+                    JUDGE_STORM = 5, DELAYED_TRICK = 4, AOE_SANDSTORM = 3,
+                    WEAPON = 2, ARMOR = 2, HORSE = 2,
+                    INSTANT_TRICK = 1, DRAW_TWO = 1, WINE = 1,
+                    HEAL = 0, DEFENSE = 0, ATTACK = 0,
+                }
+                local scored = {}
+                for _, c in ipairs(p.hand) do
+                    table.insert(scored, {id = c.id, score = discard_scores[c.type] or 0})
+                end
+                table.sort(scored, function(a, b) return a.score > b.score end)
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, card_ids={p.hand[1].id, p.hand[2].id}})
+                    {confirm=true, card_ids={scored[1].id, scored[2].id}})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
@@ -124,10 +136,18 @@ local function ai_handle_pending(state)
             rules.draw_cards(state, action.player_id, 2)
 
         elseif action.type == "SCHEHERAZADE_QIANYE" then
+            -- 受到伤害后反制：弃自己最差的牌，选攻击者展示牌中第一张弃置
             local p = state.players[action.player_id]
-            if #p.hand >= 1 then
+            if p and #p.hand >= 1 and action.shown_cards and #action.shown_cards > 0 then
+                -- 选自己最差的牌（优先天谴/延时锦囊/沙尘暴）
+                local waste_priority = { JUDGE_STORM=5, DELAYED_TRICK=4, AOE_SANDSTORM=3, WEAPON=2, ARMOR=2, HORSE=2 }
+                local worst, worst_idx = nil, 1
+                for i, c in ipairs(p.hand) do
+                    local s = waste_priority[c.type] or 0
+                    if not worst or s > worst then worst, worst_idx = s, i end
+                end
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, card_ids={p.hand[1].id}})
+                    {confirm=true, own_card_id=p.hand[worst_idx].id, target_card_id=action.shown_cards[1].id})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
@@ -150,10 +170,23 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "AL_KHWARIZMI_SUANFA" then
-            local p = state.players[action.player_id]
-            if #p.hand >= 1 then
+            -- 看4张牌，按优先级排序，保留最好的2张
+            if action.cards and #action.cards > 0 then
+                local card_priority = {
+                    HEAL = 10, DEFENSE = 9, ATTACK = 8, WINE = 7,
+                    INSTANT_TRICK = 6, DRAW_TWO = 5, AOE_SANDSTORM = 4,
+                    DELAYED_TRICK = 3, JUDGE_STORM = 2,
+                    WEAPON = 1, ARMOR = 1, HORSE = 1,
+                }
+                local sorted = {}
+                for _, c in ipairs(action.cards) do table.insert(sorted, c) end
+                table.sort(sorted, function(a, b)
+                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                end)
+                local sorted_ids = {}
+                for _, c in ipairs(sorted) do table.insert(sorted_ids, c.id) end
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, card_ids={p.hand[1].id}})
+                    {confirm=true, sorted_ids=sorted_ids, keep_ids={sorted[1].id, sorted[2].id}})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
@@ -166,9 +199,80 @@ local function ai_handle_pending(state)
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
 
-        elseif action.type == "BASIRA_XIAN_ZHI" then
+        elseif action.type == "BASIRA_DONG_CHA" then
             hero_mgr.handle_response(state._dispatcher, state, action.player_id,
                 {confirm=true, guess=action.guess})
+
+        elseif action.type == "GILGAMESH_BU_XIU" then
+            if action.cards and #action.cards > 0 then
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, card_id=action.cards[1].id})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
+            end
+
+        elseif action.type == "SULEIMAN_YU_FENG" then
+            if action.targets and #action.targets > 0 then
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, target_id=action.targets[1].id})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
+            end
+
+        elseif action.type == "HARUN_SELECT_TARGET" then
+            if action.targets and #action.targets > 0 then
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, target_id=action.targets[1].id})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
+            end
+
+        elseif action.type == "ENHEDUANNA_SONG_CI" then
+            -- 发动颂词摸4给1，净收益+3，总是发动
+            hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+
+        elseif action.type == "ENHEDUANNA_SONG_CI_GIVE" then
+            -- 选第一张手牌给第一个可选目标
+            if action.hand_cards and #action.hand_cards > 0 and action.targets and #action.targets > 0 then
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, card_id=action.hand_cards[1].id, target_id=action.targets[1].id})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
+            end
+
+        elseif action.type == "AVICENNA_ZHEN" then
+            if action.heart_cards and #action.heart_cards > 0 then
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
+                    {confirm=true, card_id=action.heart_cards[1].id})
+            else
+                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
+            end
+
+        elseif action.type == "WAITING_FOR_RESCUE" then
+            local rescuer_id = action.rescuers and action.rescuers[action.current_rescuer_idx]
+            local rescuer = state.players[rescuer_id]
+            if rescuer then
+                local rescue_idx
+                for i, c in ipairs(rescuer.hand) do
+                    if c.type == "HEAL" or (c.suit == "HEART" and rescuer.hero == "avicenna") then
+                        rescue_idx = i; break
+                    end
+                end
+                if rescue_idx then
+                    local card = table.remove(rescuer.hand, rescue_idx)
+                    table.insert(state.discard_pile, card)
+                    rules.handle_response(state._dispatcher, state, rescuer_id, {confirm=true, card_id=card.id})
+                else
+                    rules.handle_response(state._dispatcher, state, rescuer_id, {confirm=false})
+                end
+            else
+                state.pending_action = nil
+                break
+            end
+
+        elseif action.type == "WAITING_FOR_TRICK_SELECT" then
+            -- 锦囊选择：默认 confirm=true（接受默认行为）
+            rules.handle_response(state._dispatcher, state, action.chooser_id or action.player_id, {confirm=true})
 
         else
             -- 未知 pending_action，清除防止死锁

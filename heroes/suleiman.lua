@@ -1,8 +1,8 @@
 local nk = require("nakama")
 local M = {}
 
--- 苏莱曼（所罗门） - 古代以色列联合王国最伟大的国王，传说拥有封印恶魔的神戒指
--- 技能：【封印】 - 出牌阶段开始时，可宣告一名其他玩家本回合不能使用【AOE沙尘暴】（主动选择）
+-- 苏莱曼（Suleiman）- 古代以色列传奇国王，以智慧和对自然力量的掌控闻名
+-- 技能：【御风】 - 出牌阶段开始时，可宣告一名其他玩家本回合不能使用【沙尘暴】（主动选择）
 
 function M.on_play_phase_start(dispatcher, state, player_id)
     local player = state.players[player_id]
@@ -17,7 +17,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     if #targets == 0 then return false end
 
     state.pending_action = {
-        type      = "SULEIMAN_SEAL",
+        type      = "SULEIMAN_YU_FENG",
         player_id = player_id,
         hero_id   = "suleiman",
         targets   = targets,
@@ -26,8 +26,8 @@ function M.on_play_phase_start(dispatcher, state, player_id)
 
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
-        skill       = "feng_yin",
-        description = "是否发动【封印】？选择一名玩家令其本回合不能使用【沙尘暴】",
+        skill       = "yu_feng",
+        description = "是否发动【御风】？选择一名玩家令其本回合不能使用【沙尘暴】",
         targets     = targets,
     }), { state.presences[player_id] })
 
@@ -36,7 +36,7 @@ end
 
 function M.on_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
-    if not action or action.type ~= "SULEIMAN_SEAL" then return end
+    if not action or action.type ~= "SULEIMAN_YU_FENG" then return end
     if action.player_id ~= player_id then return end
 
     state.pending_action = nil
@@ -56,17 +56,17 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    state.suleiman_sealed = state.suleiman_sealed or {}
-    state.suleiman_sealed[payload.target_id] = true
-    state.suleiman_sealed_owner = player_id
+    state.suleiman_yu_feng_target = state.suleiman_yu_feng_target or {}
+    state.suleiman_yu_feng_target[payload.target_id] = true
+    state.suleiman_yu_feng_owner = player_id
 
     local player = state.players[player_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content   = string.format("%s 发动【封印】，%s 本回合不能使用【沙尘暴】！",
+        content   = string.format("%s 发动【御风】，%s 本回合不能使用【沙尘暴】！",
                         player.username, target.username),
         event     = "skill_used",
         hero      = "suleiman",
-        skill     = "feng_yin",
+        skill     = "yu_feng",
         target_id = payload.target_id,
     }))
 

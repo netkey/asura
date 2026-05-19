@@ -30,11 +30,37 @@ asura/
 ├── game_rules.lua              # 游戏规则核心逻辑
 ├── match_handler.lua           # 匹配处理逻辑
 ├── hero_manager.lua            # 英雄管理器
-├── heroes/                     # 英雄技能定义
-│   ├── aladdin.lua            # 阿拉丁
-│   ├── alibaba.lua            # 阿里巴巴
-│   ├── saladin.lua            # 萨拉丁
-│   └── hakim.lua              # 哈基姆
+├── heroes/                     # 英雄技能定义 (30 个英雄)
+│   ├── al_biruni.lua         # 比鲁尼
+│   ├── al_khwarizmi.lua      # 花剌子密
+│   ├── al_mansur.lua         # 曼苏尔
+│   ├── aladdin.lua           # 阿拉丁
+│   ├── alibaba.lua           # 阿里巴巴
+│   ├── antar.lua             # 安塔拉
+│   ├── avicenna.lua          # 伊本·西那 (阿维森纳)
+│   ├── basira.lua            # 巴希拉
+│   ├── dhul_qarnayn.lua      # 双角王
+│   ├── dunyazad.lua          # 敦娅扎德
+│   ├── enheduanna.lua        # 恩赫杜安娜
+│   ├── gilgamesh.lua         # 吉尔伽美什
+│   ├── hakim.lua             # 哈基姆
+│   ├── harun_al_rashid.lua   # 哈伦·拉希德
+│   ├── hulagu.lua            # 旭烈兀
+│   ├── ibn_battuta.lua       # 伊本·白图泰
+│   ├── imru_al_qais.lua      # 乌姆鲁勒·盖斯
+│   ├── jafar.lua             # 贾法尔
+│   ├── khayyam.lua           # 海亚姆
+│   ├── muawiyah.lua          # 穆阿维叶
+│   ├── nefertiti.lua         # 纳芙蒂蒂
+│   ├── nizamulmulk.lua       # 尼扎姆·穆勒克
+│   ├── rumi.lua              # 鲁米
+│   ├── saladin.lua           # 萨拉丁
+│   ├── scheherazade.lua     # 谢赫拉莎德
+│   ├── sinbad.lua            # 辛巴达
+│   ├── suleiman.lua          # 苏莱曼大帝
+│   ├── tamerlane.lua         # 帖木儿
+│   ├── zenobia.lua           # 芝诺比娅
+│   └── zubaydah.lua          # 祖拜达
 ├── CLAUDE.md                  # 项目配置 (本文件)
 ├── docs/                      # 文档目录
 │   ├── product_design.md      # 产品设计文档
@@ -79,18 +105,42 @@ asura/
 
 ## 英雄列表
 
-### 已实现的英雄
-1. **阿拉丁 (Aladdin)** - 神灯主题
-   - 技能: 【神灯】 - 弃置2张牌，摸2张牌
+### 已实现的英雄 (30 个)
 
-2. **阿里巴巴 (Alibaba)** - 盗贼主题
-   - 技能: 【暗号】 - 防御成功后可以追击
+| # | 英雄 | 中文名 | 来源 |
+|---|------|--------|------|
+| 1 | Aladdin | 阿拉丁 | 《一千零一夜》 |
+| 2 | Alibaba | 阿里巴巴 | 《一千零一夜》 |
+| 3 | Saladin | 萨拉丁 | 阿尤布王朝创立者 |
+| 4 | Hakim | 哈基姆 | 法蒂玛王朝哈里发 |
+| 5 | Al-Biruni | 比鲁尼 | 波斯博学家 |
+| 6 | Al-Khwarizmi | 花剌子密 | 数学家、「代数」之父 |
+| 7 | Al-Mansur | 曼苏尔 | 阿拔斯王朝哈里发 |
+| 8 | Antar | 安塔拉 | 阿拉伯骑士诗人 |
+| 9 | Avicenna | 伊本·西那 | 波斯医学家/哲学家 |
+| 10 | Basira | 巴希拉 | 原创角色 |
+| 11 | Dhul-Qarnayn | 双角王 | 《古兰经》人物 |
+| 12 | Dunyazad | 敦娅扎德 | 《一千零一夜》 |
+| 13 | Enheduanna | 恩赫杜安娜 | 美索不达米亚女祭司 |
+| 14 | Gilgamesh | 吉尔伽美什 | 美索不达米亚史诗 |
+| 15 | Harun al-Rashid | 哈伦·拉希德 | 阿拔斯王朝哈里发 |
+| 16 | Hulagu | 旭烈兀 | 伊儿汗国创立者 |
+| 17 | Ibn Battuta | 伊本·白图泰 | 摩洛哥旅行家 |
+| 18 | Imru al-Qais | 乌姆鲁勒·盖斯 | 阿拉伯悬诗诗人 |
+| 19 | Jafar | 贾法尔 | 巴尔马克家族宰相 |
+| 20 | Khayyam | 海亚姆 | 波斯诗人/数学家 |
+| 21 | Muawiyah | 穆阿维叶 | 倭马亚王朝创立者 |
+| 22 | Nefertiti | 纳芙蒂蒂 | 古埃及王后 |
+| 23 | Nizam al-Mulk | 尼扎姆·穆勒克 | 塞尔柱帝国宰相 |
+| 24 | Rumi | 鲁米 | 波斯诗人与哲人 |
+| 25 | Scheherazade | 谢赫拉莎德 | 《一千零一夜》讲述者 |
+| 26 | Sinbad | 辛巴达 | 《一千零一夜》航海家 |
+| 27 | Suleiman | 苏莱曼大帝 | 奥斯曼帝国苏丹 |
+| 28 | Tamerlane | 帖木儿 | 帖木儿帝国创立者 |
+| 29 | Zenobia | 芝诺比娅 | 帕尔米拉女王 |
+| 30 | Zubaydah | 祖拜达 | 阿拔斯王朝王后 |
 
-3. **萨拉丁 (Saladin)** - 战士主题
-   - 技能: 【坚守】 - 受伤后摸牌
-
-4. **哈基姆 (Hakim)** - 智者主题
-   - 技能: 【星象】 - 预知并改变判定结果
+> 详细技能说明见各 `heroes/<name>.md` 文件
 
 ## 开发任务
 
@@ -101,7 +151,7 @@ asura/
 - [ ] 实现英雄解锁/购买系统
 
 ### 中优先级
-- [ ] 添加更多英雄 (目标: 20+ 英雄)
+- [x] 添加更多英雄 (目标: 20+ 英雄) — 已完成 30 个
 - [ ] 实现排位赛系统
 - [ ] 添加好友/社交系统
 - [ ] 实现观战功能
@@ -133,6 +183,7 @@ docker-compose logs -f nakama
 - [产品设计文档](./docs/product_design.md)
 - [架构设计文档](./docs/architecture.md)
 - [API 文档](./docs/api.md) (待创建)
+- [英雄设计评审报告](./docs/hero_design_review.md)
 
 ## 联系方式
 
@@ -142,5 +193,5 @@ docker-compose logs -f nakama
 
 ---
 
-**最后更新**: 2026-03-31
-**版本**: 0.1.0
+**最后更新**: 2026-05-19
+**版本**: 0.4.0

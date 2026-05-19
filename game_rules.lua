@@ -83,11 +83,11 @@ local CARD_EFFECTS = {
 
     -- 万箭齐发 (沙尘暴) 改造
     ["AOE_SANDSTORM"] = function(dispatcher, state, source_id)
-        -- 苏莱曼【封印】：被封印者本回合不能使用AOE
-        if state.suleiman_sealed and state.suleiman_sealed[source_id] then
-            state.suleiman_sealed[source_id] = nil
+        -- 苏莱曼【御风】：被御风者本回合不能使用AOE
+        if state.suleiman_yu_feng_target and state.suleiman_yu_feng_target[source_id] then
+            state.suleiman_yu_feng_target[source_id] = nil
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = state.players[source_id].username .. " 本回合被【封印】，无法使用【沙尘暴】！"
+                content = state.players[source_id].username .. " 本回合被【御风】，无法使用【沙尘暴】！"
             }))
             return
         end
@@ -684,7 +684,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
         if payload.confirm == true and type(payload.card_id) == "string" then
             local rescuer = state.players[player_id]
             for i, card in ipairs(rescuer.hand) do
-                if card.id == payload.card_id and (card.type == "HEAL" or card.type == "WINE") then
+                local can_rescue = card.type == "HEAL" or card.type == "WINE"
+                    or (card.suit == "HEART" and rescuer.hero == "avicenna")
+                if card.id == payload.card_id and can_rescue then
                     table.remove(rescuer.hand, i)
                     table.insert(state.discard_pile, card)
                     state.players[dying_id].health = 1

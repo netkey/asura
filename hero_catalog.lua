@@ -17,7 +17,7 @@ M.HEROES = {
     hakim           = { name="哈基姆",       price=500,  tier=1,
                         description="【星象】判定阶段，可观看牌堆顶3张牌并调整顺序" },
     scheherazade    = { name="舍赫拉莎德",   price=500,  tier=1,
-                        description="【千夜】出牌阶段开始时，可弃1张牌摸2张牌" },
+                        description="【千夜】受伤时弃1张，随机看攻击者2张牌选1弃置" },
     jafar           = { name="贾法尔",       price=500,  tier=1,
                         description="【毒计】你发动的【攻击】强制命中，目标无法使用【防御】" },
 
@@ -25,9 +25,9 @@ M.HEROES = {
     ibn_battuta     = { name="伊本白图泰",   price=1000, tier=2,
                         description="【远行】出牌阶段，弃1张牌从弃牌堆顶取1张牌入手" },
     al_khwarizmi    = { name="花拉子密",     price=1000, tier=2,
-                        description="【算法】摸牌阶段，可弃1张手牌改为摸3张" },
+                        description="【算法】摸牌阶段，看牌堆顶4张排序，选2张入手" },
     avicenna        = { name="阿维森纳",     price=1000, tier=2,
-                        description="【医典】受伤时若手牌数为0，立即回复1点血量" },
+                        description="【医典】出牌阶段弃红桃自回1血，濒死时可用红桃救援" },
     sinbad          = { name="辛巴达",       price=1000, tier=2,
                         description="【七航】每回合结束时可取弃牌堆顶1张牌入手（每局限7次）" },
     hulagu          = { name="旭烈兀",       price=1000, tier=2,
@@ -61,7 +61,7 @@ M.HEROES = {
     nizamulmulk     = { name="尼扎姆",       price=1500, tier=3,
                         description="【权谋】受到攻击伤害时，令攻击者弃置1张牌" },
     enheduanna      = { name="恩赫杜安娜",   price=1500, tier=3,
-                        description="【颂词】出牌阶段，令场上所有其他存活玩家各摸1张牌" },
+                        description="【颂词】摸牌阶段可发动，摸4张牌并交给其他角色1张手牌" },
     al_mansur       = { name="曼苏尔",       price=1500, tier=3,
                         description="【建城】击杀玩家后，血量上限永久+1并立即回复（上限最多+3）" },
     gilgamesh       = { name="吉尔伽美什",   price=1500, tier=3,
@@ -69,9 +69,9 @@ M.HEROES = {
     imru_al_qais    = { name="伊姆鲁盖斯",   price=1500, tier=3,
                         description="【悬诗】回合结束时，若手中【攻击】牌≥3张，额外摸1张牌" },
     basira          = { name="巴希拉",       price=1500, tier=3,
-                        description="【先知】摸牌阶段，宣告一种花色；第一张若花色匹配，额外摸1张" },
+                        description="【洞察】摸牌阶段，宣告一种花色；第一张若花色匹配，额外摸1张" },
     dhul_qarnayn    = { name="双角王",       price=1500, tier=3,
-                        description="【征服四方】击杀玩家时，在其弃牌之前夺取其1张随机手牌" },
+                        description="【铁壁】击杀玩家时，在其弃牌之前收缴其1张随机手牌" },
 }
 
 return M

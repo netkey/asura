@@ -302,7 +302,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             elseif act.type == "WAITING_FOR_TRICK_SELECT" then
                 rules.handle_response(dispatcher, state, act.chooser_id, {confirm=false})
             elseif act.type == "HAKIM_XING_XIANG"
-                or act.type == "SULEIMAN_SEAL"
+                or act.type == "SULEIMAN_YU_FENG"
                 or act.type == "HARUN_SELECT_TARGET"
                 or act.type == "HARUN_CHOOSE"
                 or act.type == "IBN_BATTUTA_YUAN_XING"
@@ -311,10 +311,22 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 or act.type == "ALADDIN_LAMP"
                 or act.type == "ALIBABA_COUNTER"
                 or act.type == "AL_BIRUNI_CELIANG"
-                or act.type == "BASIRA_XIAN_ZHI" then
+                or act.type == "BASIRA_DONG_CHA"
+                or act.type == "GILGAMESH_BU_XIU"
+                or act.type == "AVICENNA_ZHEN"
+                or act.type == "ENHEDUANNA_SONG_CI"
+                or act.type == "ENHEDUANNA_SONG_CI_GIVE" then
                 local hero_mgr = require("hero_manager")
                 hero_mgr.handle_response(dispatcher, state, act.player_id, {confirm=false})
             end
+            return state
+        end
+
+        -- 恢复被吉尔伽美什【不朽】等回合结束技能挂起的回合切换
+        if state.pending_turn_end and not state.pending_action then
+            local te = state.pending_turn_end
+            state.pending_turn_end = nil
+            M.resume_after_turn_end(dispatcher, state, te)
             return state
         end
 
@@ -415,23 +427,36 @@ function M.next_turn(dispatcher, state)
     end
 
     local ending_uid = state.current_turn_id
-    -- 清除苏莱曼【封印】：仅当被封印目标的回合结束时才清除
-    if state.suleiman_sealed and ending_uid then
-        state.suleiman_sealed[ending_uid] = nil
-        if not next(state.suleiman_sealed) then
-            state.suleiman_sealed = nil
-            state.suleiman_sealed_owner = nil
+    -- 清除苏莱曼【御风】：仅当被御风目标的回合结束时才清除
+    if state.suleiman_yu_feng_target and ending_uid then
+        state.suleiman_yu_feng_target[ending_uid] = nil
+        if not next(state.suleiman_yu_feng_target) then
+            state.suleiman_yu_feng_target = nil
+            state.suleiman_yu_feng_owner = nil
         end
     end
     -- 清除杜尼亚扎德【续篇】免疫（仅持续当前回合）
     state.dunyazad_immune = nil
     if ending_uid then
         -- on_turn_end 钩子（弃牌前触发，辛巴达/纳芙蒂蒂等回合结束技能在此触发）
-        hero_mgr.trigger("on_turn_end", dispatcher, state, ending_uid)
-        -- 重置本回合攻击计数
-        local ep_reset = state.players[ending_uid]
-        if ep_reset then ep_reset.attacks_this_turn = 0 end
+        -- 若返回 true 表示技能创建了 pending_action（如吉尔伽美什【不朽】），挂起等待响应
+        if hero_mgr.trigger("on_turn_end", dispatcher, state, ending_uid) then
+            state.pending_turn_end = {uid = ending_uid}
+            return
+        end
     end
+    M.finish_turn_end(dispatcher, state, ending_uid)
+end
+
+-- 从 on_turn_end 挂起后恢复（由 match_loop 中 pending_turn_end 检测触发）
+function M.resume_after_turn_end(dispatcher, state, te)
+    M.finish_turn_end(dispatcher, state, te.uid)
+end
+
+-- 回合结束收尾：重置攻击计数 → 弃牌阶段 → 切换到下一玩家
+function M.finish_turn_end(dispatcher, state, ending_uid)
+    local ep_reset = state.players[ending_uid]
+    if ep_reset then ep_reset.attacks_this_turn = 0 end
 
     -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
     if ending_uid then
@@ -465,7 +490,7 @@ function M.next_turn(dispatcher, state)
     while #current_p.delayed_effects > 0 and current_p.health > 0 and delayed_iter < 20 do
         delayed_iter = delayed_iter + 1
         local d_eff = table.remove(current_p.delayed_effects, 1)
-        if d_eff.subtype == “discard1_draw2” then
+        if d_eff.subtype == "discard1_draw2" then
             -- 黑血蛊：弃1张牌，摸2张
             if #current_p.hand > 0 then
                 local discarded = table.remove(current_p.hand, math.random(#current_p.hand))
@@ -473,18 +498,18 @@ function M.next_turn(dispatcher, state)
             end
             rules.draw_cards(state, uid, 2)
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. “ 的【黑血蛊】结算：弃1摸2”
+                content = current_p.username .. " 的【黑血蛊】结算：弃1摸2"
             }))
-        elseif d_eff.subtype == “skip_play_phase” then
+        elseif d_eff.subtype == "skip_play_phase" then
             -- 沙漠诅咒：跳过出牌阶段
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. “ 的【沙漠诅咒】结算：跳过出牌阶段”
+                content = current_p.username .. " 的【沙漠诅咒】结算：跳过出牌阶段"
             }))
             current_p.skip_play_phase = true
-        elseif d_eff.subtype == “attack_minus1” then
+        elseif d_eff.subtype == "attack_minus1" then
             -- 虚弱标记：本回合攻击伤害-1
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. “ 的【虚弱标记】结算：本回合攻击伤害-1”
+                content = current_p.username .. " 的【虚弱标记】结算：本回合攻击伤害-1"
             }))
             current_p.attack_debuff = true
         end
@@ -492,7 +517,7 @@ function M.next_turn(dispatcher, state)
 
     -- 判定阶段前触发哈基姆【星象】：可以在判定前观看并调整牌堆顶
     if #current_p.judgments > 0 then
-        local suspended = hero_mgr.trigger(“on_judgment_phase_start”, dispatcher, state, uid)
+        local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
         if suspended then
             state.pending_turn_continuation = {uid = uid}
             return
@@ -515,21 +540,21 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
         local j_card = table.remove(current_p.judgments)
         local result_card = rules.execute_judgment(state)
 
-        if j_card.type == “JUDGE_STORM” then
-            if result_card.suit == “SPADE” and result_card.number >= 2 and result_card.number <= 9 then
+        if j_card.type == "JUDGE_STORM" then
+            if result_card.suit == "SPADE" and result_card.number >= 2 and result_card.number <= 9 then
                 local jdmg = state.config and state.config.combat.judge_storm_damage or 3
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = “【天谴】爆发！” .. current_p.username .. “ 受到 “ .. jdmg .. “ 点天雷伤害！”
+                    content = "【天谴】爆发！" .. current_p.username .. " 受到 " .. jdmg .. " 点天雷伤害！"
                 }))
                 state._in_judgment_phase = true
                 rules.apply_damage(dispatcher, state, uid, jdmg, j_card.from)
                 state._in_judgment_phase = nil
-                if state.pending_action and state.pending_action.type == “WAITING_FOR_RESCUE” then
+                if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
                     return
                 end
             else
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = “【天谴】未命中，传送至下一位玩家。”
+                    content = "【天谴】未命中，传送至下一位玩家。"
                 }))
                 if state.status == STATE.PLAYING then
                     local next_uid = rules.get_next_player_id(state)
@@ -563,10 +588,10 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
     -- 检查沙漠诅咒跳过出牌阶段
     if current_p.skip_play_phase then
         current_p.skip_play_phase = nil
-        nk.logger_info(current_p.username .. “ 跳过出牌阶段”)
+        nk.logger_info(current_p.username .. " 跳过出牌阶段")
         M.next_turn(dispatcher, state)
     else
-        hero_mgr.trigger(“on_play_phase_start”, dispatcher, state, uid)
+        hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
     end
 end
 

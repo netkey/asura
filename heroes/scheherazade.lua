@@ -2,79 +2,88 @@ local nk = require("nakama")
 local M = {}
 
 -- 舍赫拉莎德 - 一千零一夜的讲述者
--- 技能：【千夜】 - 出牌阶段开始时，可弃置 1 张牌摸 2 张牌（净 +1）
+-- 技能：【千夜】 - 受到攻击伤害时，可弃1张手牌，随机看攻击者2张手牌并选择1张弃置
 
-function M.on_play_phase_start(dispatcher, state, player_id)
-    local player = state.players[player_id]
+function M.on_damaged(dispatcher, state, target_id, amount, source_id)
+    local player = state.players[target_id]
+    if player.hero ~= "scheherazade" then return false end
+    if player.health <= 0 then return false end
+    if #player.hand < 1 then return false end
 
-    if player.hero ~= "scheherazade" then
-        return false
+    local attacker = state.players[source_id]
+    if not attacker or attacker.health <= 0 or #attacker.hand < 1 then return false end
+
+    -- 从攻击者手牌随机抽 min(2, 手牌数) 张展示
+    local rules = require("game_rules")
+    local pool = {}
+    for _, c in ipairs(attacker.hand) do
+        table.insert(pool, c)
     end
-
-    -- 手牌为空则无法弃牌，跳过
-    if #player.hand < 1 then
-        return false
+    pool = rules.shuffle(pool)
+    local shown = {}
+    for i = 1, math.min(2, #pool) do
+        table.insert(shown, {id = pool[i].id, name = pool[i].name, type = pool[i].type, suit = pool[i].suit})
     end
 
     state.pending_action = {
-        type = "SCHEHERAZADE_QIANYE",
-        player_id = player_id,
-        hero_id = "scheherazade",
-        deadline = os.time() + 15,
-        description = "是否弃置 1 张牌发动【千夜】，摸 2 张牌？"
+        type        = "SCHEHERAZADE_QIANYE",
+        player_id   = target_id,
+        hero_id     = "scheherazade",
+        attacker_id = source_id,
+        shown_cards = shown,
+        deadline    = os.time() + 15,
     }
 
     dispatcher.broadcast_message(101, nk.json_encode({
-        type = "skill_choice",
-        skill = "qian_ye",
-        description = "是否弃置 1 张牌发动【千夜】，摸 2 张牌？",
-        min_cards = 1,
-        max_cards = 1
-    }), {state.presences[player_id]})
+        type        = "skill_choice",
+        skill       = "qian_ye",
+        description = string.format("%s 对你造成 %d 点伤害！是否发动【千夜】，弃1张手牌并选择其1张手牌弃置？",
+            attacker.username, amount),
+        shown_cards = shown,
+    }), {state.presences[target_id]})
 
-    return true
+    return false
 end
 
 function M.on_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
-    if not action or action.type ~= "SCHEHERAZADE_QIANYE" then
-        return
-    end
+    if not action or action.type ~= "SCHEHERAZADE_QIANYE" then return end
+    if action.player_id ~= player_id then return end
+    state.pending_action = nil
 
-    if payload.confirm ~= true then
-        state.pending_action = nil
+    if payload.confirm ~= true or type(payload.own_card_id) ~= "string" or type(payload.target_card_id) ~= "string" then
         return
     end
 
     local rules = require("game_rules")
-    local player = state.players[player_id]
+    local player    = state.players[player_id]
+    local attacker  = state.players[action.attacker_id]
+    if not player or not attacker then return end
 
-    -- 弃置指定的 1 张牌
-    local discarded = false
-    if type(payload.card_ids) == "table" then
-        for _, card_id in ipairs(payload.card_ids) do
-            if type(card_id) ~= "string" then break end
-            for i, card in ipairs(player.hand) do
-                if card.id == card_id then
-                    table.insert(state.discard_pile, table.remove(player.hand, i))
-                    discarded = true
-                    break
-                end
-            end
-            if discarded then break end
+    -- 1. 弃置自己选择的1张牌（代价）
+    local cost_paid = false
+    for i, c in ipairs(player.hand) do
+        if c.id == payload.own_card_id then
+            table.insert(state.discard_pile, table.remove(player.hand, i))
+            cost_paid = true
+            break
+        end
+    end
+    if not cost_paid then return end
+
+    -- 2. 弃置攻击者被选择的那张牌
+    for i, c in ipairs(attacker.hand) do
+        if c.id == payload.target_card_id then
+            table.insert(state.discard_pile, table.remove(attacker.hand, i))
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = string.format("%s 发动【千夜】，弃1张手牌并令 %s 弃置【%s】！",
+                    player.username, attacker.username, c.name),
+                hero = "scheherazade", skill = "qian_ye"
+            }))
+            break
         end
     end
 
-    if discarded then
-        rules.draw_cards(state, player_id, 2)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " 发动【千夜】，弃 1 张牌摸 2 张牌！",
-            hero = "scheherazade",
-            skill = "qian_ye"
-        }))
-    end
-
-    state.pending_action = nil
     rules.broadcast_update(dispatcher, state)
 end
 

@@ -1,7 +1,7 @@
 local nk = require("nakama")
 local M = {}
 
--- 穆阿维叶 - 倭马亚王朝建立者，伊斯兰第一位世袭哈里发
+-- 穆阿维叶 - 倭马亚王朝建立者，以卓越政治手腕著称
 -- 技能：【谋略】 - 防御成功后，随机夺取攻击者1张手牌
 
 function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)

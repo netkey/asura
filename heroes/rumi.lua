@@ -1,7 +1,7 @@
 local nk = require("nakama")
 local M = {}
 
--- 鲁米 - 波斯苏菲诗人，旋转舞创始人
+-- 鲁米 - 波斯诗人与哲人，旋转舞创始人
 -- 技能：【旋回】 - 出牌阶段开始时，可将全部手牌弃置，摸等量新牌
 
 function M.on_play_phase_start(dispatcher, state, player_id)

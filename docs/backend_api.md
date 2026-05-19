@@ -89,7 +89,7 @@
 | 放弃救援 | `WAITING_FOR_RESCUE` | `{"confirm":false}` |
 | 锦囊【沙漠罗盘】重排 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"sorted_ids":["c_01","c_02","c_03"]}` |
 | 锦囊【诱降】选择弃牌 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"card_id":"c_07"}` 或 `{"confirm":false}`（随机弃） |
-| 英雄技能确认+选目标 | `SULEIMAN_SEAL` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
+| 英雄技能确认+选目标 | `SULEIMAN_YU_FENG` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 哈基姆【星象】重排牌堆 | `HAKIM_XING_XIANG` | `{"confirm":true,"sorted_ids":["c_01","c_02"]}` 或 `{"confirm":false}` |
 | 阿拉丁【神灯】弃牌 | `ALADDIN_LAMP` | `{"confirm":true,"card_ids":["c_03","c_04"]}` 或 `{"confirm":false}` |
 
@@ -114,7 +114,7 @@
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
 | `100` | 技能使用者 | 英雄主动技能（弃牌类）询问，如阿拉丁【神灯】 | `{"type":"skill_choice","skill":"shen_deng","description":"是否弃置2张牌？","min_cards":2,"max_cards":2}` |
-| `101` | 技能使用者或目标玩家 | 英雄交互技能询问，如苏莱曼【封印】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"feng_yin","description":"是否发动【封印】？","targets":[...]}` |
+| `101` | 技能使用者或目标玩家 | 英雄交互技能询问，如苏莱曼【御风】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"yu_feng","description":"是否发动【御风】？","targets":[...]}` |
 | `102` | 哈基姆玩家 | 判定阶段【星象】触发，展示牌堆顶 N 张供重排 | `{"type":"hakim_peek","peeked":[{"id":"c_01","type":"JUDGE_STORM",...}],"count":3}` |
 | `106` | 锦囊使用者 | 锦囊牌【沙漠罗盘】或【诱降】的私有信息（牌堆预览 / 目标手牌） | peek3: `{"event":"peek3_choose","peeked":[...]}` / discard: `{"event":"peek_hand_choose","target_id":"uid","hand":[...]}` |
 

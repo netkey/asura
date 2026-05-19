@@ -1,8 +1,8 @@
 local nk = require("nakama")
 local M = {}
 
--- 巴希拉 - 传说中守护正义的天使之一
--- 技能：【先知】 - 摸牌阶段开始时，可宣告一种花色；然后执行正常摸牌（2张）；第一张若花色匹配，额外摸1张（每回合限1次）
+-- 巴希拉 - 巴士拉著名女学者，以敏锐洞察力著称
+-- 技能：【洞察】 - 摸牌阶段开始时，可宣告一种花色；然后执行正常摸牌（2张）；第一张若花色匹配，额外摸1张（每回合限1次）
 
 function M.on_draw_phase_start(dispatcher, state, player_id)
     local player = state.players[player_id]
@@ -15,7 +15,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     local guess = suits[math.random(4)]
 
     state.pending_action = {
-        type = "BASIRA_XIAN_ZHI",
+        type = "BASIRA_DONG_CHA",
         player_id = player_id,
         hero_id = "basira",
         guess = guess,
@@ -24,8 +24,8 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     }
     dispatcher.broadcast_message(101, nk.json_encode({
         type = "skill_choice",
-        skill = "xian_zhi",
-        description = string.format("是否发动【先知】？宣告一种花色，第一张摸牌若猜中，额外摸1张（AI自动猜%s）", guess),
+        skill = "dong_cha",
+        description = string.format("是否发动【洞察】？宣告一种花色，第一张摸牌若猜中，额外摸1张（AI自动猜%s）", guess),
         suits = suits, guess = guess
     }), {state.presences[player_id]})
     return true
@@ -33,7 +33,7 @@ end
 
 function M.on_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
-    if not action or action.type ~= "BASIRA_XIAN_ZHI" then return end
+    if not action or action.type ~= "BASIRA_DONG_CHA" then return end
 
     local rules = require("game_rules")
     local player = state.players[player_id]
@@ -62,11 +62,11 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     local hit = (first_card.suit == guess)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【先知】猜%s，第一张摸到%s，%s！",
+        content = string.format("%s 发动【洞察】猜%s，第一张摸到%s，%s！",
             player.username, guess,
             first_card.suit or "?",
             hit and "猜中，额外摸1张！" or "未猜中"),
-        hero = "basira", skill = "xian_zhi"
+        hero = "basira", skill = "dong_cha"
     }))
 
     -- 摸第2张（固定）

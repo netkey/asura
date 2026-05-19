@@ -114,7 +114,7 @@ private void OnMatchStateReceived(IMatchState state)
 | `WAITING_FOR_AOE` | DefensePanel（标注 AOE） | 5 |
 | `WAITING_FOR_RESCUE` | RescuePanel | 5 |
 | `WAITING_FOR_TRICK_SELECT` | TrickSelectPanel | 5 |
-| `SULEIMAN_SEAL` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | HeroSkillPanel | 5 |
+| `SULEIMAN_YU_FENG` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | HeroSkillPanel | 5 |
 | `HAKIM_XING_XIANG` | HeroSkillPanel（排序模式） | 5 |
 | `ALADDIN_LAMP` | HeroSkillPanel（多选弃牌） | 5 |
 | `null` | 关闭所有弹窗 | — |
