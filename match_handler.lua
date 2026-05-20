@@ -304,14 +304,14 @@ function M.perform_auto_play(dispatcher, state)
         end
     end
 
-    -- 6. 攻击：选一个存活的非己方目标
+    -- 6. 攻击：优先打血量最少的存活敌方
     local atk = find_card("ATTACK")
     if atk then
-        local target_id = nil
+        local target_id, min_hp = nil, math.huge
         for other_id, other_p in pairs(state.players) do
-            if other_id ~= uid and other_p.health > 0 then
+            if other_id ~= uid and other_p.health > 0 and other_p.health < min_hp then
                 target_id = other_id
-                break
+                min_hp = other_p.health
             end
         end
         if target_id then
