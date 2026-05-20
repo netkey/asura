@@ -16,7 +16,12 @@ jobs:
       - name: Sync code to modules dir
         run: |
           mkdir -p "$APP_DIR"
-          cp -r $GITHUB_WORKSPACE/*.lua $GITHUB_WORKSPACE/heroes $GITHUB_WORKSPACE/*.md $GITHUB_WORKSPACE/*.json "$APP_DIR/"
+          # 排除 .git .github .luacheckrc README.md demo 等非模块文件
+          rsync -a --delete \
+            --exclude='.git/' --exclude='.github/' --exclude='.luacheckrc' \
+            --exclude='CLAUDE.md' --exclude='README.md' \
+            --exclude='.mcp.json' --exclude='demo*.lua' \
+            $GITHUB_WORKSPACE/ "$APP_DIR/"
 
       - name: Restart Nakama
         run: docker compose -f /data/nakama/docker-compose.yml restart nakama
