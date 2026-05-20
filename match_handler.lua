@@ -57,7 +57,7 @@ local function write_user_status(uid, match_id, status, mode, current_players, m
         permission_write = 0,
     }})
     -- 实时推送给已订阅该用户状态的好友（WebSocket StatusPresenceEvent）
-    nk.status_update(uid, nk.json_encode(data))
+    pcall(nk.status_update, uid, nk.json_encode(data))
 end
 
 local function clear_user_status(uid)
@@ -67,7 +67,7 @@ local function clear_user_status(uid)
         user_id    = uid,
     }})
     -- 清空实时状态，好友端收到空状态即视为 idle
-    nk.status_update(uid, nil)
+    pcall(nk.status_update, uid, nil)
 end
 
 -- ==========================================
