@@ -18,6 +18,22 @@ local function log_warn(state, msg)
     nk.logger_warn(string.format("[match=%s] %s", state.match_id or "?", msg))
 end
 
+-- 简易计数器：写 ops/matches 存储（Nakama Lua 无自定义 Prometheus 接口）
+local function metric_inc(name)
+    local ok, obj = pcall(nk.storage_read, {{
+        collection = "ops", key = "matches", user_id = nil
+    }})
+    local val = ok and #obj > 0 and obj[1].value or {}
+    val[name] = (val[name] or 0) + 1
+    local ver = ok and #obj > 0 and obj[1].version or "*"
+    pcall(nk.storage_write, {{
+        collection = "ops", key = "matches", user_id = nil,
+        value = val, version = ver,
+        permission_read = 1, permission_write = 0,
+    }})
+    nk.logger_info(string.format("[METRIC] %s=%d", name, val[name]))
+end
+
 -- ==========================================
 -- 用户在线状态维护（供好友系统查询）
 -- status: "waiting"=等待中  "playing"=游戏中
@@ -199,6 +215,8 @@ function M.match_join(context, dispatcher, tick, state, presences)
     local current_count = #state.presence_ids
     if state.status == STATE.WAITING and current_count >= state.max_players then
         state.status = STATE.PLAYING
+        metric_inc("matches_started")
+
 
 		-- 【核心修改：更新房间标签】
         -- 将 open 设为 0，这样 match_list 的查询语句 +label.open:1 就搜不到这个房间了
@@ -207,6 +225,9 @@ function M.match_join(context, dispatcher, tick, state, presences)
             open        = 0,
             max         = state.max_players,
             spectatable = 1,  -- 对局开始后允许旁观者加入
+            status      = "playing",
+            players     = #state.presence_ids,
+            started_at  = os.time(),
         }
         dispatcher.match_label_update(nk.json_encode(new_label))
 
@@ -474,6 +495,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- ==========================================
     if state.status == STATE.WAITING and os.time() - (state.waiting_since or 0) > 300 then
         log_info(state, "房间等待超时，自动解散")
+        metric_inc("matches_abandoned")
         for uid, _ in pairs(state.players) do
             clear_user_status(uid)
         end
@@ -573,6 +595,8 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     local is_over, winner = rules.check_victory(dispatcher, state)
     if is_over then
         state.status = STATE.ENDED
+        metric_inc("matches_completed")
+
         dispatcher.broadcast_message(30, nk.json_encode({winner = winner}))
         season_mgr.record_match(nk, state, winner)
         -- 对局结束，清除所有玩家在线状态

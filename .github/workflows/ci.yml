@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua & luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4 luarocks
+          sudo luarocks install luacheck
+
+      - name: Lua syntax check (luac -p)
+        run: |
+          find . -name '*.lua' -not -path './.git/*' -exec luac5.4 -p {} \;
+
+      - name: Luacheck lint
+        run: luacheck --no-color .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Nakama stack
+        run: docker compose up -d --wait
+        env:
+          LOG_LEVEL: ERROR
+
+      - name: Wait for Nakama ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:7350/ > /dev/null 2>&1; then
+              echo "Nakama ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Health check
+        run: curl -sf http://localhost:7350/ || exit 1
+
+      - name: Stop Nakama
+        run: docker compose down -v

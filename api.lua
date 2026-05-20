@@ -6,6 +6,18 @@ local ach_mgr     = require("achievement_manager")
 local skin_catalog = require("skin_catalog")
 local rate_limiter = require("rate_limiter")
 
+-- pcall 包装器：防止 RPC 中未捕获异常导致客户端收到非 JSON 500
+local function safe_rpc(fn)
+    return function(context, payload)
+        local ok, result = pcall(fn, context, payload)
+        if not ok then
+            nk.logger_error("RPC uncaught error: " .. tostring(result))
+            return nk.json_encode({ success = false, error = "internal_error" })
+        end
+        return result
+    end
+end
+
 -- ==========================================
 -- 内部：统一判断玩家是否可使用某英雄
 -- 后期加限时免费活动只需在此处扩展
@@ -59,7 +71,7 @@ local function find_or_create_match(context, payload)
     })
     return nk.json_encode({ match_id = match_id })
 end
-nk.register_rpc(find_or_create_match, "find_or_create_match")
+nk.register_rpc(safe_rpc(find_or_create_match), "find_or_create_match")
 
 -- ==========================================
 -- 校验英雄使用权
@@ -82,7 +94,7 @@ local function check_hero_access(context, payload)
 
     return nk.json_encode({ accessible = is_hero_accessible(hero_id, inventory, load_free_events()) })
 end
-nk.register_rpc(check_hero_access, "check_hero_access")
+nk.register_rpc(safe_rpc(check_hero_access), "check_hero_access")
 
 -- ==========================================
 -- 商店列表（含玩家解锁状态）
@@ -124,7 +136,7 @@ local function get_hero_shop(context, payload)
 
     return nk.json_encode({ heroes = heroes })
 end
-nk.register_rpc(get_hero_shop, "get_hero_shop")
+nk.register_rpc(safe_rpc(get_hero_shop), "get_hero_shop")
 
 -- ==========================================
 -- 统一商城：英雄 + 皮肤一次返回
@@ -198,7 +210,7 @@ local function get_shop(context, payload)
 
     return nk.json_encode({ items = hero_items, skins = skin_items })
 end
-nk.register_rpc(get_shop, "get_shop")
+nk.register_rpc(safe_rpc(get_shop), "get_shop")
 
 -- ==========================================
 -- 余额查询
@@ -209,7 +221,7 @@ local function get_wallet(context, payload)
     local wallet  = type(raw) == "string" and nk.json_decode(raw) or raw
     return nk.json_encode({ gold = wallet.gold or 0 })
 end
-nk.register_rpc(get_wallet, "get_wallet")
+nk.register_rpc(safe_rpc(get_wallet), "get_wallet")
 
 -- ==========================================
 -- 购买英雄
@@ -272,7 +284,7 @@ local function buy_hero(context, payload)
 
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(buy_hero, "buy_hero")
+nk.register_rpc(safe_rpc(buy_hero), "buy_hero")
 
 -- ==========================================
 -- 管理员充值（仅限服务端 HTTP Key 调用）
@@ -302,7 +314,7 @@ local function admin_grant_gold(context, payload)
 
     return nk.json_encode({ success = true, new_balance = wallet.gold or 0 })
 end
-nk.register_rpc(admin_grant_gold, "admin_grant_gold")
+nk.register_rpc(safe_rpc(admin_grant_gold), "admin_grant_gold")
 
 -- ==========================================
 -- 管理员设置限时免费活动（仅限服务端调用）
@@ -346,7 +358,7 @@ local function admin_set_free_event(context, payload)
 
     return nk.json_encode({ success = true, active_events = events })
 end
-nk.register_rpc(admin_set_free_event, "admin_set_free_event")
+nk.register_rpc(safe_rpc(admin_set_free_event), "admin_set_free_event")
 
 -- ==========================================
 -- 查询当前有效配置（公开，供客户端了解游戏参数）
@@ -355,7 +367,7 @@ local function get_config(context, payload)
     local cfg = gconfig.load(nk)
     return nk.json_encode({ config = cfg })
 end
-nk.register_rpc(get_config, "get_config")
+nk.register_rpc(safe_rpc(get_config), "get_config")
 
 -- ==========================================
 -- 管理员更新游戏配置（仅限服务端调用）
@@ -411,7 +423,7 @@ local function admin_set_config(context, payload)
     local effective = gconfig.load(nk)
     return nk.json_encode({ success = true, effective_config = effective })
 end
-nk.register_rpc(admin_set_config, "admin_set_config")
+nk.register_rpc(safe_rpc(admin_set_config), "admin_set_config")
 
 -- ==========================================
 -- 查询当前赛季信息（公开）
@@ -423,7 +435,7 @@ local function get_season_info(context, payload)
     end
     return nk.json_encode({ active = true, season = season })
 end
-nk.register_rpc(get_season_info, "get_season_info")
+nk.register_rpc(safe_rpc(get_season_info), "get_season_info")
 
 -- ==========================================
 -- 查询当前玩家本赛季统计
@@ -446,7 +458,7 @@ local function get_my_stats(context, payload)
     }
     return nk.json_encode({ stats = stats })
 end
-nk.register_rpc(get_my_stats, "get_my_stats")
+nk.register_rpc(safe_rpc(get_my_stats), "get_my_stats")
 
 -- ==========================================
 -- 查询对局历史（玩家自身）
@@ -489,7 +501,7 @@ local function get_match_history(context, payload)
     end
     return nk.json_encode({ season_id = sid, records = records })
 end
-nk.register_rpc(get_match_history, "get_match_history")
+nk.register_rpc(safe_rpc(get_match_history), "get_match_history")
 
 -- ==========================================
 -- 赛季排行榜（公开）
@@ -518,7 +530,7 @@ local function get_leaderboard(context, payload)
     end
     return nk.json_encode({ season_id = season.season_id, leaderboard = board })
 end
-nk.register_rpc(get_leaderboard, "get_leaderboard")
+nk.register_rpc(safe_rpc(get_leaderboard), "get_leaderboard")
 
 -- ==========================================
 -- 管理员开启新赛季（仅服务端调用）
@@ -565,7 +577,7 @@ local function admin_start_season(context, payload)
 
     return nk.json_encode({ success = true, season = season })
 end
-nk.register_rpc(admin_start_season, "admin_start_season")
+nk.register_rpc(safe_rpc(admin_start_season), "admin_start_season")
 
 -- ==========================================
 -- 管理员结束当前赛季（仅服务端调用）
@@ -595,7 +607,7 @@ local function admin_end_season(context, payload)
 
     return nk.json_encode({ success = true, archived_season = season.season_id })
 end
-nk.register_rpc(admin_end_season, "admin_end_season")
+nk.register_rpc(safe_rpc(admin_end_season), "admin_end_season")
 
 -- ==========================================
 -- 好友系统
@@ -613,7 +625,7 @@ local function add_friend(context, payload)
     nk.friends_add(context.user_id, user_ids, usernames)
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(add_friend, "add_friend")
+nk.register_rpc(safe_rpc(add_friend), "add_friend")
 
 -- 删除好友 / 拒绝请求
 -- payload: {"user_id":"xxx"}
@@ -625,7 +637,7 @@ local function remove_friend(context, payload)
     nk.friends_delete(context.user_id, { json.user_id }, {})
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(remove_friend, "remove_friend")
+nk.register_rpc(safe_rpc(remove_friend), "remove_friend")
 
 -- 屏蔽用户
 -- payload: {"user_id":"xxx"}
@@ -637,7 +649,7 @@ local function block_user(context, payload)
     nk.friends_block(context.user_id, { json.user_id }, {})
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(block_user, "block_user")
+nk.register_rpc(safe_rpc(block_user), "block_user")
 
 -- 查询好友列表 / 请求列表
 -- payload: {"state":0}  0=好友 1=已发请求 2=收到请求 3=已屏蔽，不传则返回全部
@@ -665,7 +677,7 @@ local function get_friends(context, payload)
     end
     return nk.json_encode({ friends = result })
 end
-nk.register_rpc(get_friends, "get_friends")
+nk.register_rpc(safe_rpc(get_friends), "get_friends")
 
 -- 邀请好友加入对局（通过 Nakama 通知推送，非持久化）
 -- payload: {"user_id":"xxx","match_id":"yyy"}
@@ -690,7 +702,7 @@ local function invite_to_match(context, payload)
     }})
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(invite_to_match, "invite_to_match")
+nk.register_rpc(safe_rpc(invite_to_match), "invite_to_match")
 
 -- ==========================================
 -- 查询好友在线状态（含当前对局信息）
@@ -740,7 +752,7 @@ local function get_friends_status(context, payload)
 
     return nk.json_encode({ friends = result })
 end
-nk.register_rpc(get_friends_status, "get_friends_status")
+nk.register_rpc(safe_rpc(get_friends_status), "get_friends_status")
 
 -- ==========================================
 -- 观战：查询当前可观战的对局列表
@@ -770,7 +782,7 @@ local function find_spectatable_match(context, payload)
     end
     return nk.json_encode({ matches = list })
 end
-nk.register_rpc(find_spectatable_match, "find_spectatable_match")
+nk.register_rpc(safe_rpc(find_spectatable_match), "find_spectatable_match")
 
 -- ==========================================
 -- 成就 RPC
@@ -786,7 +798,7 @@ local function get_my_achievements(context, payload)
     local unlocked = (#objects > 0) and objects[1].value or {}
     return nk.json_encode({ unlocked = unlocked })
 end
-nk.register_rpc(get_my_achievements, "get_my_achievements")
+nk.register_rpc(safe_rpc(get_my_achievements), "get_my_achievements")
 
 -- 返回全部成就定义，并标注玩家已解锁状态
 local function get_achievement_list(context, payload)
@@ -813,7 +825,7 @@ local function get_achievement_list(context, payload)
 
     return nk.json_encode({ achievements = defs })
 end
-nk.register_rpc(get_achievement_list, "get_achievement_list")
+nk.register_rpc(safe_rpc(get_achievement_list), "get_achievement_list")
 
 -- ==========================================
 -- 皮肤系统 RPC
@@ -955,7 +967,7 @@ local function verify_iap_receipt(context, payload)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
     return nk.json_encode({ success = true, gold_granted = gold, new_balance = balance })
 end
-nk.register_rpc(verify_iap_receipt, "verify_iap_receipt")
+nk.register_rpc(safe_rpc(verify_iap_receipt), "verify_iap_receipt")
 
 -- ==========================================
 -- Google Play IAP
@@ -1143,7 +1155,7 @@ local function verify_google_iap_receipt(context, payload)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
     return nk.json_encode({ success = true, gold_granted = gold, new_balance = balance })
 end
-nk.register_rpc(verify_google_iap_receipt, "verify_google_iap_receipt")
+nk.register_rpc(safe_rpc(verify_google_iap_receipt), "verify_google_iap_receipt")
 
 -- RPC：admin_refresh_google_token（管理员强制刷新 Google OAuth token 缓存）
 local function admin_refresh_google_token(context, _payload)
@@ -1161,7 +1173,7 @@ local function admin_refresh_google_token(context, _payload)
         return nk.json_encode({ success = false, error = err })
     end
 end
-nk.register_rpc(admin_refresh_google_token, "admin_refresh_google_token")
+nk.register_rpc(safe_rpc(admin_refresh_google_token), "admin_refresh_google_token")
 
 -- RPC：get_skin_catalog
 -- 入参：{} 或 { hero_id }（可选过滤）
@@ -1186,7 +1198,7 @@ local function get_skin_catalog(context, payload)
     end
     return nk.json_encode({ skins = result })
 end
-nk.register_rpc(get_skin_catalog, "get_skin_catalog")
+nk.register_rpc(safe_rpc(get_skin_catalog), "get_skin_catalog")
 
 -- RPC：get_my_skins
 -- 出参：{ owned:[skin_id,...], equipped:{hero_id:skin_id,...} }
@@ -1203,7 +1215,7 @@ local function get_my_skins(context, payload)
     end
     return nk.json_encode({ owned = owned, equipped = equipped })
 end
-nk.register_rpc(get_my_skins, "get_my_skins")
+nk.register_rpc(safe_rpc(get_my_skins), "get_my_skins")
 
 -- RPC：purchase_skin
 -- 入参：{ skin_id }
@@ -1269,7 +1281,7 @@ local function purchase_skin(context, payload)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
     return nk.json_encode({ success = true, new_balance = balance })
 end
-nk.register_rpc(purchase_skin, "purchase_skin")
+nk.register_rpc(safe_rpc(purchase_skin), "purchase_skin")
 
 -- RPC：equip_skin
 -- 入参：{ hero_id, skin_id }（skin_id=nil 表示卸下皮肤，恢复默认）
@@ -1335,7 +1347,7 @@ local function equip_skin(context, payload)
 
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(equip_skin, "equip_skin")
+nk.register_rpc(safe_rpc(equip_skin), "equip_skin")
 
 -- ==========================================
 -- RPC：get_iap_history
@@ -1355,7 +1367,7 @@ local function get_iap_history(context, _payload)
     end
     return nk.json_encode({ records = records })
 end
-nk.register_rpc(get_iap_history, "get_iap_history")
+nk.register_rpc(safe_rpc(get_iap_history), "get_iap_history")
 
 -- ==========================================
 -- RPC：delete_account
@@ -1406,4 +1418,4 @@ local function delete_account(context, _payload)
     nk.logger_info("delete_account: 账号已注销 uid=" .. uid)
     return nk.json_encode({ success = true })
 end
-nk.register_rpc(delete_account, "delete_account")
+nk.register_rpc(safe_rpc(delete_account), "delete_account")
