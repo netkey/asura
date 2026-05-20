@@ -1,0 +1,35 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, asura-vps]
+    env:
+      APP_DIR: /data/nakama/data/modules  # 映射到容器 /nakama/data/modules
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync code to modules dir
+        run: |
+          mkdir -p "$APP_DIR"
+          rsync -a --delete --exclude='.git/' --exclude='.github/' --exclude='.mcp.json' --exclude='demo*.lua' \
+            $GITHUB_WORKSPACE/ "$APP_DIR/"
+
+      - name: Restart Nakama
+        run: docker compose -f /data/nakama/docker-compose.yml restart nakama
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:7350/ > /dev/null 2>&1; then
+              echo "Nakama ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed"
+          exit 1
