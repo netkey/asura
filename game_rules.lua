@@ -907,8 +907,9 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
                 amount = amount + (state.config and state.config.combat.sword_damage_bonus or 1)
             end
         end
-        -- 酒牌buff
-        if source.weapon_buff then
+        -- 酒牌buff：仅对杀生效，AOE/锦囊不触发（buff 保留）
+        local is_aoe = state.pending_action and state.pending_action.type == "WAITING_FOR_AOE"
+        if source.weapon_buff and not is_aoe then
             amount = amount + (state.config and state.config.combat.wine_damage_bonus or 1)
             source.weapon_buff = nil
             -- 阿拉伯烈酒：击杀额外摸2
