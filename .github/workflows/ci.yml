@@ -31,9 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start Nakama stack
-        run: docker compose up -d --wait
-        env:
-          LOG_LEVEL: ERROR
+        run: docker compose -f .github/workflows/docker-compose.ci.yml up -d --wait
 
       - name: Wait for Nakama ready
         run: |
@@ -50,4 +48,4 @@ jobs:
         run: curl -sf http://localhost:7350/ || exit 1
 
       - name: Stop Nakama
-        run: docker compose down -v
+        run: docker compose -f .github/workflows/docker-compose.ci.yml down -v
