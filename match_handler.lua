@@ -252,27 +252,73 @@ end
 function M.perform_auto_play(dispatcher, state)
     local uid = state.current_turn_id
     if not uid then return end
-    
+
     local player = state.players[uid]
 
-    -- 1. 如果有挂起的技能选择，强行终止并按默认处理
+    -- 1. 清理挂起的技能选择
     if state.pending_action and state.pending_action.player_id == uid then
         state.pending_action = nil
-        -- 如果是摸牌前的技能被挂起，补摸 2 张牌防止玩家亏牌
         rules.draw_cards(state, uid, 2)
     end
 
-    -- 2. 简单的托管出牌 AI：如果血量不满且有回血牌，自动吃一张
-    if player and player.health < player.max_health then
-        for i, card in ipairs(player.hand) do
-            if card.type == "HEAL" then
-                rules.handle_play_card(dispatcher, state, uid, { card_id = card.id })
-                break
-            end
+    if not player or player.health <= 0 then
+        M.next_turn(dispatcher, state)
+        return
+    end
+
+    -- 辅助：在手牌中找第一张匹配类型的牌
+    local function find_card(type)
+        for _, c in ipairs(player.hand) do
+            if c.type == type then return c end
         end
     end
 
-    -- 3. 强行切入下一个人的回合
+    -- 2. 装备：先上武器，再上防具
+    for _, equip_type in ipairs({"WEAPON", "ARMOR", "HORSE"}) do
+        local c = find_card(equip_type)
+        if c then
+            rules.handle_play_card(dispatcher, state, uid, { card_id = c.id })
+        end
+    end
+
+    -- 3. 治疗：血量不满才吃
+    if player.health < player.max_health then
+        local c = find_card("HEAL")
+        if c then
+            rules.handle_play_card(dispatcher, state, uid, { card_id = c.id })
+        end
+    end
+
+    -- 4. AOE：有群伤先放
+    local aoe = find_card("AOE_SANDSTORM")
+    if aoe then
+        rules.handle_play_card(dispatcher, state, uid, { card_id = aoe.id })
+    end
+
+    -- 5. 喝酒：有酒且手里还有杀才喝（避免白喝）
+    local has_attack = find_card("ATTACK")
+    if has_attack then
+        local wine = find_card("WINE")
+        if wine then
+            rules.handle_play_card(dispatcher, state, uid, { card_id = wine.id })
+        end
+    end
+
+    -- 6. 攻击：选一个存活的非己方目标
+    local atk = find_card("ATTACK")
+    if atk then
+        local target_id = nil
+        for other_id, other_p in pairs(state.players) do
+            if other_id ~= uid and other_p.health > 0 then
+                target_id = other_id
+                break
+            end
+        end
+        if target_id then
+            rules.handle_play_card(dispatcher, state, uid, { card_id = atk.id, target_id = target_id })
+        end
+    end
+
     nk.logger_info("托管结束，切换到下一位玩家")
     M.next_turn(dispatcher, state)
 end
