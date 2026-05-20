@@ -24,6 +24,7 @@ services:
   nakama:
     container_name: nakama
     image: registry.heroiclabs.com/heroiclabs/nakama:3.22.0
+    stop_grace_period: 60s
     restart: unless-stopped
     depends_on:
       postgres:

@@ -487,6 +487,15 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 如果游戏已结束，返回 nil 销毁对局实例，释放服务器内存
     if state.status == STATE.ENDED then return nil end
 
+    -- 服务器关闭排空：grace 到期强制结束
+    if state.pending_shutdown and os.time() >= state.pending_shutdown then
+        log_info(state, "排空超时，强制结束对局")
+        for uid, _ in pairs(state.players) do
+            clear_user_status(uid)
+        end
+        return nil
+    end
+
     -- 每个 tick 开始时重置 next_turn 递归深度计数器
     state._turn_depth = 0
 
@@ -947,10 +956,24 @@ end
 
 
 function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
-    for uid, _ in pairs(state.players) do
-        clear_user_status(uid)
+    if grace_seconds <= 0 or state.pending_shutdown then
+        -- grace 到期 或 第二次进来 → 立即结束
+        for uid, _ in pairs(state.players) do
+            clear_user_status(uid)
+        end
+        return nil
     end
-    return state
+
+    -- 首次调用：广播关闭通知，给玩家 grace_seconds 完成当前操作
+    dispatcher.broadcast_message(99, nk.json_encode({
+        event = "server_shutdown",
+        message = "服务器即将维护，当前对局将在 " .. grace_seconds .. " 秒后强制结束",
+        grace_seconds = grace_seconds,
+    }))
+    state.pending_shutdown = os.time() + grace_seconds
+
+    log_info(state, string.format("服务器关闭通知已发送，排空剩余 %d 秒", grace_seconds))
+    return state  -- 继续运行，match_loop 中到期后自动结束
 end
 function M.match_signal(context, dispatcher, tick, state, data) return state, data end
 
