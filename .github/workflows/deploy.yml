@@ -16,8 +16,7 @@ jobs:
       - name: Sync code to modules dir
         run: |
           mkdir -p "$APP_DIR"
-          rsync -a --delete --exclude='.git/' --exclude='.github/' --exclude='.mcp.json' --exclude='demo*.lua' \
-            $GITHUB_WORKSPACE/ "$APP_DIR/"
+          cp -r $GITHUB_WORKSPACE/*.lua $GITHUB_WORKSPACE/heroes $GITHUB_WORKSPACE/*.md $GITHUB_WORKSPACE/*.json "$APP_DIR/"
 
       - name: Restart Nakama
         run: docker compose -f /data/nakama/docker-compose.yml restart nakama
