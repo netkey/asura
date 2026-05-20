@@ -51,7 +51,7 @@ M.HEROES = {
     harun_al_rashid = { name="哈伦·拉希德", price=1500, tier=3,
                         description="【哈里发令】出牌阶段，指定一名玩家令其弃1张牌或受1点伤害" },
     suleiman        = { name="苏莱曼",       price=1500, tier=3,
-                        description="【封印】出牌阶段，宣告一名其他玩家本回合不能使用【AOE沙尘暴】" },
+                        description="【御风】出牌阶段，选一名玩家并封锁一种牌型（攻击/防御/治疗/沙尘暴）" },
     khayyam         = { name="海亚姆",       price=1500, tier=3,
                         description="【诗酒】回合结束时，若弃牌堆≥5张，将弃牌堆洗回牌堆" },
     zenobia         = { name="芝诺比娅",     price=1500, tier=3,

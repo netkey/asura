@@ -231,8 +231,9 @@ local function ai_handle_pending(state)
 
         elseif action.type == "SULEIMAN_YU_FENG" then
             if action.targets and #action.targets > 0 then
+                local block_types = {"ATTACK", "DEFENSE", "HEAL", "AOE_SANDSTORM"}
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, target_id=action.targets[1].id})
+                    {confirm=true, target_id=action.targets[1].id, block_type=block_types[math.random(4)]})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end

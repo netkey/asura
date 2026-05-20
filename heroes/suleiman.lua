@@ -1,8 +1,15 @@
 local nk = require("nakama")
 local M = {}
 
--- 苏莱曼（Suleiman）- 古代以色列传奇国王，以智慧和对自然力量的掌控闻名
--- 技能：【御风】 - 出牌阶段开始时，可宣告一名其他玩家本回合不能使用【沙尘暴】（主动选择）
+-- 苏莱曼（Suleiman）- 以色列传奇国王，智慧与自然力量的掌控者
+-- 技能：【御风】 - 出牌阶段开始时，宣告一名玩家+一种牌型，该玩家本回合不能使用该类型牌
+
+local BLOCKABLE_TYPES = {
+    ATTACK        = "攻击",
+    DEFENSE       = "防御",
+    HEAL          = "治疗",
+    AOE_SANDSTORM = "沙尘暴",
+}
 
 function M.on_play_phase_start(dispatcher, state, player_id)
     local player = state.players[player_id]
@@ -16,19 +23,26 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     end
     if #targets == 0 then return false end
 
+    local block_types = {}
+    for k, v in pairs(BLOCKABLE_TYPES) do
+        table.insert(block_types, { type = k, label = v })
+    end
+
     state.pending_action = {
-        type      = "SULEIMAN_YU_FENG",
-        player_id = player_id,
-        hero_id   = "suleiman",
-        targets   = targets,
-        deadline  = os.time() + 15,
+        type        = "SULEIMAN_YU_FENG",
+        player_id   = player_id,
+        hero_id     = "suleiman",
+        targets     = targets,
+        block_types = block_types,
+        deadline    = os.time() + 15,
     }
 
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "yu_feng",
-        description = "是否发动【御风】？选择一名玩家令其本回合不能使用【沙尘暴】",
+        description = "是否发动【御风】？选择一名玩家并封锁一种牌型",
         targets     = targets,
+        block_types = block_types,
     }), { state.presences[player_id] })
 
     return true
@@ -41,14 +55,18 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     state.pending_action = nil
 
-    -- confirm=false 或超时：放弃技能，直接进入出牌阶段
-    if payload.confirm ~= true or type(payload.target_id) ~= "string" then
+    if payload.confirm ~= true or type(payload.target_id) ~= "string" or type(payload.block_type) ~= "string" then
         local rules = require("game_rules")
         rules.broadcast_update(dispatcher, state)
         return
     end
 
-    -- 校验目标合法
+    if not BLOCKABLE_TYPES[payload.block_type] then
+        local rules = require("game_rules")
+        rules.broadcast_update(dispatcher, state)
+        return
+    end
+
     local target = state.players[payload.target_id]
     if not target or target.health <= 0 or payload.target_id == player_id then
         local rules = require("game_rules")
@@ -56,18 +74,21 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    state.suleiman_yu_feng_target = state.suleiman_yu_feng_target or {}
-    state.suleiman_yu_feng_target[payload.target_id] = true
-    state.suleiman_yu_feng_owner = player_id
+    state.suleiman_yu_feng = {
+        target_id    = payload.target_id,
+        blocked_type = payload.block_type,
+    }
 
     local player = state.players[player_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content   = string.format("%s 发动【御风】，%s 本回合不能使用【沙尘暴】！",
-                        player.username, target.username),
+        content = string.format("%s 发动【御风】，%s 本回合不能使用【%s】！",
+            player.username, target.username,
+            BLOCKABLE_TYPES[payload.block_type] or payload.block_type),
         event     = "skill_used",
         hero      = "suleiman",
         skill     = "yu_feng",
         target_id = payload.target_id,
+        block_type = payload.block_type,
     }))
 
     local rules = require("game_rules")

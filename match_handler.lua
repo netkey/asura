@@ -427,13 +427,9 @@ function M.next_turn(dispatcher, state)
     end
 
     local ending_uid = state.current_turn_id
-    -- 清除苏莱曼【御风】：仅当被御风目标的回合结束时才清除
-    if state.suleiman_yu_feng_target and ending_uid then
-        state.suleiman_yu_feng_target[ending_uid] = nil
-        if not next(state.suleiman_yu_feng_target) then
-            state.suleiman_yu_feng_target = nil
-            state.suleiman_yu_feng_owner = nil
-        end
+    -- 清除苏莱曼【御风】：目标回合结束时清除封锁
+    if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == ending_uid then
+        state.suleiman_yu_feng = nil
     end
     -- 清除杜尼亚扎德【续篇】免疫（仅持续当前回合）
     state.dunyazad_immune = nil
