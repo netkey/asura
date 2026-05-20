@@ -221,10 +221,6 @@ local function ai_handle_pending(state)
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
 
-        elseif action.type == "BASIRA_DONG_CHA" then
-            hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                {confirm=true, guess=action.guess})
-
         elseif action.type == "GILGAMESH_BU_XIU" then
             if action.cards and #action.cards > 0 then
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,

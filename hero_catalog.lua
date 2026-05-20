@@ -69,7 +69,7 @@ M.HEROES = {
     imru_al_qais    = { name="伊姆鲁盖斯",   price=1500, tier=3,
                         description="【悬诗】回合结束时，若手中【攻击】牌≥3张，额外摸1张牌" },
     basira          = { name="巴希拉",       price=1500, tier=3,
-                        description="【洞察】摸牌阶段，宣告一种花色；第一张若花色匹配，额外摸1张" },
+                        description="【洞察】摸牌阶段看牌堆顶1张，红色则额外摸1张" },
     dhul_qarnayn    = { name="双角王",       price=1500, tier=3,
                         description="【铁壁】受伤时弃1基本牌减伤1（每回合1次）；击杀收缴1手牌" },
 }
