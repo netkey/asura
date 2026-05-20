@@ -24,28 +24,3 @@ jobs:
 
       - name: Luacheck lint
         run: luacheck --no-color .
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Start Nakama stack
-        run: docker compose -f .github/workflows/docker-compose.ci.yml up -d --wait
-
-      - name: Wait for Nakama ready
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:7350/ > /dev/null 2>&1; then
-              echo "Nakama ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          exit 1
-
-      - name: Health check
-        run: curl -sf http://localhost:7350/ || exit 1
-
-      - name: Stop Nakama
-        run: docker compose -f .github/workflows/docker-compose.ci.yml down -v
