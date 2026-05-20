@@ -71,7 +71,7 @@ M.HEROES = {
     basira          = { name="巴希拉",       price=1500, tier=3,
                         description="【洞察】摸牌阶段，宣告一种花色；第一张若花色匹配，额外摸1张" },
     dhul_qarnayn    = { name="双角王",       price=1500, tier=3,
-                        description="【铁壁】击杀玩家时，在其弃牌之前收缴其1张随机手牌" },
+                        description="【铁壁】受伤时弃1基本牌减伤1（每回合1次）；击杀收缴1手牌" },
 }
 
 return M

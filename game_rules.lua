@@ -908,9 +908,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
         target.damage_received = (target.damage_received or 0) + amount
     end
 
+    local hero_mgr = require("hero_manager")
+    local reduced = hero_mgr.trigger("on_before_damage", dispatcher, state, target_id, amount, source_id)
+    if reduced then amount = amount - 1 end
+    if amount <= 0 then return end
+
     target.health = target.health - amount
 
-    local hero_mgr = require("hero_manager")
     if source and source_id then
         hero_mgr.trigger("on_damage_dealt", dispatcher, state, source_id, amount, target_id)
     end
