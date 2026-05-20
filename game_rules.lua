@@ -911,6 +911,9 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     target.health = target.health - amount
 
     local hero_mgr = require("hero_manager")
+    if source and source_id then
+        hero_mgr.trigger("on_damage_dealt", dispatcher, state, source_id, amount, target_id)
+    end
     hero_mgr.trigger("on_damaged", dispatcher, state, target_id, amount, source_id)
 
     dispatcher.broadcast_message(20, nk.json_encode({ event = "damage", target = target_id, source = source_id, amount = amount }))

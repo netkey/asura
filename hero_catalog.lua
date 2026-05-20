@@ -39,7 +39,7 @@ M.HEROES = {
     al_biruni       = { name="比鲁尼",       price=1000, tier=2,
                         description="【测量】摸牌阶段，看牌堆顶4张选2张入手，其余弃置" },
     tamerlane       = { name="帖木儿",       price=1000, tier=2,
-                        description="【万骑】击杀玩家后立刻摸3张牌" },
+                        description="【万骑】每回合首次造成伤害摸1张牌；击杀玩家摸3张牌" },
     dunyazad        = { name="杜尼亚扎德",   price=1000, tier=2,
                         description="【续篇】防御成功后，本回合该攻击者不能再对你使用【攻击】" },
     antar           = { name="安塔拉",       price=1000, tier=2,
