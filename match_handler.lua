@@ -10,6 +10,14 @@ local M = {}
 -- 游戏状态定义
 local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 
+-- 结构化日志：附加 match_id/模块上下文
+local function log_info(state, msg)
+    nk.logger_info(string.format("[match=%s] %s", state.match_id or "?", msg))
+end
+local function log_warn(state, msg)
+    nk.logger_warn(string.format("[match=%s] %s", state.match_id or "?", msg))
+end
+
 -- ==========================================
 -- 用户在线状态维护（供好友系统查询）
 -- status: "waiting"=等待中  "playing"=游戏中
@@ -70,6 +78,7 @@ function M.match_init(context, params)
     local mode = params.mode or (max_players == 2 and "pvp" or "identity")
     local state = {
         status = STATE.WAITING,
+        waiting_since = os.time(),  -- 等待超时自动清理
         max_players = max_players,
 		mode = mode,				-- 记录模式，方便后续更新 label
         players = {},      			-- 存储玩家详细战斗数据
@@ -105,6 +114,7 @@ function M.match_init(context, params)
 end
 
 function M.match_join(context, dispatcher, tick, state, presences)
+    state.match_id = context.match_id  -- 结构化日志用
     for _, p in ipairs(presences) do
         -- 旁观者分流：pending_spectators 由 match_join_attempt 标记
         if state.pending_spectators[p.user_id] then
@@ -117,7 +127,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
             end
             state.spectators[p.user_id] = { presence = p, target_player_id = target_id }
             M.send_spectator_state(dispatcher, state, p, target_id)
-            nk.logger_info("旁观者 " .. p.username .. " 加入观战，跟随 " .. tostring(target_id))
+            log_info(state, "旁观者 " .. p.username .. " 加入观战，跟随 " .. tostring(target_id))
 
         else
         -- 1. 更新 Presence 引用，确保后续消息能发给他
@@ -127,7 +137,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
         if state.status == STATE.PLAYING then
             -- 立即单独发一份全量数据给他，同步当前战场
             M.send_full_state_to_player(dispatcher, state, p)
-            nk.logger_info("已为重连玩家 " .. p.username .. " 同步战场状态")
+            log_info(state, "已为重连玩家 " .. p.username .. " 同步战场状态")
         else
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
@@ -151,7 +161,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
             if type(requested) == "string" and catalog.HEROES[requested] and unlocked_heroes[requested] then
                 want_hero = requested
             elseif requested then
-                nk.logger_warn("玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
+                log_warn(state, "玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
             end
 
             local ph = state.config.match.player_health
@@ -180,7 +190,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 写入等待中状态，好友列表可查
             write_user_status(p.user_id, context.match_id, "waiting",
                 state.mode, #state.presence_ids, state.max_players)
-			nk.logger_info("Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
+			log_info(state, "Player " .. p.username .. " joined, Location: " .. #state.presence_ids)
         end
         end -- spectator else 分支结束
     end
@@ -243,7 +253,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
         --M.next_turn(dispatcher, state)
 		-- 开始第一个回合
         -- 注意：这里不需要再调 next_turn，因为 start_game 已经发过牌了，直接等待主公出牌即可
-        nk.logger_info("对局正式启动！总人数：" .. current_count)
+        log_info(state, "对局正式启动！总人数：" .. current_count)
     end
     return state
 end
@@ -264,6 +274,107 @@ local function auto_defend(dispatcher, state, defender_id, incoming_damage)
     end
     -- 非致命 or 无防御牌：放弃
     rules.handle_response(dispatcher, state, defender_id, { confirm = false })
+end
+
+-- 托管 AI 辅助：解决当前 pending_action（一层），为不支持复杂交互的托管提供默认选择
+local function auto_resolve_pending(dispatcher, state)
+    local act = state.pending_action
+    if not act then return end
+
+    if act.type == "WAITING_FOR_DEFENSE" then
+        auto_defend(dispatcher, state, act.target_id, act.damage or 1)
+    elseif act.type == "WAITING_FOR_AOE" then
+        auto_defend(dispatcher, state, act.current_target, 1)
+    elseif act.type == "WAITING_FOR_RESCUE" then
+        local rescuer_id = act.rescuers and act.rescuers[act.current_rescuer_idx]
+        local rescuer = rescuer_id and state.players[rescuer_id]
+        if rescuer then
+            local found
+            for _, c in ipairs(rescuer.hand) do
+                if c.type == "HEAL" then
+                    rules.handle_response(dispatcher, state, rescuer_id, { confirm = true, card_id = c.id })
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
+            end
+        else
+            state.pending_action = nil
+        end
+    elseif act.type == "WAITING_FOR_TRICK_SELECT" then
+        rules.handle_response(dispatcher, state, act.chooser_id, { confirm = false })
+    elseif act.type == "ENHEDUANNA_SONG_CI" then
+        -- 颂词：总是发动（净收益 +3）
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+    elseif act.type == "ENHEDUANNA_SONG_CI_GIVE" then
+        -- 给第一张牌、第一个目标
+        if act.hand_cards and #act.hand_cards > 0 and act.targets and #act.targets > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, card_id = act.hand_cards[1].id, target_id = act.targets[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+        end
+    elseif act.type == "SULEIMAN_YU_FENG" then
+        if act.targets and #act.targets > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, target_id = act.targets[1].id, block_type = "ATTACK" })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "HARUN_SELECT_TARGET" then
+        if act.targets and #act.targets > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, target_id = act.targets[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "HARUN_CHOOSE" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, choose_discard = false })
+    elseif act.type == "ALADDIN_LAMP" then
+        local p = state.players[act.player_id]
+        if p and #p.hand >= 2 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, card_ids = { p.hand[1].id, p.hand[2].id } })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "ALIBABA_COUNTER" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+    elseif act.type == "IBN_BATTUTA_YUAN_XING" then
+        local p = state.players[act.player_id]
+        if p and #p.hand >= 1 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_ids = { p.hand[1].id } })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "RUMI_XUANHUI" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+    elseif act.type == "HAKIM_XING_XIANG" or act.type == "AL_KHWARIZMI_SUANFA" or act.type == "AL_BIRUNI_CELIANG" then
+        -- 观星/算法/测量：保持原顺序 confirm=false（等于恢复原状）
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+    elseif act.type == "GILGAMESH_BU_XIU" then
+        if act.cards and #act.cards > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_id = act.cards[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "SCHEHERAZADE_QIANYE" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+    elseif act.type == "AVICENNA_ZHEN" then
+        if act.heart_cards and #act.heart_cards > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_id = act.heart_cards[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "BASIRA_DONG_CHA" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+    else
+        -- 兜底：未知 pending_action 清除并记录
+        log_warn(state, "auto_resolve_pending: 未知类型 " .. tostring(act.type) .. "，强制清除")
+        state.pending_action = nil
+    end
 end
 
 --自动托管系统出牌逻辑
@@ -291,11 +402,20 @@ function M.perform_auto_play(dispatcher, state)
         end
     end
 
+    -- 辅助：出牌后自动处理技能触发的 pending_action（最多解 5 层防环）
+    local function play_and_resolve(args)
+        rules.handle_play_card(dispatcher, state, uid, args)
+        for _ = 1, 5 do
+            if not state.pending_action then break end
+            auto_resolve_pending(dispatcher, state)
+        end
+    end
+
     -- 2. 装备：先上武器，再上防具
     for _, equip_type in ipairs({"WEAPON", "ARMOR", "HORSE"}) do
         local c = find_card(equip_type)
         if c then
-            rules.handle_play_card(dispatcher, state, uid, { card_id = c.id })
+            play_and_resolve({ card_id = c.id })
         end
     end
 
@@ -303,14 +423,14 @@ function M.perform_auto_play(dispatcher, state)
     if player.health < player.max_health then
         local c = find_card("HEAL")
         if c then
-            rules.handle_play_card(dispatcher, state, uid, { card_id = c.id })
+            play_and_resolve({ card_id = c.id })
         end
     end
 
     -- 4. AOE：有群伤先放
     local aoe = find_card("AOE_SANDSTORM")
     if aoe then
-        rules.handle_play_card(dispatcher, state, uid, { card_id = aoe.id })
+        play_and_resolve({ card_id = aoe.id })
     end
 
     -- 5. 喝酒：有酒且手里还有杀才喝（避免白喝）
@@ -318,7 +438,7 @@ function M.perform_auto_play(dispatcher, state)
     if has_attack then
         local wine = find_card("WINE")
         if wine then
-            rules.handle_play_card(dispatcher, state, uid, { card_id = wine.id })
+            play_and_resolve({ card_id = wine.id })
         end
     end
 
@@ -333,11 +453,11 @@ function M.perform_auto_play(dispatcher, state)
             end
         end
         if target_id then
-            rules.handle_play_card(dispatcher, state, uid, { card_id = atk.id, target_id = target_id })
+            play_and_resolve({ card_id = atk.id, target_id = target_id })
         end
     end
 
-    nk.logger_info("托管结束，切换到下一位玩家")
+    log_info(state, "托管结束，切换到下一位玩家")
     M.next_turn(dispatcher, state)
 end
 
@@ -350,39 +470,24 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     state._turn_depth = 0
 
     -- ==========================================
+    -- 0. 等待超时清理（5分钟无满员自动解散）
+    -- ==========================================
+    if state.status == STATE.WAITING and os.time() - (state.waiting_since or 0) > 300 then
+        log_info(state, "房间等待超时，自动解散")
+        for uid, _ in pairs(state.players) do
+            clear_user_status(uid)
+        end
+        return nil
+    end
+
+    -- ==========================================
     -- 1. 托管计时逻辑 (新增)
     -- ==========================================
     -- 只有在对局进行中才计时
     if state.status == STATE.PLAYING then
         -- 检查 pending_action 超时（防止防御/AOE/求救等待永久卡死）
         if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
-            local act   = state.pending_action
-            if act.type == "WAITING_FOR_DEFENSE" then
-                auto_defend(dispatcher, state, act.target_id, act.damage or 1)
-            elseif act.type == "WAITING_FOR_AOE" then
-                auto_defend(dispatcher, state, act.current_target, 1)
-            elseif act.type == "WAITING_FOR_RESCUE" then
-                rules.handle_response(dispatcher, state, act.rescuers[act.current_rescuer_idx], {confirm=false})
-            elseif act.type == "WAITING_FOR_TRICK_SELECT" then
-                rules.handle_response(dispatcher, state, act.chooser_id, {confirm=false})
-            elseif act.type == "HAKIM_XING_XIANG"
-                or act.type == "SULEIMAN_YU_FENG"
-                or act.type == "HARUN_SELECT_TARGET"
-                or act.type == "HARUN_CHOOSE"
-                or act.type == "IBN_BATTUTA_YUAN_XING"
-                or act.type == "RUMI_XUANHUI"
-                or act.type == "SCHEHERAZADE_QIANYE"
-                or act.type == "ALADDIN_LAMP"
-                or act.type == "ALIBABA_COUNTER"
-                or act.type == "AL_BIRUNI_CELIANG"
-                or act.type == "BASIRA_DONG_CHA"
-                or act.type == "GILGAMESH_BU_XIU"
-                or act.type == "AVICENNA_ZHEN"
-                or act.type == "ENHEDUANNA_SONG_CI"
-                or act.type == "ENHEDUANNA_SONG_CI_GIVE" then
-                local hero_mgr = require("hero_manager")
-                hero_mgr.handle_response(dispatcher, state, act.player_id, {confirm=false})
-            end
+            auto_resolve_pending(dispatcher, state)
             return state
         end
 
@@ -421,7 +526,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
 
         -- 检查是否思考超时
         if state.current_turn_elapsed >= state.turn_timeout then
-            nk.logger_info("玩家 " .. (state.current_turn_id or "未知") .. " 超时，执行托管")
+            log_info(state, "玩家 " .. (state.current_turn_id or "未知") .. " 超时，执行托管")
             M.perform_auto_play(dispatcher, state)
             -- 托管后计时器会在 next_turn 中重置，这里直接返回 state 等待下一秒
             return state
@@ -484,7 +589,7 @@ function M.next_turn(dispatcher, state)
     -- 防止递归过深（极端情况：多人连续死亡 / 全员跳过出牌）
     state._turn_depth = (state._turn_depth or 0) + 1
     if state._turn_depth > 20 then
-        nk.logger_warn("next_turn 递归深度超限，延至下一 tick")
+        log_warn(state, "next_turn 递归深度超限，延至下一 tick")
         state._turn_depth = 0
         state.pending_turn_continuation = {uid = state.current_turn_id}
         return
@@ -648,7 +753,7 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
     -- 检查沙漠诅咒跳过出牌阶段
     if current_p.skip_play_phase then
         current_p.skip_play_phase = nil
-        nk.logger_info(current_p.username .. " 跳过出牌阶段")
+         log_info(state, current_p.username .. " 跳过出牌阶段")
         M.next_turn(dispatcher, state)
     else
         hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
@@ -660,16 +765,39 @@ function M.match_leave(context, dispatcher, tick, state, presences)
     for _, p in ipairs(presences) do
         if state.spectators[p.user_id] then
             state.spectators[p.user_id] = nil
-            nk.logger_info("旁观者 " .. p.username .. " 离开")
+            log_info(state, "旁观者 " .. p.username .. " 离开")
         else
-            -- 等待中主动离开：清除状态；游戏中断线保留状态（支持重连）
+            -- 等待中主动离开：清除状态
             if state.status == STATE.WAITING then
                 clear_user_status(p.user_id)
                 state.pending_heroes[p.user_id] = nil
+                for i, uid in ipairs(state.presence_ids) do
+                    if uid == p.user_id then
+                        table.remove(state.presence_ids, i)
+                        break
+                    end
+                end
             end
-            nk.logger_info("玩家 " .. p.username .. " 掉线了")
+            log_info(state, "玩家 " .. p.username .. " 掉线了")
         end
     end
+
+    -- 游戏中且当前回合玩家掉线：触发托管自动切回合
+    if state.status == STATE.PLAYING then
+        for _, p in ipairs(presences) do
+            if state.players[p.user_id] and p.user_id == state.current_turn_id then
+                log_info(state, "当前回合玩家 " .. p.username .. " 掉线，立即托管")
+                -- 先 resolve 挂起的 pending_action，再打出牌
+                if state.pending_action then
+                    auto_resolve_pending(dispatcher, state)
+                else
+                    M.perform_auto_play(dispatcher, state)
+                end
+                break
+            end
+        end
+    end
+
     return state
 end
 
@@ -768,7 +896,7 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
 
     -- 核心逻辑：如果是已经在游戏里的玩家回来，无条件允许
     if state.players[presence.user_id] then
-        nk.logger_info("检测到玩家 " .. presence.username .. " 正在重连...")
+        log_info(state, "检测到玩家 " .. presence.username .. " 正在重连...")
         return state, true
     end
 

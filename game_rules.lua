@@ -1,6 +1,11 @@
 local nk = require("nakama")
 local M = {}
 
+-- 结构化日志（state.match_id 由 match_handler 写入）
+local function log_info(state, msg)
+    nk.logger_info(string.format("[match=%s] %s", state.match_id or "?", msg))
+end
+
 -- 每个 Lua VM 实例化时播种，避免多局牌序相同
 math.randomseed(os.time() + math.floor(os.clock() * 1e6))
 
@@ -133,7 +138,7 @@ local CARD_EFFECTS = {
     	local target = state.players[target_id]
     	-- 将这张牌挂到目标的判定区数组里
     	table.insert(target.judgments, { type = "JUDGE_STORM", from = source_id })
-    	nk.logger_info("【天谴】已挂在 " .. target.username .. " 的面前")
+    	log_info(state, "【天谴】已挂在 " .. target.username .. " 的面前")
 	end,
 
 	-- 武器牌：装备到武器槽，替换旧武器
@@ -142,7 +147,7 @@ local CARD_EFFECTS = {
 		local old = p.equipment.weapon
 		if old then
 			table.insert(state.discard_pile, old)
-			nk.logger_info(p.username .. " 替换旧武器：" .. old.name)
+			log_info(state, p.username .. " 替换旧武器：" .. old.name)
 		end
 		p.equipment.weapon = card
 		dispatcher.broadcast_message(11, nk.json_encode({
@@ -593,7 +598,7 @@ local function execute_death(dispatcher, state, target_id, source_id)
         if card then table.insert(state.discard_pile, card) end
     end
     target.equipment = {weapon = nil, armor = nil, horse = nil}
-    nk.logger_info(target.username .. " 已阵亡，身份是: " .. target.role)
+    log_info(state, target.username .. " 已阵亡，身份是: " .. target.role)
     local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
     local role_tag = ROLE_CN[target.role]
     dispatcher.broadcast_message(11, nk.json_encode({
@@ -882,7 +887,7 @@ end
 
 -- 防御成功后续逻辑（pending_action 由调用方在进入本函数前已清除）
 function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
-    nk.logger_info("防御成功，正在检查攻击者是否有追击技能...")
+    log_info(state, "防御成功，正在检查攻击者是否有追击技能...")
     local hero_mgr = require("hero_manager")
     local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, defender_id, attacker_id)
     if not suspended then
