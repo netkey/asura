@@ -1,0 +1,22 @@
+name: Scheduled Test
+
+on:
+  schedule:
+    # 每天 UTC 2:00 / 14:00（北京时间 10:00 / 22:00）
+    - cron: "0 2,14 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+
+      - name: Run 10-game random test
+        run: lua5.4 demo_concurrent.lua
+        timeout-minutes: 5
