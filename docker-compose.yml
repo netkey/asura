@@ -2,22 +2,28 @@ version: "3.8"
 
 services:
   postgres:
+    container_name: postgres
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB:       nakama
       POSTGRES_USER:     postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+      POSTGRES_PASSWORD: localdb
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - /data/nakama/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
 
   nakama:
-    image: heroiclabs/nakama:3.22.0
+    container_name: nakama
+    image: registry.heroiclabs.com/heroiclabs/nakama:3.22.0
     restart: unless-stopped
     depends_on:
       postgres:
@@ -27,25 +33,26 @@ services:
       - -ecx
       - >
         /nakama/nakama migrate up
-        --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
+        --database.address postgres:localdb@postgres:5432/nakama
         && exec /nakama/nakama
-        --name asura
-        --database.address postgres:${POSTGRES_PASSWORD:-localdev}@postgres:5432/nakama
-        --socket.server_key ${NAKAMA_SERVER_KEY:-defaultkey}
-        --session.token_expiry_sec 86400
+        --name nakama1
+        --database.address postgres:localdb@postgres:5432/nakama
+        --logger.level DEBUG
         --runtime.path /nakama/data/modules
-        --logger.level ${LOG_LEVEL:-INFO}
+        --session.token_expiry_sec 7200
+        --socket.server_key ${NAKAMA_SERVER_KEY:-defaultkey}
     ports:
       - "7349:7349"  # gRPC
       - "7350:7350"  # HTTP API
       - "7351:7351"  # Console
+    expose:
+      - "7349"
+      - "7350"
+      - "7351"
     volumes:
-      - .:/nakama/data/modules
+      - /data/nakama/data:/nakama/data
     environment:
       APPLE_IAP_SECRET:      ${APPLE_IAP_SECRET:-}
       GOOGLE_CLIENT_ID:      ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET:  ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REFRESH_TOKEN:  ${GOOGLE_REFRESH_TOKEN:-}
-
-volumes:
-  pgdata:

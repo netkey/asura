@@ -23,6 +23,10 @@ jobs:
             --exclude='.mcp.json' --exclude='demo*.lua' \
             $GITHUB_WORKSPACE/ "$APP_DIR/"
 
+      - name: Sync docker-compose.yml
+        run: |
+          cp $GITHUB_WORKSPACE/docker-compose.yml /data/nakama/docker-compose.yml
+
       - name: Restart Nakama
         run: docker compose -f /data/nakama/docker-compose.yml restart nakama
 
