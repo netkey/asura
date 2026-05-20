@@ -758,7 +758,6 @@ nk.register_rpc(safe_rpc(get_friends_status), "get_friends_status")
 -- 观战：查询当前可观战的对局列表
 -- payload: {"mode":"pvp"} 可选，不传则返回全部模式
 -- ==========================================
-local VALID_MODES = { pvp = true, identity = true }
 
 local function find_spectatable_match(context, payload)
     local json  = nk.json_decode(payload)
