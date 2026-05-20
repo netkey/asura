@@ -1147,7 +1147,10 @@ nk.register_rpc(verify_google_iap_receipt, "verify_google_iap_receipt")
 
 -- RPC：admin_refresh_google_token（管理员强制刷新 Google OAuth token 缓存）
 local function admin_refresh_google_token(context, _payload)
-    if context.user_id and context.user_id ~= "" then
+    -- Nakama 标准管理员检查：控制台 → __nakama_admin; HTTP API key → user_id=nil
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         error("unauthorized")
     end
     pcall(nk.storage_delete, {{ collection="system_config", key="google_token", user_id=nil }})
