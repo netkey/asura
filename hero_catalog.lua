@@ -63,7 +63,7 @@ M.HEROES = {
     enheduanna      = { name="恩赫杜安娜",   price=1500, tier=3,
                         description="【颂词】摸牌阶段可发动，摸4张牌并交给其他角色1张手牌" },
     al_mansur       = { name="曼苏尔",       price=1500, tier=3,
-                        description="【建城】击杀玩家后，血量上限永久+1并立即回复（上限最多+3）" },
+                        description="【建城】击杀回满血（限3次）；一回合造成≥2伤，回合结束回1血" },
     gilgamesh       = { name="吉尔伽美什",   price=1500, tier=3,
                         description="【不朽】回合结束时，若血量<2，自动回复至2" },
     imru_al_qais    = { name="伊姆鲁盖斯",   price=1500, tier=3,
