@@ -16,7 +16,8 @@ jobs:
       - name: Sync code to modules dir
         run: |
           mkdir -p "$APP_DIR"
-          # 排除 .git .github .luacheckrc README.md demo 等非模块文件
+          # 清理旧 demo 文件（避免 Nakama 启动时加载执行顶层代码）
+          rm -f "$APP_DIR"/demo*.lua
           rsync -a --delete \
             --exclude='.git/' --exclude='.github/' --exclude='.luacheckrc' \
             --exclude='CLAUDE.md' --exclude='README.md' \
