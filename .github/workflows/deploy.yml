@@ -27,8 +27,8 @@ jobs:
         run: |
           cp $GITHUB_WORKSPACE/docker-compose.yml /data/nakama/docker-compose.yml
 
-      - name: Restart Nakama
-        run: docker compose -f /data/nakama/docker-compose.yml restart nakama
+      - name: Start services
+        run: docker compose -f /data/nakama/docker-compose.yml up -d
 
       - name: Health check
         run: |
