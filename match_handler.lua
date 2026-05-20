@@ -248,6 +248,24 @@ function M.match_join(context, dispatcher, tick, state, presences)
     return state
 end
 
+-- 托管防御决策：致命伤才出防御牌，否则放弃
+local function auto_defend(dispatcher, state, defender_id, incoming_damage)
+    local defender = state.players[defender_id]
+    if not defender or defender.health <= 0 then return end
+
+    if incoming_damage >= defender.health then
+        -- 找一张防御牌
+        for _, card in ipairs(defender.hand) do
+            if card.type == "DEFENSE" then
+                rules.handle_response(dispatcher, state, defender_id, { confirm = true, card_id = card.id })
+                return
+            end
+        end
+    end
+    -- 非致命 or 无防御牌：放弃
+    rules.handle_response(dispatcher, state, defender_id, { confirm = false })
+end
+
 --自动托管系统出牌逻辑
 function M.perform_auto_play(dispatcher, state)
     local uid = state.current_turn_id
@@ -340,9 +358,9 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
             local act   = state.pending_action
             if act.type == "WAITING_FOR_DEFENSE" then
-                rules.handle_response(dispatcher, state, act.target_id, {confirm=false})
+                auto_defend(dispatcher, state, act.target_id, act.damage or 1)
             elseif act.type == "WAITING_FOR_AOE" then
-                rules.handle_response(dispatcher, state, act.current_target, {confirm=false})
+                auto_defend(dispatcher, state, act.current_target, 1)
             elseif act.type == "WAITING_FOR_RESCUE" then
                 rules.handle_response(dispatcher, state, act.rescuers[act.current_rescuer_idx], {confirm=false})
             elseif act.type == "WAITING_FOR_TRICK_SELECT" then
