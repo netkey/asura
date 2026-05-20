@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, asura-vps]
+    runs-on: self-hosted
     env:
       APP_DIR: /data/nakama/data/modules  # 映射到容器 /nakama/data/modules
     steps:
