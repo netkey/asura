@@ -85,22 +85,31 @@ local function ai_handle_pending(state)
         local action = state.pending_action
         if not action then break end
 
-        -- ---- 防御/AOE 响应 ----
+        -- ---- 防御/AOE 响应：非致命伤不下防，省牌 ----
         if action.type == "WAITING_FOR_DEFENSE" then
             local p = state.players[action.target_id]
             if not p then state.pending_action = nil; break end
-            local def_card
-            for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
-            rules.handle_response(state._dispatcher, state, action.target_id,
-                {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
+            local dmg = action.damage or 1
+            if dmg >= p.health then
+                local def_card
+                for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
+                rules.handle_response(state._dispatcher, state, action.target_id,
+                    {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
+            else
+                rules.handle_response(state._dispatcher, state, action.target_id, {confirm=false})
+            end
 
         elseif action.type == "WAITING_FOR_AOE" then
             local p = state.players[action.current_target]
             if not p then state.pending_action = nil; break end
-            local def_card
-            for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
-            rules.handle_response(state._dispatcher, state, action.current_target,
-                {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
+            if 1 >= p.health then
+                local def_card
+                for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
+                rules.handle_response(state._dispatcher, state, action.current_target,
+                    {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
+            else
+                rules.handle_response(state._dispatcher, state, action.current_target, {confirm=false})
+            end
 
         -- ---- 英雄技能响应 ----
         elseif action.type == "ALADDIN_LAMP" then
@@ -387,20 +396,20 @@ local function ai_choose(state, uid)
             if c.type == "HEAL" then return {card_id=c.id} end
         end
     end
-    -- 3. 攻击（主要输出，提前）
-    if target_id then
-        for _, c in ipairs(p.hand) do
-            if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
-        end
-    end
-    -- 4. AOE（多目标伤害）
+    -- 3. AOE（群伤先放，最大化目标数）
     for _, c in ipairs(p.hand) do
         if c.type == "AOE_SANDSTORM" then return {card_id=c.id} end
     end
-    -- 5. 酒牌（增强下次攻击）
+    -- 4. 酒牌（喝酒增伤）
     if not p.weapon_buff then
         for _, c in ipairs(p.hand) do
             if c.type == "WINE" then return {card_id=c.id} end
+        end
+    end
+    -- 5. 攻击
+    if target_id then
+        for _, c in ipairs(p.hand) do
+            if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
         end
     end
     -- 6. 延时锦囊挂到对手
@@ -471,40 +480,60 @@ end
 --------------------------------------------------------------------------------
 -- 15 局对局配置（覆盖全部 30 英雄）
 --------------------------------------------------------------------------------
-local MATCH_CONFIGS = {
-    -- 原有 5 局（第二批扩展英雄）
-    { seed=42,  p1={id="a1", name="哈伦·拉希德", hero="harun_al_rashid"}, p2={id="a2", name="海亚姆",      hero="khayyam"}      },
-    { seed=100, p1={id="b1", name="芝诺比娅",     hero="zenobia"},        p2={id="b2", name="穆阿维叶",    hero="muawiyah"}      },
-    { seed=999, p1={id="c1", name="尼扎姆",       hero="nizamulmulk"},    p2={id="c2", name="恩赫杜安娜",  hero="enheduanna"}    },
-    { seed=777, p1={id="d1", name="曼苏尔",       hero="al_mansur"},      p2={id="d2", name="吉尔伽美什",  hero="gilgamesh"}     },
-    { seed=321, p1={id="e1", name="伊姆鲁盖斯",   hero="imru_al_qais"},   p2={id="e2", name="巴希拉",      hero="basira"}        },
-    -- 新增 10 局（覆盖原版 6 + 第一批 12 扩展英雄）
-    { seed=11,  p1={id="f1", name="阿拉丁",       hero="aladdin"},        p2={id="f2", name="阿里巴巴",    hero="alibaba"}       },
-    { seed=22,  p1={id="g1", name="萨拉丁",       hero="saladin"},        p2={id="g2", name="贾法尔",      hero="jafar"}         },
-    { seed=33,  p1={id="h1", name="哈基姆",       hero="hakim"},          p2={id="h2", name="舍赫拉莎德",  hero="scheherazade"}  },
-    { seed=44,  p1={id="i1", name="伊本白图泰",   hero="ibn_battuta"},    p2={id="i2", name="花拉子密",    hero="al_khwarizmi"}  },
-    { seed=55,  p1={id="j1", name="阿维森纳",     hero="avicenna"},       p2={id="j2", name="辛巴达",      hero="sinbad"}        },
-    { seed=66,  p1={id="k1", name="旭烈兀",       hero="hulagu"},         p2={id="k2", name="纳芙蒂蒂",    hero="nefertiti"}     },
-    { seed=77,  p1={id="l1", name="鲁米",         hero="rumi"},           p2={id="l2", name="帖木儿",      hero="tamerlane"}     },
-    { seed=88,  p1={id="m1", name="祖拜达",       hero="zubaydah"},       p2={id="m2", name="比鲁尼",      hero="al_biruni"}     },
-    { seed=123, p1={id="n1", name="杜尼亚扎德",   hero="dunyazad"},       p2={id="n2", name="安塔拉",      hero="antar"}         },
-    { seed=456, p1={id="o1", name="苏莱曼",       hero="suleiman"},       p2={id="o2", name="双角王",      hero="dhul_qarnayn"}  },
-    -- 5 人身份局（验证角色系统与多目标 AOE）
-    { seed=200, players={
-        {id="q1", name="阿拉丁",     hero="aladdin"},
-        {id="q2", name="哈基姆",     hero="hakim"},
-        {id="q3", name="萨拉丁",     hero="saladin"},
-        {id="q4", name="贾法尔",     hero="jafar"},
-        {id="q5", name="舍赫拉莎德", hero="scheherazade"},
-    }},
-    { seed=201, players={
-        {id="r1", name="旭烈兀",     hero="hulagu"},
-        {id="r2", name="鲁米",       hero="rumi"},
-        {id="r3", name="帖木儿",     hero="tamerlane"},
-        {id="r4", name="祖拜达",     hero="zubaydah"},
-        {id="r5", name="辛巴达",     hero="sinbad"},
-    }},
+--------------------------------------------------------------------------------
+-- 生成随机对局配置：5 局 2 人 + 5 局 5 人
+--------------------------------------------------------------------------------
+local ALL_HEROES_LIST = {
+    "aladdin","alibaba","saladin","hakim","scheherazade","jafar",
+    "ibn_battuta","al_khwarizmi","avicenna","sinbad","hulagu","rumi",
+    "zubaydah","al_biruni","tamerlane","dunyazad","antar","nefertiti",
+    "harun_al_rashid","suleiman","khayyam","zenobia","muawiyah","nizamulmulk",
+    "enheduanna","al_mansur","gilgamesh","imru_al_qais","basira","dhul_qarnayn",
 }
+local HERO_CN = {
+    aladdin="阿拉丁", alibaba="阿里巴巴", saladin="萨拉丁", hakim="哈基姆",
+    scheherazade="谢赫拉莎德", jafar="贾法尔", sinbad="辛巴达", hulagu="旭烈兀",
+    nefertiti="纳芙蒂蒂", antar="安塔拉", khayyam="海亚姆", zenobia="芝诺比娅",
+    harun_al_rashid="哈伦·拉希德", gilgamesh="吉尔伽美什", avicenna="阿维森纳",
+    ibn_battuta="伊本·白图泰", al_khwarizmi="花剌子密", basira="巴希拉",
+    imru_al_qais="乌姆鲁勒·盖斯", dunyazad="敦娅扎德", muawiyah="穆阿维叶",
+    nizamulmulk="尼扎姆·穆勒克", enheduanna="恩赫杜安娜", al_mansur="曼苏尔",
+    dhul_qarnayn="双角王", rumi="鲁米", tamerlane="帖木儿", zubaydah="祖拜达",
+    al_biruni="比鲁尼", suleiman="苏莱曼大帝",
+}
+
+local function shuffled_heroes(seed)
+    math.randomseed(seed)
+    local t = {}
+    for _, h in ipairs(ALL_HEROES_LIST) do table.insert(t, h) end
+    for i = #t, 2, -1 do
+        local j = math.random(i)
+        t[i], t[j] = t[j], t[i]
+    end
+    return t
+end
+
+local MATCH_CONFIGS = {}
+local gid = 0
+for i = 1, 5 do
+    local sh = shuffled_heroes(1000 + i)
+    MATCH_CONFIGS[i] = { seed = 1000 + i, players = {
+        {id="g"..(gid+1), name=HERO_CN[sh[1]], hero=sh[1]},
+        {id="g"..(gid+2), name=HERO_CN[sh[2]], hero=sh[2]},
+    }}
+    gid = gid + 2
+end
+for i = 6, 10 do
+    local sh = shuffled_heroes(2000 + i)
+    MATCH_CONFIGS[i] = { seed = 2000 + i, players = {
+        {id="g"..(gid+1), name=HERO_CN[sh[1]], hero=sh[1]},
+        {id="g"..(gid+2), name=HERO_CN[sh[2]], hero=sh[2]},
+        {id="g"..(gid+3), name=HERO_CN[sh[3]], hero=sh[3]},
+        {id="g"..(gid+4), name=HERO_CN[sh[4]], hero=sh[4]},
+        {id="g"..(gid+5), name=HERO_CN[sh[5]], hero=sh[5]},
+    }}
+    gid = gid + 5
+end
 
 --------------------------------------------------------------------------------
 -- 初始化所有对局
@@ -540,17 +569,13 @@ end
 -- Round-Robin：15 局交替推进
 --------------------------------------------------------------------------------
 print("╔════════════════════════════════════════════════════════════════╗")
-print("║  阿苏拉 · 并发验证 Demo（15局2人+2局5人 / 覆盖30名英雄）      ║")
+print("║  阿苏拉 · 随机英雄测试（5局2人PVP+5局5人身份局）             ║")
 print("╚════════════════════════════════════════════════════════════════╝")
 for i, cfg in ipairs(MATCH_CONFIGS) do
-    if cfg.players then
-        local parts = {}
-        for _, pc in ipairs(cfg.players) do table.insert(parts, pc.name.."("..pc.hero..")") end
-        print(string.format("  对局%02d: [5人局] %s  seed=%d", i, table.concat(parts, " / "), cfg.seed))
-    else
-        print(string.format("  对局%02d: %-10s(%s)  vs  %-10s(%s)  seed=%d",
-            i, cfg.p1.name, cfg.p1.hero, cfg.p2.name, cfg.p2.hero, cfg.seed))
-    end
+    local parts = {}
+    for _, pc in ipairs(cfg.players) do table.insert(parts, pc.name.."("..pc.hero..")") end
+    local mode = #cfg.players == 2 and "2P" or "5P"
+    print(string.format("  对局%02d  [%s]  %s  seed=%d", i, mode, table.concat(parts, " / "), cfg.seed))
 end
 print(string.rep("─", 64))
 
@@ -586,12 +611,8 @@ for i, m in ipairs(matches) do
     local cfg    = MATCH_CONFIGS[i]
     local result = WIN_CN[m.winner] or m.winner or "未结束"
     local status = m.crashed and "✗ 崩溃" or "✓"
-    if cfg.players then
-        print(string.format("  对局%02d  [5人局]  %s  共%d回合  %s", i, result, m.turns, status))
-    else
-        print(string.format("  对局%02d  %-8s vs %-8s  %s  共%d回合  %s",
-            i, cfg.p1.hero, cfg.p2.hero, result, m.turns, status))
-    end
+    local mode = #cfg.players == 2 and "2P" or "5P"
+    print(string.format("  对局%02d  [%s]  %s  共%d回合  %s", i, mode, result, m.turns, status))
     if m.crashed then
         print("         错误: " .. m.crash_msg)
         crashed_count = crashed_count + 1
@@ -610,16 +631,7 @@ end
 --------------------------------------------------------------------------------
 -- 技能触发统计
 --------------------------------------------------------------------------------
-local ALL_HEROES = {
-    -- 原版 6
-    "aladdin","alibaba","saladin","hakim","scheherazade","jafar",
-    -- 第一批 12
-    "ibn_battuta","al_khwarizmi","avicenna","sinbad","hulagu","rumi",
-    "zubaydah","al_biruni","tamerlane","dunyazad","antar","nefertiti",
-    -- 第二批 12
-    "harun_al_rashid","suleiman","khayyam","zenobia","muawiyah","nizamulmulk",
-    "enheduanna","al_mansur","gilgamesh","imru_al_qais","basira","dhul_qarnayn",
-}
+local ALL_HEROES = ALL_HEROES_LIST
 
 print("\n══════════════════ 技能触发统计 ══════════════════")
 local triggered_count = 0
@@ -643,7 +655,7 @@ print(string.format("\n英雄技能触发: %d/30  崩溃对局: %d/%d\n",
     triggered_count, crashed_count, #MATCH_CONFIGS))
 
 if crashed_count == 0 then
-    print("全部对局运行完毕，无崩溃 ✓")
+    print("随机英雄测试全部运行完毕，无崩溃 ✓")
 else
     print(string.format("存在 %d 局崩溃，请检查上方错误信息", crashed_count))
     os.exit(1)

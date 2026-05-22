@@ -70,6 +70,13 @@ local function clear_user_status(uid)
     pcall(nk.status_update, uid, nil)
 end
 
+-- 清除所有玩家在线状态（在多个地方复用：排空超时、等待超时、胜负判定、关闭对局）
+local function clear_all_player_status(state)
+    for uid, _ in pairs(state.players) do
+        clear_user_status(uid)
+    end
+end
+
 -- ==========================================
 -- 内部工具：分配身份
 -- pvp 模式无身份，identity 模式按人数分配
@@ -490,9 +497,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 服务器关闭排空：grace 到期强制结束
     if state.pending_shutdown and os.time() >= state.pending_shutdown then
         log_info(state, "排空超时，强制结束对局")
-        for uid, _ in pairs(state.players) do
-            clear_user_status(uid)
-        end
+        clear_all_player_status(state)
         return nil
     end
 
@@ -505,9 +510,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     if state.status == STATE.WAITING and os.time() - (state.waiting_since or 0) > 300 then
         log_info(state, "房间等待超时，自动解散")
         metric_inc("matches_abandoned")
-        for uid, _ in pairs(state.players) do
-            clear_user_status(uid)
-        end
+        clear_all_player_status(state)
         return nil
     end
 
@@ -608,10 +611,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
 
         dispatcher.broadcast_message(30, nk.json_encode({winner = winner}))
         season_mgr.record_match(nk, state, winner)
-        -- 对局结束，清除所有玩家在线状态
-        for uid, _ in pairs(state.players) do
-            clear_user_status(uid)
-        end
+        clear_all_player_status(state)
     end
 
     return state
@@ -958,22 +958,22 @@ end
 function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
     if grace_seconds <= 0 or state.pending_shutdown then
         -- grace 到期 或 第二次进来 → 立即结束
-        for uid, _ in pairs(state.players) do
-            clear_user_status(uid)
-        end
+        clear_all_player_status(state)
         return nil
     end
 
-    -- 首次调用：广播关闭通知，给玩家 grace_seconds 完成当前操作
+    -- 首次调用：广播关闭通知
     dispatcher.broadcast_message(99, nk.json_encode({
         event = "server_shutdown",
-        message = "服务器即将维护，当前对局将在 " .. grace_seconds .. " 秒后强制结束",
+        message = string.format("服务器即将维护，当前对局将在 %d 秒后强制结束", grace_seconds),
         grace_seconds = grace_seconds,
     }))
     state.pending_shutdown = os.time() + grace_seconds
 
+    -- 排空期间保持对局运行，match_loop 中 pending_shutdown 检查到期后自动清理，
+    -- 而非在此处直接结束——这样 match_loop 的胜负判定等逻辑仍能正常执行到最终状态。
     log_info(state, string.format("服务器关闭通知已发送，排空剩余 %d 秒", grace_seconds))
-    return state  -- 继续运行，match_loop 中到期后自动结束
+    return state
 end
 function M.match_signal(context, dispatcher, tick, state, data) return state, data end
 
