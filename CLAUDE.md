@@ -26,46 +26,35 @@ Asura 是一个基于 Nakama 服务器的多人在线卡牌游戏，灵感来源
 
 ```
 asura/
-├── api.lua                      # RPC API 接口
+├── api.lua                      # RPC API 接口（34 个，均 safe_rpc 包裹）
+├── match_handler.lua           # 匹配/对局生命周期
 ├── game_rules.lua              # 游戏规则核心逻辑
-├── match_handler.lua           # 匹配处理逻辑
-├── hero_manager.lua            # 英雄管理器
+├── hero_manager.lua            # 英雄技能触发器
+├── hero_catalog.lua            # 英雄注册表（可从此处查所有英雄 ID）
+├── game_config.lua             # 服务端游戏配置（从 storage 加载）
+├── season_manager.lua          # 赛季排位 + match_history 记录
+├── rate_limiter.lua            # RPC 速率限制器
+├── skin_catalog.lua            # 皮肤注册表
+├── achievement_manager.lua     # 成就系统
+├── demo_concurrent.lua         # 本地并发测试（mock Nakama，10局随机英雄）。⚠️ 部署时被排除
+├── demo.lua                    # ⚠️ 开发/测试辅助文件。部署时会被删除（Nakama 加载此文件会导致崩溃）
 ├── heroes/                     # 英雄技能定义 (30 个英雄)
-│   ├── al_biruni.lua         # 比鲁尼
-│   ├── al_khwarizmi.lua      # 花剌子密
-│   ├── al_mansur.lua         # 曼苏尔
-│   ├── aladdin.lua           # 阿拉丁
-│   ├── alibaba.lua           # 阿里巴巴
-│   ├── antar.lua             # 安塔拉
-│   ├── avicenna.lua          # 伊本·西那 (阿维森纳)
-│   ├── basira.lua            # 巴希拉
-│   ├── dhul_qarnayn.lua      # 双角王
-│   ├── dunyazad.lua          # 敦娅扎德
-│   ├── enheduanna.lua        # 恩赫杜安娜
-│   ├── gilgamesh.lua         # 吉尔伽美什
-│   ├── hakim.lua             # 哈基姆
-│   ├── harun_al_rashid.lua   # 哈伦·拉希德
-│   ├── hulagu.lua            # 旭烈兀
-│   ├── ibn_battuta.lua       # 伊本·白图泰
-│   ├── imru_al_qais.lua      # 乌姆鲁勒·盖斯
-│   ├── jafar.lua             # 贾法尔
-│   ├── khayyam.lua           # 海亚姆
-│   ├── muawiyah.lua          # 穆阿维叶
-│   ├── nefertiti.lua         # 纳芙蒂蒂
-│   ├── nizamulmulk.lua       # 尼扎姆·穆勒克
-│   ├── rumi.lua              # 鲁米
-│   ├── saladin.lua           # 萨拉丁
-│   ├── scheherazade.lua     # 谢赫拉莎德
-│   ├── sinbad.lua            # 辛巴达
-│   ├── suleiman.lua          # 苏莱曼大帝
-│   ├── tamerlane.lua         # 帖木儿
-│   ├── zenobia.lua           # 芝诺比娅
-│   └── zubaydah.lua          # 祖拜达
-├── CLAUDE.md                  # 项目配置 (本文件)
-├── docs/                      # 文档目录
-│   ├── product_design.md      # 产品设计文档
-│   └── architecture.md        # 架构设计文档
-└── README.md                  # 项目说明
+│   ├── *.lua + *.md            # 每个英雄一个 lua（技能逻辑）+ md（设计说明）
+├── docs/                       # 文档目录
+│   ├── product_design.md       # 产品设计文档
+│   ├── architecture.md         # 架构设计文档
+│   ├── backend_api.md          # 服务端 API 文档（客户端对接用）
+│   ├── hero_design_review.md   # 英雄设计评审与修改记录
+│   ├── hero_bugfix_plan.md     # 英雄 Bug 修复计划
+│   └── unity_client_CLAUDE.md  # Unity 客户端项目配置
+├── .github/workflows/          # CI/CD 工作流
+│   ├── ci.yml                  # lint（luacheck + luac -p）
+│   ├── deploy.yml              # 推送到 VPS 自动部署（self-hosted runner）
+│   └── scheduled-test.yml      # 每日 10 局随机测试（UTC 2:00/14:00）
+├── .luacheckrc                 # luacheck 配置（忽略 Nakama 回调模式误报）
+├── docker-compose.yml          # 生产配置（Postgres 15 + Nakama 3.22.0）
+├── CLAUDE.md                   # 项目配置（本文件）
+└── README.md                   # 项目说明
 ```
 
 ## 开发规范
@@ -145,53 +134,88 @@ asura/
 ## 开发任务
 
 ### 高优先级
-- [ ] 修复英雄技能文件重复问题
-- [ ] 完善身份局胜负判定逻辑
-- [ ] 添加游戏配置系统
-- [ ] 实现英雄解锁/购买系统
+- [ ] 实现英雄解锁/购买系统（hero_inventory 存储结构已就绪）
+- [ ] 实现排位赛系统（season_manager 已有 match_history 记录）
+- [ ] 添加游戏统计（metric_inc 计数器已接入）
 
 ### 中优先级
 - [x] 添加更多英雄 (目标: 20+ 英雄) — 已完成 30 个
-- [ ] 实现排位赛系统
-- [ ] 添加好友/社交系统
-- [ ] 实现观战功能
+- [x] 完善身份局胜负判定逻辑（含阵亡身份广播）
+- [x] 添加游戏配置系统（game_config.lua）
+- [x] 添加好友/社交系统（好友状态实时推送 + 直接加入/观战）
+- [x] 实现观战功能
+- [x] 成就系统（achievement_manager.lua）
 
 ### 低优先级
-- [ ] 添加游戏统计
+- [x] 游戏统计（storage 存储的 metric_inc 计数器）
+- [ ] 排位赛赛季系统（season_manager 基础结构已完成）
+- [ ] 客户端皮肤系统（skin_catalog.lua 已注册，待客户端接入）
 - [ ] 实现回放系统
-- [ ] 添加成就系统
 - [ ] 多语言支持
 
 ## 部署说明
 
 ### 本地开发
 ```bash
-# 启动 Nakama
-docker-compose up -d
+# 启动 Nakama + Postgres
+docker compose up -d
 
 # 查看日志
-docker-compose logs -f nakama
+docker compose logs -f nakama
 ```
 
-### 生产部署
-- 使用 Docker 部署
-- 配置 PostgreSQL/CockroachDB
-- 设置环境变量
+### 自动化部署（VPS）
+GitHub Actions self-hosted runner 在 VPS 上运行，`push 到 main` 时自动触发：
+1. checkout → rsync 代码到 `/data/nakama/modules`
+2. 清理 `demo*.lua`（防止 Nakama 启动时加载导致崩溃）
+3. `docker compose up -d` 重启 Nakama
+4. 健康检查（轮询 port 7350，最多 60s）
+
+### 本地测试
+```bash
+# 10 局随机英雄并发测试（mock Nakama，无需启动容器）
+lua5.4 demo_concurrent.lua
+
+# Lint 检查
+luacheck --no-color .
+luac -p *.lua heroes/*.lua
+```
+
+### 生产配置要点
+- `docker-compose.yml` 已合并 VPS 生产配置
+- Postgres 15 Alpine，数据持久化到 `/data/nakama/pgdata`
+- `stop_grace_period: 60s` + `match_terminate` 实现排空机制
+- Nakama `session.token_expiry_sec: 7200`，DEBUG 日志级别
+- `IAP_SECRET/GOOGLE_CLIENT_*` 环境变量通过 VPS 环境注入
+
+## 生产加固模式
+
+### 1. RPC 安全 — safe_rpc 包裹
+`api.lua` 中所有 `nk.register_rpc` 必须使用 `safe_rpc(fn)` 包裹，防止未捕获异常导致 Nakama RPC 端点崩溃。
+
+### 2. 第三方 API 降级 — pcall
+Nakama 3.22.0 已移除 `nk.status_update` 等函数。所有不常用 `nk.*` 调用必须 `pcall` 包裹：
+```lua
+pcall(nk.status_update, uid, data)
+```
+
+### 3. 编码前查文档
+调用任何 `nk.*` 函数前，先用 Context7 查 Nakama 3.22.0 文档确认函数存在与签名。参考 `feedback_nakama_docs_lookup`。
+
+### 4. 存储型计数器
+Nakama Lua 无 Prometheus HTTP 接口，使用 `ops/matches` 存储记录指标（`metric_inc` 模式），通过 `nk.storage_read` + OCC 版本控制写入。
+
+### 5. 服务器排空 — match_terminate
+`match_terminate` 不直接结束对局，而是设置 `pending_shutdown` 时间戳，由 `match_loop` 到期后自动清理。兼容多节点协调器（如 konsul）的 draining 流程。
 
 ## 相关文档
 
 - [产品设计文档](./docs/product_design.md)
 - [架构设计文档](./docs/architecture.md)
-- [API 文档](./docs/api.md) (待创建)
+- [API 文档](./docs/backend_api.md)（客户端对接用，变更后需同步更新）
 - [英雄设计评审报告](./docs/hero_design_review.md)
-
-## 联系方式
-
-- 项目负责人: [待填写]
-- 技术负责人: [待填写]
-- 游戏设计师: [待填写]
 
 ---
 
-**最后更新**: 2026-05-19
-**版本**: 0.4.0
+**最后更新**: 2026-05-22
+**版本**: 0.5.0
