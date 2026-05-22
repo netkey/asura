@@ -15,7 +15,7 @@ Asura 是一个基于 Nakama 服务器的多人在线卡牌游戏，灵感来源
 ### 后端
 - **Nakama**: 游戏服务器框架 (Lua)
 - **Docker**: 容器化部署
-- **PostgreSQL/CockroachDB**: 数据存储
+- **PostgreSQL 15**: 数据存储
 
 ### 游戏机制
 - **语言**: Lua (Nakama 模块)
@@ -63,7 +63,7 @@ asura/
 - 使用 4 个空格缩进
 - 函数命名使用 snake_case
 - 常量使用 UPPER_CASE
-- 添加必要的注释说明
+- 仅在 WHY 不明显时添加注释（隐藏约束、特殊不变量、绕过特定 bug 等）；不注释显而易见的逻辑
 
 ### Git 工作流
 - main 分支为主分支
@@ -133,10 +133,11 @@ asura/
 
 ## 开发任务
 
+> **说明**：本节为静态快照，仅记录优先级方向。活动任务列表见 memory `project_backlog.md`，以 memory 为准。
+
 ### 高优先级
 - [ ] 实现英雄解锁/购买系统（hero_inventory 存储结构已就绪）
-- [ ] 实现排位赛系统（season_manager 已有 match_history 记录）
-- [ ] 添加游戏统计（metric_inc 计数器已接入）
+- [ ] 实现排位赛 + 赛季系统（season_manager 已有 match_history 记录，基础结构已完成）
 
 ### 中优先级
 - [x] 添加更多英雄 (目标: 20+ 英雄) — 已完成 30 个
@@ -148,7 +149,6 @@ asura/
 
 ### 低优先级
 - [x] 游戏统计（storage 存储的 metric_inc 计数器）
-- [ ] 排位赛赛季系统（season_manager 基础结构已完成）
 - [ ] 客户端皮肤系统（skin_catalog.lua 已注册，待客户端接入）
 - [ ] 实现回放系统
 - [ ] 多语言支持
