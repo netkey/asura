@@ -81,6 +81,9 @@ local function check_hero_access(context, payload)
     local user_id = context.user_id
     local hero_id = json.hero_id
 
+    if not rate_limiter.check(nk, user_id, "check_hero_access", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     if not catalog.HEROES[hero_id] then
         return nk.json_encode({ has_access = false, error = "英雄不存在" })
     end
@@ -102,6 +105,9 @@ nk.register_rpc(safe_rpc(check_hero_access), "check_hero_access")
 local function get_hero_shop(context, payload)
     local user_id = context.user_id
 
+    if not rate_limiter.check(nk, user_id, "get_hero_shop", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local objects = nk.storage_read({{
         collection = "hero_inventory",
         key        = "unlocked_heroes",
@@ -145,6 +151,9 @@ nk.register_rpc(safe_rpc(get_hero_shop), "get_hero_shop")
 local function get_shop(context, payload)
     local user_id = context.user_id
 
+    if not rate_limiter.check(nk, user_id, "get_shop", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     -- 批量读取英雄库存 + 皮肤库存（单次 RTT）
     local objects = nk.storage_read({
         { collection = "hero_inventory", key = "unlocked_heroes", user_id = user_id },
@@ -216,7 +225,11 @@ nk.register_rpc(safe_rpc(get_shop), "get_shop")
 -- 余额查询
 -- ==========================================
 local function get_wallet(context, payload)
-    local account = nk.account_get_id(context.user_id)
+    local uid = context.user_id
+    if not rate_limiter.check(nk, uid, "get_wallet", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+    local account = nk.account_get_id(uid)
     local raw     = account and account.wallet or {}
     local wallet  = type(raw) == "string" and nk.json_decode(raw) or raw
     return nk.json_encode({ gold = wallet.gold or 0 })
@@ -291,7 +304,9 @@ nk.register_rpc(safe_rpc(buy_hero), "buy_hero")
 -- 客户端调用时 context.user_id 非空，会被拒绝
 -- ==========================================
 local function admin_grant_gold(context, payload)
-    if context.user_id and context.user_id ~= "" then
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
@@ -299,7 +314,7 @@ local function admin_grant_gold(context, payload)
     local target = json.user_id
     local amount = tonumber(json.amount)
 
-    if not target or not amount or amount <= 0 then
+    if type(target) ~= "string" or not amount or amount <= 0 then
         return nk.json_encode({ success = false, error = "参数无效：需要 user_id 和正整数 amount" })
     end
 
@@ -321,7 +336,9 @@ nk.register_rpc(safe_rpc(admin_grant_gold), "admin_grant_gold")
 -- payload: { "heroes": ["hakim","hulagu"], "start_time": 1746000000, "end_time": 1746604800 }
 -- ==========================================
 local function admin_set_free_event(context, payload)
-    if context.user_id and context.user_id ~= "" then
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
@@ -341,7 +358,7 @@ local function admin_set_free_event(context, payload)
     local events = (#objects > 0) and objects[1].value or {}
 
     for _, hid in ipairs(hero_ids) do
-        if catalog.HEROES[hid] then
+        if type(hid) == "string" and catalog.HEROES[hid] then
             events[hid] = { start_time = start_time, end_time = end_time }
         end
     end
@@ -377,7 +394,9 @@ nk.register_rpc(safe_rpc(get_config), "get_config")
 --   {"combat":{"rebel_kill_reward":5},"hero_price_overrides":{"hulagu":800}}
 -- ==========================================
 local function admin_set_config(context, payload)
-    if context.user_id and context.user_id ~= "" then
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
@@ -442,6 +461,9 @@ nk.register_rpc(safe_rpc(get_season_info), "get_season_info")
 -- ==========================================
 local function get_my_stats(context, payload)
     local user_id = context.user_id
+    if not rate_limiter.check(nk, user_id, "get_my_stats", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local season  = season_mgr.get_current_season(nk)
     if not season then
         return nk.json_encode({ error = "当前无进行中的赛季" })
@@ -466,6 +488,9 @@ nk.register_rpc(safe_rpc(get_my_stats), "get_my_stats")
 -- ==========================================
 local function get_match_history(context, payload)
     local user_id  = context.user_id
+    if not rate_limiter.check(nk, user_id, "get_match_history", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json     = nk.json_decode(payload)
     local season   = season_mgr.get_current_season(nk)
     local sid      = (json and json.season_id) or (season and season.season_id)
@@ -476,7 +501,10 @@ local function get_match_history(context, payload)
     -- cursor 翻页取全量（season_manager 已裁剪至 50 条，翻页保证不遗漏边界数据）
     local all_items = {}
     local cursor = ""
+    local max_iter, iter = 20, 0
     repeat
+        iter = iter + 1
+        if iter > max_iter then break end
         local page, next_cursor = nk.storage_list(user_id, "match_history", 100, cursor)
         if page then
             for _, item in ipairs(page) do
@@ -512,6 +540,9 @@ local function get_leaderboard(context, payload)
     if not season then
         return nk.json_encode({ error = "当前无进行中的赛季" })
     end
+    if not rate_limiter.check(nk, context.user_id, "get_leaderboard", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json  = nk.json_decode(payload)
     local limit = (json and tonumber(json.limit)) or 20
     limit = math.max(1, math.min(limit, 100))
@@ -537,7 +568,9 @@ nk.register_rpc(safe_rpc(get_leaderboard), "get_leaderboard")
 -- payload: { "name":"2026年第二赛季", "start_time":1746057600, "end_time":1753833600 }
 -- ==========================================
 local function admin_start_season(context, payload)
-    if context.user_id and context.user_id ~= "" then
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
@@ -546,7 +579,7 @@ local function admin_start_season(context, payload)
     local start_time = tonumber(json.start_time)
     local end_time   = tonumber(json.end_time)
 
-    if not name or not start_time or not end_time or start_time >= end_time then
+    if type(name) ~= "string" or #name > 100 or not start_time or not end_time or start_time >= end_time then
         return nk.json_encode({ success = false, error = "参数无效：需要 name, start_time, end_time" })
     end
 
@@ -583,7 +616,9 @@ nk.register_rpc(safe_rpc(admin_start_season), "admin_start_season")
 -- 管理员结束当前赛季（仅服务端调用）
 -- ==========================================
 local function admin_end_season(context, payload)
-    if context.user_id and context.user_id ~= "" then
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
@@ -682,10 +717,14 @@ nk.register_rpc(safe_rpc(get_friends), "get_friends")
 -- 邀请好友加入对局（通过 Nakama 通知推送，非持久化）
 -- payload: {"user_id":"xxx","match_id":"yyy"}
 local function invite_to_match(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "invite_to_match", 10, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+
     local json     = nk.json_decode(payload)
     local target   = json and json.user_id
     local match_id = json and json.match_id
-    if not target or not match_id then
+    if type(target) ~= "string" or type(match_id) ~= "string" or #match_id ~= 36 then
         return nk.json_encode({ success = false, error = "需要 user_id 和 match_id" })
     end
 
@@ -789,6 +828,9 @@ nk.register_rpc(safe_rpc(find_spectatable_match), "find_spectatable_match")
 
 -- 返回玩家已解锁的成就列表（含解锁时间）
 local function get_my_achievements(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_my_achievements", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local objects = nk.storage_read({{
         collection = "achievements",
         key        = "unlocked",
@@ -801,6 +843,9 @@ nk.register_rpc(safe_rpc(get_my_achievements), "get_my_achievements")
 
 -- 返回全部成就定义，并标注玩家已解锁状态
 local function get_achievement_list(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_achievement_list", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local defs = ach_mgr.get_all_definitions()
 
     local objects = nk.storage_read({{
@@ -919,7 +964,7 @@ local function verify_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "missing_transaction_id" })
     end
 
-    -- 防重放：OCC insert-only（version="*" 仅在记录不存在时写入，消除 TOCTOU 窗口）
+    -- 防重放：OCC insert-only（version="*" 仅在记录不存在时写入，原子性声明）
     local ok_ar, ar_err = pcall(nk.storage_write, {{
         collection       = "iap_receipts",
         key              = txn_id,
@@ -939,10 +984,15 @@ local function verify_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "duplicate_transaction" })
     end
 
-    local ok, wallet_err = pcall(nk.wallet_update, context.user_id,
-        { gold = gold }, { reason = "iap", product_id = product_id }, true)
+    -- 防重放成功后才放行金币（wallet_update 重试 3 次，瞬态失败不影响防重放）
+    local ok, wallet_err
+    for _ = 1, 3 do
+        ok, wallet_err = pcall(nk.wallet_update, context.user_id,
+            { gold = gold }, { reason = "iap", product_id = product_id }, true)
+        if ok then break end
+    end
     if not ok then
-        nk.logger_warn("IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err))
+        nk.logger_warn("IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err) .. "（收据已记录，联系管理员补发）")
         return nk.json_encode({ success = false, error = "wallet_error" })
     end
 
@@ -1106,8 +1156,8 @@ local function verify_google_iap_receipt(context, payload)
 
     local txn_id = result.transaction_id
 
-    -- 防重放：OCC insert-only（与 Apple IAP 共用同一个 iap_receipts collection）
-    local ok_ar, _ = pcall(nk.storage_write, {{
+    -- 防重放：OCC insert-only（与 Apple IAP 共用同一个 iap_receipts collection，先写防重放）
+    local ok_ar, ar_err = pcall(nk.storage_write, {{
         collection       = "iap_receipts",
         key              = txn_id,
         user_id          = nil,
@@ -1127,10 +1177,15 @@ local function verify_google_iap_receipt(context, payload)
         return nk.json_encode({ success = false, error = "duplicate_transaction" })
     end
 
-    local ok, wallet_err = pcall(nk.wallet_update, context.user_id,
-        { gold = gold }, { reason = "iap", product_id = product_id }, true)
+    -- 防重放成功后才放行金币（wallet_update 重试 3 次）
+    local ok, wallet_err
+    for _ = 1, 3 do
+        ok, wallet_err = pcall(nk.wallet_update, context.user_id,
+            { gold = gold }, { reason = "iap", product_id = product_id }, true)
+        if ok then break end
+    end
     if not ok then
-        nk.logger_warn("Google IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err))
+        nk.logger_warn("Google IAP wallet_update 失败 txn=" .. txn_id .. " err=" .. tostring(wallet_err) .. "（收据已记录，联系管理员补发）")
         return nk.json_encode({ success = false, error = "wallet_error" })
     end
 
@@ -1203,6 +1258,9 @@ nk.register_rpc(safe_rpc(get_skin_catalog), "get_skin_catalog")
 -- 出参：{ owned:[skin_id,...], equipped:{hero_id:skin_id,...} }
 local function get_my_skins(context, payload)
     local uid = context.user_id
+    if not rate_limiter.check(nk, uid, "get_my_skins", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local objects = nk.storage_read({
         { collection = "skin_inventory", key = "owned_skins",    user_id = uid },
         { collection = "skin_inventory", key = "equipped_skins", user_id = uid },
@@ -1354,6 +1412,9 @@ nk.register_rpc(safe_rpc(equip_skin), "equip_skin")
 -- ==========================================
 local function get_iap_history(context, _payload)
     local uid = context.user_id
+    if not rate_limiter.check(nk, uid, "get_iap_history", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local list, _cursor = nk.storage_list(uid, "iap_history", 100, "")
     local records = {}
     if list then
@@ -1394,7 +1455,10 @@ local function delete_account(context, _payload)
     local dynamic_cols = { "season_stats", "match_history", "iap_history", "rate_limits" }
     for _, col in ipairs(dynamic_cols) do
         local cursor = ""
+        local max_iter, iter = 50, 0
         repeat
+            iter = iter + 1
+            if iter > max_iter then break end
             local list, next_cursor = nk.storage_list(uid, col, 200, cursor)
             if list and #list > 0 then
                 local batch = {}

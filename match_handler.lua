@@ -412,10 +412,10 @@ function M.perform_auto_play(dispatcher, state)
 
     local player = state.players[uid]
 
-    -- 1. 清理挂起的技能选择
+    -- 1. 清理挂起的技能选择（所有 pending 有 deadline ≤20s < turn_timeout=30s，
+    --     因此超时前已被 auto_resolve_pending 处理，此处不会命中；兜底仅清理，不补摸）
     if state.pending_action and state.pending_action.player_id == uid then
         state.pending_action = nil
-        rules.draw_cards(state, uid, 2)
     end
 
     if not player or player.health <= 0 then
@@ -574,7 +574,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         local ok, payload = pcall(nk.json_decode, message.data)
         if not ok or type(payload) ~= "table" then goto continue end
         local uid = message.sender.user_id
-        if not state.players[uid] then goto continue end
+        if not state.players[uid] or (state.status == STATE.PLAYING and state.players[uid].health <= 0) then goto continue end
 
         -- 只要玩家有任何动作，就重置计时器，重新给 30 秒
         state.current_turn_elapsed = 0
@@ -756,7 +756,14 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
                 }))
                 if state.status == STATE.PLAYING then
                     local next_uid = rules.get_next_player_id(state)
-                    table.insert(state.players[next_uid].judgments, j_card)
+                    if next_uid ~= uid then
+                        table.insert(state.players[next_uid].judgments, j_card)
+                    else
+                        -- 仅剩一个存活玩家，天谴消散
+                        dispatcher.broadcast_message(11, nk.json_encode({
+                            content = "【天谴】找不到其他目标，消散了。"
+                        }))
+                    end
                 end
             end
         end
@@ -804,6 +811,8 @@ function M.match_leave(context, dispatcher, tick, state, presences)
             if state.status == STATE.WAITING then
                 clear_user_status(p.user_id)
                 state.pending_heroes[p.user_id] = nil
+                state.players[p.user_id] = nil
+                state.presences[p.user_id] = nil
                 for i, uid in ipairs(state.presence_ids) do
                     if uid == p.user_id then
                         table.remove(state.presence_ids, i)
@@ -956,8 +965,8 @@ end
 
 
 function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
-    if grace_seconds <= 0 or state.pending_shutdown then
-        -- grace 到期 或 第二次进来 → 立即结束
+    if state.pending_shutdown then
+        -- 第二次调用（由 match_loop 兜底或编排器二次通知），清理后结束
         clear_all_player_status(state)
         return nil
     end

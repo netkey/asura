@@ -18,8 +18,12 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         state.discard_pile = {}
     end
 
-    local top_card = deck[#deck]
-    local is_red = top_card and (top_card.suit == "HEART" or top_card.suit == "DIAMOND")
+    local top_card = deck[1]
+    if not top_card then
+        rules.broadcast_update(dispatcher, state)
+        return true
+    end
+    local is_red = top_card.suit == "HEART" or top_card.suit == "DIAMOND"
 
     -- 正常摸 2 张
     rules.draw_cards(state, player_id, 2)
@@ -33,7 +37,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         content = string.format("%s 发动【洞察】，牌堆顶是 %s %s（%s），%s！",
             player.username,
             top_card.suit or "?",
-            top_card and top_card.name or "无牌",
+            top_card.name or "无牌",
             is_red and "红色" or "黑色",
             is_red and "额外摸1张！" or "无额外摸牌"),
         hero = "basira", skill = "dong_cha"

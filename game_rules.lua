@@ -1018,13 +1018,11 @@ function M.broadcast_update(dispatcher, state)
         local p_data = state.players[uid]
         local payload = {
             current_turn = state.current_turn_id,
-            pending = state.pending_action and state.pending_action.player_id == uid
-                and state.pending_action or
-                (state.pending_action and {
-                    type = state.pending_action.type,
-                    player_id = state.pending_action.player_id,
-                    deadline = state.pending_action.deadline,
-                } or nil),
+            pending = state.pending_action and {
+                type = state.pending_action.type,
+                player_id = state.pending_action.player_id,
+                deadline = state.pending_action.deadline,
+            } or nil,
             me = {
                 hand            = p_data.hand,
                 hp              = p_data.health,

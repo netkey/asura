@@ -15,11 +15,11 @@ local M = {}
 local ACHIEVEMENTS = {
     -- 首胜类
     { id = "first_win",          name = "初出茅庐", gold = 100,
-      check = function(s, m) return m.is_win and s.wins == 1 end },
+      check = function(s, m) return m.is_win and s.wins >= 1 end },
     { id = "pvp_first_win",      name = "擂台初鸣", gold = 50,
-      check = function(s, m) return m.is_win and m.mode == "pvp" and (s.pvp_wins or 0) == 1 end },
+      check = function(s, m) return m.is_win and m.mode == "pvp" and (s.pvp_wins or 0) >= 1 end },
     { id = "identity_first_win", name = "身份初显", gold = 50,
-      check = function(s, m) return m.is_win and m.mode == "identity" and (s.identity_wins or 0) == 1 end },
+      check = function(s, m) return m.is_win and m.mode == "identity" and (s.identity_wins or 0) >= 1 end },
 
     -- 连胜类
     { id = "streak_3",  name = "势如破竹", gold = 80,
@@ -84,44 +84,73 @@ local function load_achievements(nk, uid)
         key        = "unlocked",
         user_id    = uid,
     }})
-    return (#objects > 0) and objects[1].value or {}
+    if #objects > 0 then return objects[1].value, objects[1].version end
+    return {}, nil
 end
 
 -- ==========================================
--- 颁发成就：写 storage + 金币 + Nakama 通知
+-- 颁发成就：写 storage（OCC 乐观锁 + 重试 3 次）+ 金币 + Nakama 通知
 -- ==========================================
 local function grant(nk, uid, username, ach_id, ach_name, gold, unlocked)
     local ts = os.time()
-    unlocked[ach_id] = { unlocked_at = ts }
+    -- 保留 unlocked[ach_id] 中已有字段（如 hero_mastery 的 heroes 数组）
+    local existing = unlocked[ach_id]
+    unlocked[ach_id] = existing and { unlocked_at = ts, heroes = existing.heroes } or { unlocked_at = ts }
 
-    local ok, err = pcall(nk.storage_write, {{
-        collection       = "achievements",
-        key              = "unlocked",
-        user_id          = uid,
-        value            = unlocked,
-        permission_read  = 1,
-        permission_write = 0,
-    }})
-    if not ok then
-        nk.logger_warn("grant: storage_write 失败 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err))
-        return
+    for attempt = 1, 3 do
+        -- 读取当前版本做 OCC 写入
+        local _, version = load_achievements(nk, uid)
+
+        local ok, err = pcall(nk.storage_write, {{
+            collection       = "achievements",
+            key              = "unlocked",
+            user_id          = uid,
+            value            = unlocked,
+            version          = version,
+            permission_read  = 1,
+            permission_write = 0,
+        }})
+        if ok then
+            -- OCC 写入成功后才发金币和通知
+            local ok2, err2 = pcall(nk.wallet_update, uid, { gold = gold }, {}, true)
+            if not ok2 then
+                nk.logger_warn("grant: wallet_update 失败 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err2))
+            end
+            pcall(nk.notifications_send, {{
+                code       = 2,
+                content    = { achievement_id = ach_id, name = ach_name, gold = gold },
+                persistent = true,
+                sender_id  = nil,
+                subject    = "解锁成就：" .. ach_name .. "（+" .. gold .. "金币）",
+                user_id    = uid,
+            }})
+            nk.logger_info("成就解锁 uid=" .. uid .. " ach=" .. ach_id .. " gold=" .. gold)
+            break
+        end
+
+        if attempt < 3 then
+            -- OCC 版本冲突：重载最新数据，合并当前进程已解锁的成就
+            local fresh, _ = load_achievements(nk, uid)
+            for k, v in pairs(fresh) do
+                if not unlocked[k] then
+                    unlocked[k] = v
+                elseif type(v) == "table" and v.heroes and type(unlocked[k]) == "table" and unlocked[k].heroes then
+                    -- 合并英雄精通成就的 heroes 数组
+                    for _, h in ipairs(v.heroes) do
+                        local found = false
+                        for _, existing_h in ipairs(unlocked[k].heroes) do
+                            if existing_h == h then found = true; break end
+                        end
+                        if not found then
+                            table.insert(unlocked[k].heroes, h)
+                        end
+                    end
+                end
+            end
+        else
+            nk.logger_warn("grant: OCC 重试耗尽 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err))
+        end
     end
-
-    local ok2, err2 = pcall(nk.wallet_update, uid, { gold = gold }, {}, true)
-    if not ok2 then
-        nk.logger_warn("grant: wallet_update 失败 uid=" .. uid .. " ach=" .. ach_id .. " err=" .. tostring(err2))
-    end
-
-    pcall(nk.notifications_send, {{
-        code       = 2,
-        content    = { achievement_id = ach_id, name = ach_name, gold = gold },
-        persistent = true,
-        sender_id  = nil,
-        subject    = "解锁成就：" .. ach_name .. "（+" .. gold .. "金币）",
-        user_id    = uid,
-    }})
-
-    nk.logger_info("成就解锁 uid=" .. uid .. " ach=" .. ach_id .. " gold=" .. gold)
 end
 
 -- ==========================================

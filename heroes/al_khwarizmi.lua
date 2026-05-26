@@ -17,7 +17,9 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         end
         if #state.deck > 0 then
             local card = table.remove(state.deck, 1)
-            table.insert(top_cards, {id = card.id, name = card.name, type = card.type, suit = card.suit, number = card.number})
+            if card then
+                table.insert(top_cards, {id = card.id, name = card.name, type = card.type, suit = card.suit, number = card.number})
+            end
         end
     end
     if #top_cards == 0 then return false end

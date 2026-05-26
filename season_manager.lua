@@ -57,7 +57,7 @@ local function load_season_stats(nk, uid, season_id)
         key        = season_id,
         user_id    = uid,
     }})
-    if #objects > 0 then return objects[1].value end
+    if #objects > 0 then return objects[1].value, objects[1].version end
     return {
         season_id       = season_id,
         games           = 0,
@@ -70,60 +70,69 @@ local function load_season_stats(nk, uid, season_id)
         current_streak  = 0,
         hero_stats      = {},
         role_stats      = {},
-    }
+    }, nil
 end
 
 -- ==========================================
--- 更新并持久化赛季统计
+-- 更新并持久化赛季统计（OCC 乐观锁 + 重试 3 次）
 -- ==========================================
 local function update_season_stats(nk, uid, p, season_id, is_win, delta, mode)
-    local stats = load_season_stats(nk, uid, season_id)
-    -- 兼容旧记录：字段不存在时补零
-    stats.pvp_wins      = stats.pvp_wins      or 0
-    stats.identity_wins = stats.identity_wins or 0
+    local stats
+    for attempt = 1, 3 do
+        local version
+        stats, version = load_season_stats(nk, uid, season_id)
+        -- 兼容旧记录：字段不存在时补零
+        stats.pvp_wins      = stats.pvp_wins      or 0
+        stats.identity_wins = stats.identity_wins or 0
 
-    stats.games   = stats.games + 1
-    stats.rating  = math.max(0, stats.rating + delta)
+        stats.games   = stats.games + 1
+        stats.rating  = math.max(0, stats.rating + delta)
 
-    if is_win then
-        stats.wins           = stats.wins + 1
-        stats.current_streak = stats.current_streak + 1
-        if stats.current_streak > stats.best_streak then
-            stats.best_streak = stats.current_streak
+        if is_win then
+            stats.wins           = stats.wins + 1
+            stats.current_streak = stats.current_streak + 1
+            if stats.current_streak > stats.best_streak then
+                stats.best_streak = stats.current_streak
+            end
+            if mode == "pvp" then
+                stats.pvp_wins = stats.pvp_wins + 1
+            elseif mode == "identity" then
+                stats.identity_wins = stats.identity_wins + 1
+            end
+        else
+            stats.losses         = stats.losses + 1
+            stats.current_streak = 0
         end
-        if mode == "pvp" then
-            stats.pvp_wins = stats.pvp_wins + 1
-        elseif mode == "identity" then
-            stats.identity_wins = stats.identity_wins + 1
+
+        -- 英雄统计
+        local hero = p.hero or "unknown"
+        stats.hero_stats[hero] = stats.hero_stats[hero] or { games = 0, wins = 0 }
+        stats.hero_stats[hero].games = stats.hero_stats[hero].games + 1
+        if is_win then stats.hero_stats[hero].wins = stats.hero_stats[hero].wins + 1 end
+
+        -- 角色统计（pvp 模式跳过）
+        if p.role and p.role ~= "NONE" then
+            stats.role_stats[p.role] = stats.role_stats[p.role] or { games = 0, wins = 0 }
+            stats.role_stats[p.role].games = stats.role_stats[p.role].games + 1
+            if is_win then stats.role_stats[p.role].wins = stats.role_stats[p.role].wins + 1 end
         end
-    else
-        stats.losses         = stats.losses + 1
-        stats.current_streak = 0
-    end
 
-    -- 英雄统计
-    local hero = p.hero or "unknown"
-    stats.hero_stats[hero] = stats.hero_stats[hero] or { games = 0, wins = 0 }
-    stats.hero_stats[hero].games = stats.hero_stats[hero].games + 1
-    if is_win then stats.hero_stats[hero].wins = stats.hero_stats[hero].wins + 1 end
-
-    -- 角色统计（pvp 模式跳过）
-    if p.role and p.role ~= "NONE" then
-        stats.role_stats[p.role] = stats.role_stats[p.role] or { games = 0, wins = 0 }
-        stats.role_stats[p.role].games = stats.role_stats[p.role].games + 1
-        if is_win then stats.role_stats[p.role].wins = stats.role_stats[p.role].wins + 1 end
-    end
-
-    local ok, err = pcall(nk.storage_write, {{
-        collection       = "season_stats",
-        key              = season_id,
-        user_id          = uid,
-        value            = stats,
-        permission_read  = 1,
-        permission_write = 0,
-    }})
-    if not ok then
-        nk.logger_warn("update_season_stats: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
+        local ok, err = pcall(nk.storage_write, {{
+            collection       = "season_stats",
+            key              = season_id,
+            user_id          = uid,
+            value            = stats,
+            version          = version,
+            permission_read  = 1,
+            permission_write = 0,
+        }})
+        if ok then break end
+        if attempt < 3 and tostring(err):find("version", 1, true) then
+            -- OCC 版本冲突：重试
+        else
+            nk.logger_warn("update_season_stats: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
+            break
+        end
     end
 
     return stats
@@ -162,7 +171,10 @@ local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_w
     -- 裁剪：超出 HISTORY_LIMIT(50) 时删最旧条目；cursor 翻页确保取全量
     local list = {}
     local cursor = ""
+    local max_iter, iter = 100, 0
     repeat
+        iter = iter + 1
+        if iter > max_iter then break end
         local batch, next_cursor = nk.storage_list(uid, "match_history", 200, cursor)
         if batch then
             for _, v in ipairs(batch) do table.insert(list, v) end
