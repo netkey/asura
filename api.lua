@@ -285,14 +285,14 @@ local function buy_hero(context, payload)
     end
 
     -- 原子扣款：金币不足时 wallet_update 抛出异常
-    local ok, err = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
+    local ok = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
     if not ok then
         return nk.json_encode({ success = false, error = "insufficient_gold" })
     end
 
     inventory[hero_id] = true
     -- OCC 写入：version 不匹配说明并发写入，回滚金币并返回冲突
-    local ok2, _ = pcall(nk.storage_write, {{
+    local ok2 = pcall(nk.storage_write, {{
         collection       = "hero_inventory",
         key              = "unlocked_heroes",
         user_id          = user_id,
@@ -374,7 +374,7 @@ local function admin_set_free_event(context, payload)
         end
     end
 
-    local ok_ar, ar_err = pcall(nk.storage_write, {{
+    pcall(nk.storage_write, {{
         collection       = "events",
         key              = "free_heroes",
         user_id          = nil,
@@ -994,7 +994,7 @@ local function verify_iap_receipt(context, payload)
     end
 
     -- 防重放：OCC insert-only（version="*" 仅在记录不存在时写入，原子性声明）
-    local ok_ar, ar_err = pcall(nk.storage_write, {{
+    local ok_ar = pcall(nk.storage_write, {{
         collection       = "iap_receipts",
         key              = txn_id,
         user_id          = nil,
@@ -1186,7 +1186,7 @@ local function verify_google_iap_receipt(context, payload)
     local txn_id = result.transaction_id
 
     -- 防重放：OCC insert-only（与 Apple IAP 共用同一个 iap_receipts collection，先写防重放）
-    local ok_ar, ar_err = pcall(nk.storage_write, {{
+    local ok_ar = pcall(nk.storage_write, {{
         collection       = "iap_receipts",
         key              = txn_id,
         user_id          = nil,
@@ -1345,14 +1345,14 @@ local function purchase_skin(context, payload)
     end
 
     -- 扣金币
-    local ok, err = pcall(nk.wallet_update, uid, { gold = -info.price }, {}, true)
+    local ok = pcall(nk.wallet_update, uid, { gold = -info.price }, {}, true)
     if not ok then
         return nk.json_encode({ success = false, error = "insufficient_gold" })
     end
 
     -- OCC 写入：version 不匹配说明并发购买，回滚金币
     table.insert(owned, skin_id)
-    local ok2, _ = pcall(nk.storage_write, {{
+    local ok2 = pcall(nk.storage_write, {{
         collection       = "skin_inventory",
         key              = "owned_skins",
         user_id          = uid,
@@ -1424,7 +1424,7 @@ local function equip_skin(context, payload)
         equipped[hero_id] = nil
     end
 
-    local ok, err = pcall(nk.storage_write, {{
+    local ok = pcall(nk.storage_write, {{
         collection       = "skin_inventory",
         key              = "equipped_skins",
         user_id          = uid,
@@ -1450,7 +1450,7 @@ local function get_iap_history(context, _payload)
     if not rate_limiter.check(nk, uid, "get_iap_history", 60, 60) then
         return nk.json_encode({ success = false, error = "too_many_requests" })
     end
-    local list, _cursor = nk.storage_list(uid, "iap_history", 100, "")
+    local list = nk.storage_list(uid, "iap_history", 100, "")
     local records = {}
     if list then
         for _, obj in ipairs(list) do

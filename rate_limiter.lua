@@ -21,7 +21,6 @@ function M.check(nk, uid, action, max_calls, window_secs)
     end
 
     local new_rec
-    local is_expired = false
     if rec and (now - rec.window_start) < window_secs then
         if rec.count >= max_calls then
             return false

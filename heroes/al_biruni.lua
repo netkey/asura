@@ -50,7 +50,6 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    local config = {}
     -- 构建配置：哪些卡是 keep，哪些是 discard
     local keep_set = {}
     for _, kid in ipairs(payload.keep_ids) do

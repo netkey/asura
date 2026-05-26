@@ -83,7 +83,6 @@ end
 -- ==========================================
 local function assign_roles(player_count, mode)
     if mode == "pvp" then return {} end
-    local roles = {}
     if player_count == 5 then
         roles = {"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"}
     else

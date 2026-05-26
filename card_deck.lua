@@ -4,8 +4,6 @@
 
 local M = {}
 
-local SUITS = { HEART = "HEART", SPADE = "SPADE", CLUB = "CLUB", DIAMOND = "DIAMOND" }
-
 -- ==========================================
 -- 108 张牌定义
 -- 每张牌: { id, type, suit, number, name [, subtype] }

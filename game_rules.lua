@@ -471,7 +471,7 @@ local CARD_EFFECTS = {
             end
 
         elseif card.subtype == "counterspell" then
-            -- 无懈可击已在 WAITING_FOR_COUNTER 中处理，不会走到这里
+            ;; -- 无懈可击已在 WAITING_FOR_COUNTER 中处理，不会走到这里
         end
     end,
 
@@ -1069,7 +1069,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 action.deadline = os.time() + 15
 
                 local next_id = action.is_attackers_turn and action.attacker_id or action.target_id
-                local next_p = state.players[next_id]
                 dispatcher.broadcast_message(105, nk.json_encode({
                     event = "duel_require_attack",
                     target_id = next_id,
@@ -1254,7 +1253,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
     elseif action.type == "WAITING_FOR_COUNTER" then
         if action.remaining_order[action.current_idx] ~= player_id then return end
 
-        local played = false
         if payload.confirm == true and type(payload.card_id) == "string" then
             local p = state.players[player_id]
             for i, c in ipairs(p.hand) do
@@ -1262,7 +1260,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     table.remove(p.hand, i)
                     table.insert(state.discard_pile, c)
                     action.counter_depth = action.counter_depth + 1
-                    played = true
                     dispatcher.broadcast_message(11, nk.json_encode({
                         content = p.username .. " 使用了【无懈可击】！"
                     }))
