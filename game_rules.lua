@@ -469,9 +469,6 @@ local CARD_EFFECTS = {
                 }))
                 M.broadcast_update(dispatcher, state)
             end
-
-        elseif card.subtype == "counterspell" then
-            ;; -- 无懈可击已在 WAITING_FOR_COUNTER 中处理，不会走到这里
         end
     end,
 

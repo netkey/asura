@@ -28,7 +28,7 @@ function M.check(nk, uid, action, max_calls, window_secs)
         new_rec = { count = rec.count + 1, window_start = rec.window_start }
     else
         new_rec = { count = 1, window_start = now }
-        is_expired = (rec ~= nil)  -- 窗口过期重置场景
+        -- is_expired: 窗口过期重置场景
     end
 
     local write_version = version or "*"

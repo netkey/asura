@@ -84,13 +84,12 @@ end
 local function assign_roles(player_count, mode)
     if mode == "pvp" then return {} end
     if player_count == 5 then
-        roles = {"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"}
+        return rules.shuffle({"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"})
     else
         -- 非法人数优雅回退到 pvp
         nk.logger_warn(string.format("identity 模式仅支持 5 人局，收到 %d 人，回退到 pvp", player_count))
         return {}
     end
-    return rules.shuffle(roles)
 end
 
 -- ==========================================

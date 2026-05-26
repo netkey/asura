@@ -47,7 +47,7 @@ local function make_dispatcher(prefix)
     return {
         broadcast_message = function(op, data, _)
             if op ~= 11 then return end
-            local msg  = type(data) == "table" and (data.content or "") or ""
+            local _    = type(data) == "table" and (data.content or "") or ""
             local hero  = type(data) == "table" and data.hero
             local skill = type(data) == "table" and data.skill
             if hero and skill then

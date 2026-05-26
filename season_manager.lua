@@ -128,7 +128,8 @@ local function update_season_stats(nk, uid, p, season_id, is_win, delta, mode)
         }})
         if ok then break end
         if attempt < 3 then
-            do end -- 重试（版本冲突或瞬态失败）
+            -- 重试（版本冲突或瞬态失败）
+            local _
         else
             nk.logger_warn("update_season_stats: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
             break
