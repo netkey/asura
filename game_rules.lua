@@ -16,16 +16,18 @@ local CARD_EFFECTS = {
     ["ATTACK"] = function(dispatcher, state, source_id, target_id)
         local hero_mgr = require("hero_manager")
 
+        -- 触发：攻击前钩子（优先于免疫检查，确保所有英雄钩子都能执行）
+        hero_mgr.trigger("on_before_attack", dispatcher, state, source_id, target_id)
+
         -- 杜尼亚扎德【续篇】：攻击者本回合已被该目标免疫
         if state.dunyazad_immune and state.dunyazad_immune[source_id] == target_id then
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = state.players[target_id].username .. " 的【续篇】令此次攻击无效"
             }))
+            state.attack_bonus = nil  -- 清理 on_before_attack 可能设置的状态
+            state.attack_cancelled = nil
             return
         end
-
-        -- 触发：攻击前钩子（如：某些英雄可以让攻击不可闪避）
-        hero_mgr.trigger("on_before_attack", dispatcher, state, source_id, target_id)
 
         -- 旭烈兀【铁蹄】若取消本次攻击则直接返回
         if state.attack_cancelled then

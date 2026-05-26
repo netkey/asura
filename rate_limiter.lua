@@ -28,7 +28,7 @@ function M.check(nk, uid, action, max_calls, window_secs)
         new_rec = { count = rec.count + 1, window_start = rec.window_start }
     else
         new_rec = { count = 1, window_start = now }
-        version = nil   -- 窗口已过期或首次：插入新记录
+        -- 保留 version 做原地更新：窗口过期但 key 仍存在，version="*" 会因 key 已存在而失败
     end
 
     -- OCC 写入：version="*" 表示仅当记录不存在时写入（首次或窗口重置）

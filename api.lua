@@ -65,6 +65,11 @@ local function find_or_create_match(context, payload)
     if #matches > 0 then
         return nk.json_encode({ match_id = matches[1].match_id })
     end
+    -- 二次查询：降低并发时两人各自开房的概率（经典 TOCTOU）
+    matches = nk.match_list(10, true, nil, nil, nil, query)
+    if #matches > 0 then
+        return nk.json_encode({ match_id = matches[1].match_id })
+    end
     local match_id = nk.match_create("match_handler", {
         max_players = max_players,
         mode = mode
@@ -588,6 +593,12 @@ local function admin_start_season(context, payload)
     local q = math.ceil(t.month / 3)
     local season_id = string.format("%d_Q%d", t.year, q)
     local lb_id     = "season_" .. season_id
+
+    -- 检查该季度是否已有进行中的赛季
+    local current = season_mgr.get_current_season(nk)
+    if current and current.season_id == season_id then
+        return nk.json_encode({ success = false, error = "该季度已有进行中的赛季" })
+    end
 
     -- 创建 Nakama leaderboard（已存在时忽略错误）
     pcall(nk.leaderboard_create, lb_id, true, "desc", "set", "", {})
@@ -1305,11 +1316,11 @@ local function purchase_skin(context, payload)
     local owned_ver = (#objects > 0) and objects[1].version or "*"
     local owned     = (#objects > 0) and objects[1].value   or {}
 
-    -- 检查是否已拥有（owned 为数组）
-    for _, s in ipairs(owned) do
-        if s == skin_id then
-            return nk.json_encode({ success = false, error = "already_owned" })
-        end
+    -- 检查是否已拥有（数组转 set 避免 O(n) 线性扫描）
+    local owned_set = {}
+    for _, s in ipairs(owned) do owned_set[s] = true end
+    if owned_set[skin_id] then
+        return nk.json_encode({ success = false, error = "already_owned" })
     end
 
     -- 扣金币

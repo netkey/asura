@@ -171,7 +171,7 @@ local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_w
     -- 裁剪：超出 HISTORY_LIMIT(50) 时删最旧条目；cursor 翻页确保取全量
     local list = {}
     local cursor = ""
-    local max_iter, iter = 100, 0
+    local max_iter, iter = 5, 0  -- 5 页 × 200 条 = 1000，远高于 HISTORY_LIMIT(50)
     repeat
         iter = iter + 1
         if iter > max_iter then break end

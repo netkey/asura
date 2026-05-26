@@ -769,7 +769,7 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
             end
         end
 
-        table.insert(state.discard_pile, result_card)
+        -- execute_judgment 已将此牌放入 discard_pile，此处不再重复插入
 
         if current_p.health <= 0 then
             return M.next_turn(dispatcher, state)
@@ -820,6 +820,10 @@ function M.match_leave(context, dispatcher, tick, state, presences)
                         break
                     end
                 end
+            else
+                -- 游戏中掉线：清理 presence 避免向过期引用发广播，保留 players 供重连
+                state.presences[p.user_id] = nil
+                state.pending_heroes[p.user_id] = nil
             end
             log_info(state, "玩家 " .. p.username .. " 掉线了")
         end
