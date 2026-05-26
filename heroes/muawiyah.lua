@@ -10,10 +10,8 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
 
     local attacker = state.players[attacker_id]
     if not attacker or #attacker.hand == 0 then
-        state.pending_action = nil
-        local rules = require("game_rules")
-        rules.broadcast_update(dispatcher, state)
-        return true
+        -- 无可夺取的牌，返回 false 让调用方走正常防御成功广播
+        return false
     end
 
     -- 随机夺取1张

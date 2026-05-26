@@ -20,8 +20,8 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
 
     local top_card = deck[1]
     if not top_card then
-        rules.broadcast_update(dispatcher, state)
-        return true
+        -- 牌堆和弃牌堆均空，返回 false 让调用方走正常摸牌路径
+        return false
     end
     local is_red = top_card.suit == "HEART" or top_card.suit == "DIAMOND"
 

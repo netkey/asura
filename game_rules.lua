@@ -24,8 +24,9 @@ local CARD_EFFECTS = {
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = state.players[target_id].username .. " 的【续篇】令此次攻击无效"
             }))
-            state.attack_bonus = nil  -- 清理 on_before_attack 可能设置的状态
+            state.attack_bonus = nil   -- 清理 on_before_attack 可能设置的状态
             state.attack_cancelled = nil
+            state.jafar_du_ji = nil
             return
         end
 

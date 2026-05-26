@@ -71,11 +71,21 @@ function M.on_response(dispatcher, state, player_id, payload)
             table.insert(state.discard_pile, card)
 
             -- 对攻击者使用攻击
+            local attacker_name = "已阵亡玩家"
+            if state.players[attacker_id] then
+                attacker_name = state.players[attacker_id].username
+            end
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = defender.username .. " 发动【暗号】，对 " .. state.players[attacker_id].username .. " 进行反击！",
+                content = defender.username .. " 发动【暗号】，对 " .. attacker_name .. " 进行反击！",
                 hero = "alibaba",
                 skill = "an_hao"
             }))
+
+            -- 攻击者可能已阵亡，跳过反击
+            if not state.players[attacker_id] then
+                state.pending_action = nil
+                return
+            end
 
             -- 反击固定1点伤害，不受武器/酒加成
             state._fixed_damage = true

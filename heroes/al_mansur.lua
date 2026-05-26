@@ -36,7 +36,7 @@ function M.on_turn_end(dispatcher, state, player_id)
     local damage_this_turn = (player.damage_dealt or 0) - (player.mansur_last_damage or 0)
     player.mansur_last_damage = player.damage_dealt or 0
 
-    if damage_this_turn >= 2 then
+    if damage_this_turn >= 2 and player.health < player.max_health then
         player.health = player.health + 1
         dispatcher.broadcast_message(11, nk.json_encode({
             content = string.format("%s 本回合造成%d点伤害，发动【建城】回复1点血量！",
