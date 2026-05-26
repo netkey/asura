@@ -127,8 +127,8 @@ local function update_season_stats(nk, uid, p, season_id, is_win, delta, mode)
             permission_write = 0,
         }})
         if ok then break end
-        if attempt < 3 and tostring(err):find("version", 1, true) then
-            -- OCC 版本冲突：重试
+        if attempt < 3 then
+            -- 重试（版本冲突或瞬态失败）
         else
             nk.logger_warn("update_season_stats: storage_write 失败 uid=" .. uid .. " err=" .. tostring(err))
             break

@@ -413,9 +413,10 @@ function M.perform_auto_play(dispatcher, state)
     local player = state.players[uid]
 
     -- 1. 清理挂起的技能选择（所有 pending 有 deadline ≤20s < turn_timeout=30s，
-    --     因此超时前已被 auto_resolve_pending 处理，此处不会命中；兜底仅清理，不补摸）
+    --     因此超时前已被 auto_resolve_pending 处理，此处不会命中；兜底清理 + 补偿摸牌）
     if state.pending_action and state.pending_action.player_id == uid then
         state.pending_action = nil
+        rules.draw_cards(state, uid, 2)
     end
 
     if not player or player.health <= 0 then
@@ -965,6 +966,12 @@ end
 
 
 function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
+    if grace_seconds <= 0 then
+        -- grace 到期（或编排器强制终止），立即清理后结束
+        clear_all_player_status(state)
+        return nil
+    end
+
     if state.pending_shutdown then
         -- 第二次调用（由 match_loop 兜底或编排器二次通知），清理后结束
         clear_all_player_status(state)
