@@ -54,6 +54,9 @@ local VALID_MODES = {pvp = true, identity = true}
 local VALID_PLAYER_COUNTS = {[2] = true, [5] = true}
 
 local function find_or_create_match(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "find_or_create_match", 10, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local ok, json = pcall(nk.json_decode, payload)
     if not ok or type(json) ~= "table" then
         error("invalid payload", 2)
@@ -82,7 +85,10 @@ nk.register_rpc(safe_rpc(find_or_create_match), "find_or_create_match")
 -- 校验英雄使用权
 -- ==========================================
 local function check_hero_access(context, payload)
-    local json    = nk.json_decode(payload)
+    local ok, json = pcall(nk.json_decode, payload)
+    if not ok or type(json) ~= "table" then
+        return nk.json_encode({ accessible = false, error = "参数错误" })
+    end
     local user_id = context.user_id
     local hero_id = json.hero_id
 
@@ -90,7 +96,7 @@ local function check_hero_access(context, payload)
         return nk.json_encode({ success = false, error = "too_many_requests" })
     end
     if not catalog.HEROES[hero_id] then
-        return nk.json_encode({ has_access = false, error = "英雄不存在" })
+        return nk.json_encode({ accessible = false, error = "英雄不存在" })
     end
 
     local objects = nk.storage_read({{
@@ -368,12 +374,12 @@ local function admin_set_free_event(context, payload)
         end
     end
 
-    nk.storage_write({{
+    local ok_ar, ar_err = pcall(nk.storage_write, {{
         collection       = "events",
         key              = "free_heroes",
         user_id          = nil,
         value            = events,
-        version          = (#objects > 0) and objects[1].version or nil,
+        version          = (#objects > 0) and objects[1].version or "*",
         permission_read  = 2,  -- 所有人可读（客户端可查询活动列表）
         permission_write = 0,
     }})
@@ -438,7 +444,7 @@ local function admin_set_config(context, payload)
         key              = "game_config",
         user_id          = nil,
         value            = new_stored,
-        version          = (#objects > 0) and objects[1].version or nil,
+        version          = (#objects > 0) and objects[1].version or "*",
         permission_read  = 2,
         permission_write = 0,
     }})
@@ -496,7 +502,7 @@ local function get_match_history(context, payload)
     if not rate_limiter.check(nk, user_id, "get_match_history", 60, 60) then
         return nk.json_encode({ success = false, error = "too_many_requests" })
     end
-    local json     = nk.json_decode(payload)
+    local json     = (payload and payload ~= "") and nk.json_decode(payload) or {}
     local season   = season_mgr.get_current_season(nk)
     local sid      = (json and json.season_id) or (season and season.season_id)
     if not sid then
@@ -541,12 +547,12 @@ nk.register_rpc(safe_rpc(get_match_history), "get_match_history")
 -- payload: { "limit": 20 }
 -- ==========================================
 local function get_leaderboard(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_leaderboard", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local season = season_mgr.get_current_season(nk)
     if not season then
         return nk.json_encode({ error = "当前无进行中的赛季" })
-    end
-    if not rate_limiter.check(nk, context.user_id, "get_leaderboard", 60, 60) then
-        return nk.json_encode({ success = false, error = "too_many_requests" })
     end
     local json  = nk.json_decode(payload)
     local limit = (json and tonumber(json.limit)) or 20
@@ -662,6 +668,9 @@ nk.register_rpc(safe_rpc(admin_end_season), "admin_end_season")
 -- 发送好友请求 / 接受请求（Nakama 双向调用自动升为好友）
 -- payload: {"username":"xxx"} 或 {"user_id":"xxx"}
 local function add_friend(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "add_friend", 20, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json = nk.json_decode(payload)
     if not json or (not json.username and not json.user_id) then
         return nk.json_encode({ success = false, error = "需要 username 或 user_id" })
@@ -676,6 +685,9 @@ nk.register_rpc(safe_rpc(add_friend), "add_friend")
 -- 删除好友 / 拒绝请求
 -- payload: {"user_id":"xxx"}
 local function remove_friend(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "remove_friend", 20, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json = nk.json_decode(payload)
     if not json or not json.user_id then
         return nk.json_encode({ success = false, error = "需要 user_id" })
@@ -688,6 +700,9 @@ nk.register_rpc(safe_rpc(remove_friend), "remove_friend")
 -- 屏蔽用户
 -- payload: {"user_id":"xxx"}
 local function block_user(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "block_user", 20, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json = nk.json_decode(payload)
     if not json or not json.user_id then
         return nk.json_encode({ success = false, error = "需要 user_id" })
@@ -810,6 +825,9 @@ nk.register_rpc(safe_rpc(get_friends_status), "get_friends_status")
 -- ==========================================
 
 local function find_spectatable_match(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "find_spectatable_match", 30, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local json  = nk.json_decode(payload)
     local mode  = json and json.mode
     local query = "+label.spectatable:1"
@@ -1228,7 +1246,7 @@ local function admin_refresh_google_token(context, _payload)
     local is_admin = (context.env and context.env["__nakama_admin"] == "true")
         or not context.user_id or context.user_id == ""
     if not is_admin then
-        error("unauthorized")
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
     pcall(nk.storage_delete, {{ collection="system_config", key="google_token", user_id=nil }})
     local token, err = get_google_access_token(context)
@@ -1244,6 +1262,9 @@ nk.register_rpc(safe_rpc(admin_refresh_google_token), "admin_refresh_google_toke
 -- 入参：{} 或 { hero_id }（可选过滤）
 -- 出参：{ skins: [...] }（不含默认皮肤）
 local function get_skin_catalog(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "get_skin_catalog", 60, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local req = (payload and payload ~= "") and nk.json_decode(payload) or {}
     local filter_hero = type(req) == "table" and req.hero_id or nil
 
@@ -1355,6 +1376,9 @@ nk.register_rpc(safe_rpc(purchase_skin), "purchase_skin")
 -- 入参：{ hero_id, skin_id }（skin_id=nil 表示卸下皮肤，恢复默认）
 -- 出参：{ success } 或 { success=false, error }
 local function equip_skin(context, payload)
+    if not rate_limiter.check(nk, context.user_id, "equip_skin", 30, 60) then
+        return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
     local req = nk.json_decode(payload)
     if type(req) ~= "table" or not req.hero_id then
         return nk.json_encode({ success = false, error = "bad_request" })

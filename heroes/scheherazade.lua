@@ -10,6 +10,9 @@ function M.on_damaged(dispatcher, state, target_id, amount, source_id)
     if player.health <= 0 then return false end
     if #player.hand < 1 then return false end
 
+    -- 不打断 AOE 或其他待响应操作
+    if state.pending_action then return false end
+
     local attacker = state.players[source_id]
     if not attacker or attacker.health <= 0 or #attacker.hand < 1 then return false end
 

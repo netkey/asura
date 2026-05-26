@@ -16,8 +16,7 @@ M.DEFAULTS = {
     },
     combat = {
         rebel_kill_reward    = 3, -- 击杀反贼后奖励摸牌数
-        armor_damage_reduce  = 1, -- 普通防具每次减伤量
-        sword_damage_bonus   = 1, -- 剑类武器攻击伤害加成
+        -- 防具减伤 & 武器加伤已直接配置在 CARD_EFFECTS 中
         wine_damage_bonus    = 1, -- 酒牌触发的攻击伤害加成
         lightning_damage     = 3, -- 闪电判定命中伤害
         attack_range_default = 1, -- 默认武器射程

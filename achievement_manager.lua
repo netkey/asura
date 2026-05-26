@@ -93,9 +93,9 @@ end
 -- ==========================================
 local function grant(nk, uid, username, ach_id, ach_name, gold, unlocked)
     local ts = os.time()
-    -- 保留 unlocked[ach_id] 中已有字段（如 hero_mastery 的 heroes 数组）
-    local existing = unlocked[ach_id]
-    unlocked[ach_id] = existing and { unlocked_at = ts, heroes = existing.heroes } or { unlocked_at = ts }
+    -- 保留 unlocked[ach_id] 中所有已有字段，仅覆盖 unlocked_at
+    unlocked[ach_id] = unlocked[ach_id] or {}
+    unlocked[ach_id].unlocked_at = ts
 
     for attempt = 1, 3 do
         -- 读取当前版本做 OCC 写入

@@ -46,22 +46,36 @@
 | 反贼（REBEL）| 消灭主公 |
 | 内奸（TRAITOR）| 最后一个存活 |
 
-### 牌堆构成（96 张）
+### 牌堆构成（122 张）
 
 | 牌型 | 数量 | 说明 |
 |------|------|------|
-| ATTACK（攻击）| 20 | 基础攻击 |
-| DEFENSE（防御）| 12 | 防御攻击 |
-| HEAL（治疗）| 8 | 回复 1 点血量 |
-| AOE_SANDSTORM（沙尘暴）| 4 | 全场除自己外受 1 点伤害 |
-| DRAW_TWO（无中生有）| 6 | 摸 2 张牌 |
-| JUDGE_STORM（天谴）| 4 | 延时判定，黑桃 2-9 造成 3 点伤害并传递 |
-| WINE（酒）| 6 | 攻击+1 或濒死回 1 血，阿拉伯烈酒击杀额外摸 2 张 |
-| WEAPON（武器）| 10 | 波斯长剑/大马士革弯刀/流星锤/阿拉伯弯刀 |
-| ARMOR（防具）| 6 | 波斯盾牌/古兰经护盾/锁子甲 |
-| HORSE（马匹）| 6 | 阿拉伯战马（进攻）/骆驼（防御）|
-| INSTANT_TRICK（即时锦囊）| 8 | 沙漠罗盘/诱降/以物易物/沙漠风暴 |
-| DELAYED_TRICK（延时锦囊）| 6 | 黑血蛊/沙漠诅咒/虚弱标记 |
+| ATTACK（杀/大马士革弯刀）| 30 | 需在武器射程内，每回合限1次（连弩机除外） |
+| DEFENSE（闪/蜃景）| 15 | 抵消一次攻击 |
+| HEAL（桃/椰枣）| 8 | 回复 1 点血量 |
+| WINE（酒/阿拉伯烈酒）| 3 | 增伤：出牌阶段使用，下次杀伤害+1；濒死自救 |
+| INSTANT_TRICK（即时锦囊）| 36 | 见下方子类型表 |
+| DELAYED_TRICK（延时锦囊）| 7 | 乐不思蜀×3/兵粮寸断×2/闪电×2 |
+| WEAPON（武器）| 9 | 连弩机/贯石斧/青龙偃月刀/丈八蛇矛/方天画戟/古锭刀/双刃剑/朱雀羽扇/麒麟弓 |
+| ARMOR（防具）| 3 | 八卦阵/仁王盾/藤甲 |
+| HORSE（马匹）| 8 | 阿拉伯战马（进攻马-1距离）×4 / 骆驼（防守马+1距离）×4 |
+
+#### INSTANT_TRICK 子类型
+
+| subtype | 中文名 | 数量 | 效果 |
+|---------|--------|------|------|
+| aoe_attack | 沙漠侵袭（南蛮入侵）| 3 | 全场需出【杀】，否则1点伤害 |
+| aoe_defense | 万箭齐发 | 3 | 全场需出【闪】，否则1点伤害 |
+| duel | 决斗 | 3 | 轮流出【杀】，放弃者受1点伤害 |
+| discard_one | 过河拆桥 | 4 | 弃目标一张牌（手牌或装备）|
+| steal_one | 顺手牵羊 | 4 | 获得目标一张牌（距离1内）|
+| draw_two | 无中生有 | 4 | 摸2张牌 |
+| mass_heal | 桃园结义 | 2 | 全场角色各回复1点生命 |
+| mass_draw | 五谷丰登 | 2 | 按座次顺序各摸1张牌 |
+| counterspell | 无懈可击 | 3 | 抵消一张锦囊牌（在响应窗口中使用）|
+| borrow_weapon | 借刀杀人 | 2 | 借目标武器对另一角色出杀，否则武器归你 |
+| fire_attack | 火攻 | 3 | 目标展示一张手牌，猜中花色则1点火焰伤害 |
+| iron_chain | 铁索连环 | 6 | 连环目标（属性伤害传导）或重铸（弃牌摸1）|
 
 ---
 
@@ -87,8 +101,12 @@
 | AOE 放弃防御 | `WAITING_FOR_AOE` | `{"confirm":false}` |
 | 救援（出桃/酒）| `WAITING_FOR_RESCUE` | `{"confirm":true,"card_id":"c_002"}` |
 | 放弃救援 | `WAITING_FOR_RESCUE` | `{"confirm":false}` |
-| 锦囊【沙漠罗盘】重排 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"sorted_ids":["c_01","c_02","c_03"]}` |
-| 锦囊【诱降】选择弃牌 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"card_id":"c_07"}` 或 `{"confirm":false}`（随机弃） |
+| 决斗出【杀】 | `WAITING_FOR_DUEL` | `{"confirm":true,"card_id":"c_002"}` 或 `{"confirm":false}` |
+| 无懈可击响应 | `WAITING_FOR_COUNTER` | `{"confirm":true,"card_id":"c_002"}`（无懈可击）或 `{"confirm":false}` |
+| 过河拆桥/顺手牵羊选牌 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"card_id":"c_07"}` 或 `{"confirm":false}`（随机） |
+| 借刀杀人选攻击目标 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
+| 借刀杀人出杀或交武器 | `WAITING_FOR_BORROW_WEAPON` | `{"confirm":true,"card_id":"c_02"}`（出杀）或 `{"confirm":false}`（交武器） |
+| 火攻猜花色 | `WAITING_FOR_FIRE_GUESS` | `{"confirm":true,"guess":"HEART"}`（HEART/SPADE/CLUB/DIAMOND）|
 | 英雄技能确认+选目标 | `SULEIMAN_YU_FENG` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 哈基姆【星象】重排牌堆 | `HAKIM_XING_XIANG` | `{"confirm":true,"sorted_ids":["c_01","c_02"]}` 或 `{"confirm":false}` |
 | 阿拉丁【神灯】弃牌 | `ALADDIN_LAMP` | `{"confirm":true,"card_ids":["c_03","c_04"]}` 或 `{"confirm":false}` |
@@ -114,7 +132,7 @@
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
 | `101` | 技能使用者或目标玩家 | 英雄技能询问，如阿拉丁【神灯】、苏莱曼【御风】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"yu_feng","description":"是否发动【御风】？","targets":[...]}` |
-| `106` | 锦囊使用者 | 锦囊牌【沙漠罗盘】或【诱降】的私有信息（牌堆预览 / 目标手牌） | peek3: `{"event":"peek3_choose","peeked":[...]}` / discard: `{"event":"peek_hand_choose","target_id":"uid","hand":[...]}` |
+| `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART"}` |
 
 > **接收 101 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
 

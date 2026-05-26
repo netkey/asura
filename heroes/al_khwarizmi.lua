@@ -18,7 +18,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         if #state.deck > 0 then
             local card = table.remove(state.deck, 1)
             if card then
-                table.insert(top_cards, {id = card.id, name = card.name, type = card.type, suit = card.suit, number = card.number})
+                table.insert(top_cards, {id = card.id, name = card.name, type = card.type, subtype = card.subtype, suit = card.suit, number = card.number})
             end
         end
     end
@@ -55,7 +55,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         -- 取消：回退4张牌到牌堆顶，正常摸2张
         for i = #action.cards, 1, -1 do
             local c = action.cards[i]
-            table.insert(state.deck, 1, {id = c.id, name = c.name, type = c.type, suit = c.suit, number = c.number})
+            table.insert(state.deck, 1, {id = c.id, name = c.name, type = c.type, subtype = c.subtype, suit = c.suit, number = c.number})
         end
         rules.draw_cards(state, player_id, 2)
         rules.broadcast_update(dispatcher, state)
@@ -80,10 +80,10 @@ function M.on_response(dispatcher, state, player_id, payload)
         local c = sorted_map[payload.sorted_ids[i]]
         if c then
             if keep_set[c.id] then
-                table.insert(player.hand, {id = c.id, name = c.name, type = c.type, suit = c.suit, number = c.number})
+                table.insert(player.hand, {id = c.id, name = c.name, type = c.type, subtype = c.subtype, suit = c.suit, number = c.number})
                 keep_count = keep_count + 1
             else
-                table.insert(state.deck, 1, {id = c.id, name = c.name, type = c.type, suit = c.suit, number = c.number})
+                table.insert(state.deck, 1, {id = c.id, name = c.name, type = c.type, subtype = c.subtype, suit = c.suit, number = c.number})
             end
         end
     end

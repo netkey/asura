@@ -31,6 +31,7 @@ local CARD_EFFECTS = {
             state.attack_bonus = nil
             state.attack_cancelled = nil
             state.dunyazad_immune = nil
+            state.jafar_du_ji = nil
             return
         end
 
@@ -133,8 +134,7 @@ local CARD_EFFECTS = {
     -- 酒 — 标记 weapon_buff，下次攻击伤害+1
     ["WINE"] = function(dispatcher, state, source_id, _, card)
         local p = state.players[source_id]
-        -- 上限检查已在 handle_play_card 中完成（wine_used_this_turn）
-        p.weapon_buff = true
+        -- weapon_buff 由 handle_play_card 统一维护
         dispatcher.broadcast_message(11, nk.json_encode({
             content = p.username .. " 饮【" .. card.name .. "】，下次攻击伤害+1",
             card = card
@@ -197,10 +197,11 @@ local CARD_EFFECTS = {
             M.broadcast_update(dispatcher, state)
 
         elseif card.subtype == "aoe_attack" then
-            -- 南蛮入侵：全场出杀
+            -- 南蛮入侵：全场出杀（按座位顺序）
             local targets = {}
-            for uid, p2 in pairs(state.players) do
-                if uid ~= source_id and p2.health > 0 then
+            for _, uid in ipairs(state.presence_ids) do
+                local p2 = state.players[uid]
+                if uid ~= source_id and p2 and p2.health > 0 then
                     table.insert(targets, uid)
                 end
             end
@@ -221,10 +222,11 @@ local CARD_EFFECTS = {
             M.notify_aoe_target(dispatcher, state)
 
         elseif card.subtype == "aoe_defense" then
-            -- 万箭齐发：全场出闪
+            -- 万箭齐发：全场出闪（按座位顺序）
             local targets = {}
-            for uid, p2 in pairs(state.players) do
-                if uid ~= source_id and p2.health > 0 then
+            for _, uid in ipairs(state.presence_ids) do
+                local p2 = state.players[uid]
+                if uid ~= source_id and p2 and p2.health > 0 then
                     table.insert(targets, uid)
                 end
             end
@@ -364,6 +366,112 @@ local CARD_EFFECTS = {
                 end
             end
             M.broadcast_update(dispatcher, state)
+
+        elseif card.subtype == "borrow_weapon" then
+            -- 借刀杀人：目标需有武器 + 有可攻击的对象
+            local target = state.players[target_id]
+            if not target or not target.equipment.weapon then
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【借刀杀人】目标无武器或已阵亡"
+                }))
+                return
+            end
+
+            -- 找合法攻击目标（存活、非本人、在射程内）
+            local valid_targets = {}
+            for uid, p2 in pairs(state.players) do
+                if uid ~= source_id and uid ~= target_id and p2.health > 0
+                    and M.can_attack(state, target_id, uid) then
+                    table.insert(valid_targets, { id = uid, username = p2.username })
+                end
+            end
+            if #valid_targets == 0 then
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【借刀杀人】无可攻击的目标"
+                }))
+                return
+            end
+
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 对 " .. target.username .. " 使用【借刀杀人】"
+            }))
+
+            -- 让使用者选择攻击目标
+            state.pending_action = {
+                type = "WAITING_FOR_TRICK_SELECT",
+                subtype = "borrow_weapon",
+                source_id = source_id,
+                target_id = target_id,
+                valid_targets = valid_targets,
+                deadline = os.time() + 15,
+            }
+            if state.presences[source_id] then
+                dispatcher.broadcast_message(106, nk.json_encode({
+                    event = "choose_attack_target",
+                    valid_targets = valid_targets,
+                    purpose = "borrow_weapon",
+                }), {state.presences[source_id]})
+            end
+
+        elseif card.subtype == "fire_attack" then
+            -- 火攻：目标展示一张手牌，猜花色
+            local target = state.players[target_id]
+            if not target or #target.hand == 0 then
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【火攻】目标无手牌"
+                }))
+                return
+            end
+
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 对 " .. target.username .. " 使用【火攻】"
+            }))
+
+            -- 随机选一张展示（或让目标选择——当前简化版随机）
+            local show_idx = math.random(#target.hand)
+            local revealed = target.hand[show_idx]
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = target.username .. " 展示了【" .. revealed.name .. "】（" .. revealed.suit .. "）"
+            }))
+
+            state.pending_action = {
+                type = "WAITING_FOR_FIRE_GUESS",
+                caster_id = source_id,
+                target_id = target_id,
+                revealed_card = revealed,
+                deadline = os.time() + 15,
+            }
+            if state.presences[source_id] then
+                dispatcher.broadcast_message(106, nk.json_encode({
+                    event = "fire_guess",
+                    target_hand = revealed.suit,  -- 服务端直接告诉客户端实际花色
+                    prompt = "猜花色（HEART/SPADE/CLUB/DIAMOND）",
+                }), {state.presences[source_id]})
+            end
+
+        elseif card.subtype == "iron_chain" then
+            -- 铁索连环：重铸（无目标时弃牌摸1）或连环目标
+            if not target_id then
+                -- 重铸
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = p.username .. " 重铸了【铁索连环】"
+                }))
+                M.draw_cards(state, source_id, 1)
+                M.broadcast_update(dispatcher, state)
+            else
+                -- 连环目标（切换目标的连环状态）
+                local target = state.players[target_id]
+                if not target then return end
+                target.iron_chained = not target.iron_chained
+                local status = target.iron_chained and "被连环" or "解除连环"
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = target.username .. status
+                }))
+                M.broadcast_update(dispatcher, state)
+            end
+
+        elseif card.subtype == "counterspell" then
+            -- 无懈可击已在 WAITING_FOR_COUNTER 中处理，不会走到这里
         end
     end,
 
@@ -426,26 +534,6 @@ function M.seat_distance(state, a_id, b_id)
     return math.min(diff, n - diff)
 end
 
--- 攻击距离（考虑进攻马-1）
-function M.attack_distance(state, src_id, tgt_id)
-    local dist = M.seat_distance(state, src_id, tgt_id)
-    local src = state.players[src_id]
-    if src and src.equipment.horse and src.equipment.horse.subtype == "offense" then
-        dist = math.max(0, dist - 1)
-    end
-    return dist
-end
-
--- 被攻击距离（考虑防守马+1）
-function M.defend_distance(state, src_id, tgt_id)
-    local dist = M.seat_distance(state, src_id, tgt_id)
-    local tgt = state.players[tgt_id]
-    if tgt and tgt.equipment.horse and tgt.equipment.horse.subtype == "defense" then
-        dist = dist + 1
-    end
-    return dist
-end
-
 -- 武器射程
 function M.weapon_range(state, player_id)
     local p = state.players[player_id]
@@ -461,13 +549,27 @@ function M.weapon_range(state, player_id)
         fire_weapon       = 1,
         bow_strip_horse   = 5,
     }
-    return ranges[p.equipment.weapon.subtype] or 1
+    local range = ranges[p.equipment.weapon.subtype]
+    if not range then
+        nk.logger_warn(string.format("weapon_range: 未知 subtype=%s, 默认射程 1", p.equipment.weapon.subtype))
+        return 1
+    end
+    return range
 end
 
 -- 是否能攻击目标（距离+武器射程检查）
+-- 进攻马-1，防守马+1，二者叠加
 function M.can_attack(state, src_id, tgt_id)
     if src_id == tgt_id then return false end
-    local dist = M.defend_distance(state, src_id, tgt_id)
+    local dist = M.seat_distance(state, src_id, tgt_id)
+    local src = state.players[src_id]
+    if src and src.equipment.horse and src.equipment.horse.subtype == "offense" then
+        dist = math.max(0, dist - 1)
+    end
+    local tgt = state.players[tgt_id]
+    if tgt and tgt.equipment.horse and tgt.equipment.horse.subtype == "defense" then
+        dist = dist + 1
+    end
     local range = M.weapon_range(state, src_id)
     return dist <= range
 end
@@ -594,12 +696,49 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
 
     if type(payload.card_id) ~= "string" then return false end
 
+    -- 如果玩家有活跃的待响应操作，阻止自由出牌
+    if state.pending_action then
+        local pa = state.pending_action
+        local blocked = false
+        if pa.type == "WAITING_FOR_DEFENSE" and pa.target_id == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_AOE" and pa.current_target == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_DUEL" then
+            local current = pa.is_attackers_turn and pa.attacker_id or pa.target_id
+            if current == player_id then blocked = true end
+        elseif pa.type == "WAITING_FOR_TRICK_SELECT" and pa.source_id == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_COUNTER" and pa.current_target == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_FIRE_GUESS" and pa.caster_id == player_id then
+            blocked = true
+        elseif pa.type == "WAITING_FOR_RESCUE" then
+            local rescuer = pa.rescuers and pa.rescuers[pa.current_rescuer_idx]
+            if rescuer == player_id then blocked = true end
+        elseif pa.player_id == player_id then
+            -- 英雄技能选择（HAKIM_XING_XIANG / AL_KHWARIZMI_SUANFA / SCHEHERAZADE_QIANYE）
+            blocked = true
+        end
+        if blocked then return false end
+    end
+
     local target_id = payload.target_id
     if target_id ~= nil then
         if type(target_id) ~= "string" then return false end
         local target = state.players[target_id]
         if not target or target.health <= 0 then return false end
-        if target_id == player_id and card.type ~= "DELAYED_TRICK" then return false end
+        if target_id == player_id then
+            -- 只有延时锦囊可以对自己使用
+            local cid = payload.card_id
+            local found = false
+            for _, c in ipairs(player.hand) do
+                if c.id == cid then found = (c.type == "DELAYED_TRICK"); break end
+            end
+            if not found then return false end
+        end
     end
 
     local card_idx = nil
@@ -666,6 +805,51 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
 
     -- ========== 移除手牌 ==========
     table.remove(player.hand, card_idx)
+
+    -- 无懈可击不可在出牌阶段主动使用，只能作为响应回传
+    if card.type == "INSTANT_TRICK" and card.subtype == "counterspell" then
+        table.insert(player.hand, card)
+        return false
+    end
+
+    -- 锦囊牌在生效前需经无懈可击窗口
+    local is_counterable = (card.type == "INSTANT_TRICK" or card.type == "DELAYED_TRICK")
+    if is_counterable then
+        state.pending_trick = { card = card, source_id = player_id, target_id = target_id }
+
+        -- 构建询问列表（除使用者外所有存活玩家，按座次顺序从下家开始）
+        local remaining = {}
+        local found = false
+        for _, uid in ipairs(state.presence_ids) do
+            if found and state.players[uid] and state.players[uid].health > 0 then
+                table.insert(remaining, uid)
+            end
+            if uid == player_id then found = true end
+        end
+        for _, uid in ipairs(state.presence_ids) do
+            if uid == player_id then break end
+            if state.players[uid] and state.players[uid].health > 0 then
+                table.insert(remaining, uid)
+            end
+        end
+
+        if #remaining == 0 then
+            M.resolve_pending_trick(dispatcher, state)
+        else
+            state.pending_action = {
+                type = "WAITING_FOR_COUNTER",
+                caster_id = player_id,
+                remaining_order = remaining,
+                current_idx = 1,
+                current_target = remaining[1],
+                counter_depth = 0,
+                deadline = os.time() + 15,
+            }
+            M.notify_counter_target(dispatcher, state)
+        end
+        M.broadcast_update(dispatcher, state)
+        return true
+    end
 
     -- 装备牌不进弃牌堆，其余正常弃置
     local is_equipment = card.type == "WEAPON" or card.type == "ARMOR" or card.type == "HORSE"
@@ -1023,15 +1207,156 @@ function M.handle_response(dispatcher, state, player_id, payload)
             pick_card(function(c) table.insert(state.discard_pile, c) end)
         elseif action.subtype == "steal_one" then
             pick_card(function(c) table.insert(state.players[action.source_id].hand, c) end)
+        elseif action.subtype == "borrow_weapon" then
+            -- 借刀杀人：使用者选择攻击目标
+            local chosen = payload.target_id
+            if payload.confirm == true and chosen and type(chosen) == "string" then
+                -- 验证选择是否合法
+                for _, vt in ipairs(action.valid_targets) do
+                    if vt.id == chosen then
+                        state.pending_action = {
+                            type = "WAITING_FOR_BORROW_WEAPON",
+                            caster_id = action.source_id,
+                            target_id = action.target_id,
+                            attack_target = chosen,
+                            deadline = os.time() + 15,
+                        }
+                        local target_p = state.players[action.target_id]
+                        if target_p and state.presences[action.target_id] then
+                            dispatcher.broadcast_message(106, nk.json_encode({
+                                event = "borrow_weapon_choice",
+                                msg = "出【杀】攻击或交出武器？",
+                                attack_target = chosen,
+                            }), {state.presences[action.target_id]})
+                        end
+                        M.broadcast_update(dispatcher, state)
+                        return
+                    end
+                end
+            end
+            -- 未选择：自动失败
+            state.pending_action = nil
+            M.broadcast_update(dispatcher, state)
+            return
         end
 
         local source_p = state.players[action.source_id]
-        local action_name = action.subtype == "discard_one" and "诱降" or "顺手牵羊"
+        local names_map = { discard_one = "过河拆桥", steal_one = "顺手牵羊" }
+        local action_name = names_map[action.subtype] or "锦囊"
         dispatcher.broadcast_message(11, nk.json_encode({
             content = (source_p and source_p.username or "?") .. " 使用【" .. action_name .. "】"
         }))
 
         state.pending_action = nil
+        M.broadcast_update(dispatcher, state)
+
+    -- ==================== 无懈可击窗口 ====================
+    elseif action.type == "WAITING_FOR_COUNTER" then
+        if action.remaining_order[action.current_idx] ~= player_id then return end
+
+        local played = false
+        if payload.confirm == true and type(payload.card_id) == "string" then
+            local p = state.players[player_id]
+            for i, c in ipairs(p.hand) do
+                if c.id == payload.card_id and c.type == "INSTANT_TRICK" and c.subtype == "counterspell" then
+                    table.remove(p.hand, i)
+                    table.insert(state.discard_pile, c)
+                    action.counter_depth = action.counter_depth + 1
+                    played = true
+                    dispatcher.broadcast_message(11, nk.json_encode({
+                        content = p.username .. " 使用了【无懈可击】！"
+                    }))
+                    break
+                end
+            end
+        end
+
+        -- 推进到下一位
+        action.current_idx = action.current_idx + 1
+        if action.current_idx <= #action.remaining_order then
+            action.current_target = action.remaining_order[action.current_idx]
+            action.deadline = os.time() + 15
+            M.notify_counter_target(dispatcher, state)
+        else
+            -- 窗口结束
+            state.pending_action = nil
+            if action.counter_depth % 2 == 1 then
+                -- 奇数 → 被无懈可击抵消
+                local pt = state.pending_trick
+                state.pending_trick = nil
+                table.insert(state.discard_pile, pt.card)
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【" .. pt.card.name .. "】被无懈可击抵消！"
+                }))
+            else
+                -- 偶数 → 锦囊生效
+                M.resolve_pending_trick(dispatcher, state)
+            end
+            M.broadcast_update(dispatcher, state)
+        end
+
+    -- ==================== 借刀杀人：出杀或交武器 ====================
+    elseif action.type == "WAITING_FOR_BORROW_WEAPON" then
+        if player_id ~= action.target_id then return end
+        local target_p = state.players[action.target_id]
+        if not target_p then state.pending_action = nil; return end
+
+        if payload.confirm == true and type(payload.card_id) == "string" then
+            -- 试图出杀
+            for i, c in ipairs(target_p.hand) do
+                if c.id == payload.card_id and c.type == "ATTACK" then
+                    -- 先检查距离
+                    if M.can_attack(state, action.target_id, action.attack_target) then
+                        table.remove(target_p.hand, i)
+                        table.insert(state.discard_pile, c)
+                        state.pending_action = nil
+                        dispatcher.broadcast_message(11, nk.json_encode({
+                            content = target_p.username .. " 对 " .. state.players[action.attack_target].username
+                                .. " 使出借刀杀人之【杀】！"
+                        }))
+                        CARD_EFFECTS["ATTACK"](dispatcher, state, action.target_id, action.attack_target, c)
+                        M.broadcast_update(dispatcher, state)
+                        return
+                    end
+                    break
+                end
+            end
+        end
+
+        -- 无法/不愿出杀 → 交出武器
+        state.pending_action = nil
+        if target_p.equipment.weapon then
+            local weapon = target_p.equipment.weapon
+            target_p.equipment.weapon = nil
+            table.insert(state.players[action.caster_id].hand, weapon)
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = target_p.username .. " 将【" .. weapon.name .. "】交给了 "
+                    .. state.players[action.caster_id].username
+            }))
+        end
+        M.broadcast_update(dispatcher, state)
+
+    -- ==================== 火攻猜花色 ====================
+    elseif action.type == "WAITING_FOR_FIRE_GUESS" then
+        if player_id ~= action.caster_id then return end
+        if type(payload.guess) ~= "string" then return end
+
+        state.pending_action = nil
+        local target = state.players[action.target_id]
+        local revealed_card = action.revealed_card
+        if payload.guess == revealed_card.suit then
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = state.players[action.caster_id].username
+                    .. " 猜中了花色（" .. revealed_card.suit .. "），"
+                    .. target.username .. " 受到 1 点火焰伤害！"
+            }))
+            M.apply_damage(dispatcher, state, action.target_id, 1, action.caster_id, "fire")
+        else
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = state.players[action.caster_id].username
+                    .. " 猜错了（猜了" .. payload.guess .. "，实际是" .. revealed_card.suit .. "）"
+            }))
+        end
         M.broadcast_update(dispatcher, state)
     end
 end
@@ -1102,6 +1427,26 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
         event = "damage", target = target_id, source = source_id, amount = amount, dmg_type = dmg_type
     }))
 
+    -- 铁索连环：属性伤害传导（传导前先解除所有连环，防无限递归）
+    if amount > 0 and dmg_type ~= "normal" and target.iron_chained then
+        local chained = {}
+        for uid, p in pairs(state.players) do
+            if uid ~= target_id and p.health > 0 and p.iron_chained then
+                table.insert(chained, uid)
+                p.iron_chained = nil
+            end
+        end
+        if #chained > 0 then
+            target.iron_chained = nil
+            for _, uid in ipairs(chained) do
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【铁索连环】传导，" .. state.players[uid].username .. " 受到等量伤害！"
+                }))
+                M.apply_damage(dispatcher, state, uid, amount, source_id, dmg_type)
+            end
+        end
+    end
+
     if target.health <= 0 then
         -- 进入濒死求救流程
         local rescuers = { target_id }
@@ -1157,7 +1502,6 @@ function M.broadcast_update(dispatcher, state)
             current_turn = state.current_turn_id,
             pending = state.pending_action and {
                 type = state.pending_action.type,
-                player_id = state.pending_action.player_id,
                 deadline = state.pending_action.deadline,
             } or nil,
             me = {
@@ -1287,7 +1631,6 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
             end
             local next_p = state.players[next_uid]
             if next_p then
-                eff.from = player.id
                 table.insert(next_p.delayed_effects, {
                     id = eff.id,
                     name = eff.name,
@@ -1301,8 +1644,43 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
         end
     end
 
-    -- 未知 subtype，跳过
-    return true
+    -- 未知 subtype，返回 false 让调用者处理
+    return false
+end
+
+-- ==========================================
+-- 8. 无懈可击/锦囊解析系统
+-- ==========================================
+
+-- 执行被保存的 pending_trick（无懈可击窗口通过后）
+function M.resolve_pending_trick(dispatcher, state)
+    local pt = state.pending_trick
+    if not pt then return end
+    state.pending_trick = nil
+
+    -- 弃牌后再执行效果
+    local is_equipment = pt.card.type == "WEAPON" or pt.card.type == "ARMOR" or pt.card.type == "HORSE"
+    if not is_equipment then
+        table.insert(state.discard_pile, pt.card)
+    end
+
+    if CARD_EFFECTS[pt.card.type] then
+        CARD_EFFECTS[pt.card.type](dispatcher, state, pt.source_id, pt.target_id, pt.card)
+    end
+end
+
+-- 通知当前玩家回复是否使用无懈可击
+function M.notify_counter_target(dispatcher, state)
+    local action = state.pending_action
+    if not action or action.type ~= "WAITING_FOR_COUNTER" then return end
+    local target_id = action.current_target
+    if not target_id then return end
+
+    dispatcher.broadcast_message(105, nk.json_encode({
+        type = "counter_opportunity",
+        target = target_id,
+        msg = "是否使用【无懈可击】抵消锦囊？"
+    }))
 end
 
 return M

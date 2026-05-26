@@ -74,4 +74,20 @@ M.HEROES = {
                         description="【铁壁】受伤时弃1基本牌减伤1（每回合1次）；击杀收缴1手牌" },
 }
 
+-- 访问抽象层
+function M.get_hero(hero_id)
+    return M.HEROES[hero_id]
+end
+
+function M.get_price(hero_id)
+    local info = M.HEROES[hero_id]
+    return info and info.price or nil
+end
+
+function M.all_ids()
+    local ids = {}
+    for k in pairs(M.HEROES) do table.insert(ids, k) end
+    return ids
+end
+
 return M

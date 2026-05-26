@@ -19,7 +19,7 @@ local seq = {}
 local function add_card(type, suit, num, name, subtype)
     local key = type .. "_" .. (subtype or "")
     seq[key] = (seq[key] or 0) + 1
-    local id = string.format("%s_%02d", type, seq[key])
+    local id = string.format("%s_%s_%02d", type, subtype or "none", seq[key])
     local card = {
         id = id,
         type = type,
@@ -127,10 +127,10 @@ add_card("INSTANT_TRICK", "CLUB",    1,  "决斗", "duel")
 add_card("INSTANT_TRICK", "DIAMOND", 1,  "决斗", "duel")
 
 -- 过河拆桥 × 4
-add_card("INSTANT_TRICK", "CLUB",    3,  "诱降", "discard_one")
-add_card("INSTANT_TRICK", "SPADE",   3,  "诱降", "discard_one")
-add_card("INSTANT_TRICK", "SPADE",   4,  "诱降", "discard_one")
-add_card("INSTANT_TRICK", "HEART",   3,  "诱降", "discard_one")
+add_card("INSTANT_TRICK", "CLUB",    3,  "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   3,  "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   4,  "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "HEART",   3,  "过河拆桥", "discard_one")
 
 -- 顺手牵羊 × 4
 add_card("INSTANT_TRICK", "SPADE",   3,  "顺手牵羊", "steal_one")
@@ -151,6 +151,28 @@ add_card("INSTANT_TRICK", "DIAMOND", 1,  "桃园结义", "mass_heal")
 -- 五谷丰登 × 2
 add_card("INSTANT_TRICK", "HEART",   3,  "五谷丰登", "mass_draw")
 add_card("INSTANT_TRICK", "DIAMOND", 3,  "五谷丰登", "mass_draw")
+
+-- 无懈可击 × 3（抵消一张锦囊牌）
+add_card("INSTANT_TRICK", "SPADE",   13, "无懈可击", "counterspell")
+add_card("INSTANT_TRICK", "CLUB",    13, "无懈可击", "counterspell")
+add_card("INSTANT_TRICK", "DIAMOND", 11, "无懈可击", "counterspell")
+
+-- 借刀杀人 × 2（借目标武器对另一玩家出杀，否则武器归你）
+add_card("INSTANT_TRICK", "SPADE",   12, "借刀杀人", "borrow_weapon")
+add_card("INSTANT_TRICK", "CLUB",    10, "借刀杀人", "borrow_weapon")
+
+-- 火攻 × 3（目标展示一张手牌，猜中花色则1点火焰伤害）
+add_card("INSTANT_TRICK", "HEART",   12, "火攻", "fire_attack")
+add_card("INSTANT_TRICK", "HEART",   13, "火攻", "fire_attack")
+add_card("INSTANT_TRICK", "DIAMOND", 13, "火攻", "fire_attack")
+
+-- 铁索连环 × 6（连环两名角色，属性伤害传导；可重铸弃牌摸1）
+add_card("INSTANT_TRICK", "SPADE",   10, "铁索连环", "iron_chain")
+add_card("INSTANT_TRICK", "SPADE",   11, "铁索连环", "iron_chain")
+add_card("INSTANT_TRICK", "CLUB",    11, "铁索连环", "iron_chain")
+add_card("INSTANT_TRICK", "CLUB",    12, "铁索连环", "iron_chain")
+add_card("INSTANT_TRICK", "HEART",   11, "铁索连环", "iron_chain")
+add_card("INSTANT_TRICK", "HEART",    9, "铁索连环", "iron_chain")
 
 -- ==========================================
 -- DELAYED_TRICK — 延时锦囊
@@ -173,13 +195,13 @@ add_card("DELAYED_TRICK", "CLUB",    1,  "闪电", "lightning")
 -- WEAPON — 武器 × 9
 -- ==========================================
 add_card("WEAPON", "SPADE",   5,  "连弩机",  "unlimited_attack")
-add_card("WEAPON", "CLUB",    5,  "破盾战斧", "reattempt_discard2")
+add_card("WEAPON", "CLUB",    5,  "贯石斧", "reattempt_discard2")
 add_card("WEAPON", "CLUB",    6,  "青龙偃月刀","reattempt_attack")
 add_card("WEAPON", "CLUB",    8,  "丈八蛇矛", "spear_discard2")
 add_card("WEAPON", "HEART",   5,  "方天画戟", "halberd_triple")
 add_card("WEAPON", "DIAMOND", 5,  "古锭刀",   "blade_pierce")
 add_card("WEAPON", "DIAMOND", 6,  "双刃剑",   "twin_discard")
-add_card("WEAPON", "DIAMOND", 1,  "火攻",     "fire_weapon")
+add_card("WEAPON", "DIAMOND", 1,  "朱雀羽扇",   "fire_weapon")
 add_card("WEAPON", "SPADE",   6,  "麒麟弓",   "bow_strip_horse")
 
 -- ==========================================
@@ -206,7 +228,7 @@ add_card("HORSE", "DIAMOND", 12, "骆驼", "defense")
 -- ==========================================
 -- 验证
 -- ==========================================
-assert(#DECK == 108, "牌堆必须是108张，当前 " .. #DECK)
+assert(#DECK == 122, "牌堆必须是122张，当前 " .. #DECK)
 
 -- ==========================================
 -- API
@@ -237,12 +259,17 @@ end
 --- 牌堆元数据（客户端可查询牌型分布）
 function M.get_metadata()
     local stats = {}
+    local subtype_stats = {}
     for _, card in ipairs(DECK) do
         stats[card.type] = (stats[card.type] or 0) + 1
+        if card.subtype then
+            subtype_stats[card.subtype] = (subtype_stats[card.subtype] or 0) + 1
+        end
     end
     return {
         total = #DECK,
         by_type = stats,
+        by_subtype = subtype_stats,
     }
 end
 

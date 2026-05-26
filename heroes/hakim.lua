@@ -19,7 +19,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     local cards = {}
     for i = 1, peek_count do
         local c = state.deck[i]
-        table.insert(cards, {id = c.id, name = c.name, type = c.type, suit = c.suit, number = c.number})
+        table.insert(cards, {id = c.id, name = c.name, type = c.type, subtype = c.subtype, suit = c.suit, number = c.number})
     end
 
     state.pending_action = {

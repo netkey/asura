@@ -142,7 +142,7 @@ end
 -- 写入单条对局历史，超出限制时删除最旧记录
 -- ==========================================
 local function write_match_history(nk, uid, season_id, ts, p, mode, winner, is_win, turns, delta, rating_after)
-    local key = season_id .. "_" .. tostring(ts)
+    local key = season_id .. "_" .. tostring(ts) .. "_" .. tostring(math.random(10000))
     local ok, err = pcall(nk.storage_write, {{
         collection       = "match_history",
         key              = key,

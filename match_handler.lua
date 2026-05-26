@@ -87,7 +87,9 @@ local function assign_roles(player_count, mode)
     if player_count == 5 then
         roles = {"MONARCH", "MINISTER", "REBEL", "REBEL", "TRAITOR"}
     else
-        error("identity 模式仅支持 5 人局，收到: " .. tostring(player_count))
+        -- 非法人数优雅回退到 pvp
+        nk.logger_warn(string.format("identity 模式仅支持 5 人局，收到 %d 人，回退到 pvp", player_count))
+        return {}
     end
     return rules.shuffle(roles)
 end
@@ -290,9 +292,9 @@ local function auto_defend(dispatcher, state, defender_id, incoming_damage, requ
     if not defender or defender.health <= 0 then return end
 
     if incoming_damage >= defender.health then
-        -- 找一张所需类型的牌
+        -- 找一张所需类型的牌（required_type 必须传，不设后备默认值）
         for _, card in ipairs(defender.hand) do
-            if card.type == (required_type or "DEFENSE") then
+            if card.type == required_type then
                 rules.handle_response(dispatcher, state, defender_id, { confirm = true, card_id = card.id })
                 return
             end
@@ -308,7 +310,7 @@ local function auto_resolve_pending(dispatcher, state)
     if not act then return end
 
     if act.type == "WAITING_FOR_DEFENSE" then
-        auto_defend(dispatcher, state, act.target_id, act.damage or 1)
+        auto_defend(dispatcher, state, act.target_id, act.damage or 1, "DEFENSE")
     elseif act.type == "WAITING_FOR_AOE" then
         auto_defend(dispatcher, state, act.current_target, 1, act.required_response)
     elseif act.type == "WAITING_FOR_RESCUE" then
@@ -402,6 +404,14 @@ local function auto_resolve_pending(dispatcher, state)
         end
     elseif act.type == "BASIRA_DONG_CHA" then
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+    elseif act.type == "WAITING_FOR_COUNTER" then
+        rules.handle_response(dispatcher, state, act.current_target, { confirm = false })
+    elseif act.type == "WAITING_FOR_BORROW_WEAPON" then
+        rules.handle_response(dispatcher, state, act.target_id, { confirm = false })
+    elseif act.type == "WAITING_FOR_FIRE_GUESS" then
+        -- 从已揭示牌中读取真实花色，使托管行为与手动一致
+        local guess = act.revealed_card and act.revealed_card.suit or "HEART"
+        rules.handle_response(dispatcher, state, act.caster_id, { confirm = true, guess = guess })
     else
         -- 兜底：未知 pending_action 清除并记录
         log_warn(state, "auto_resolve_pending: 未知类型 " .. tostring(act.type) .. "，强制清除")
@@ -694,9 +704,16 @@ function M.finish_turn_end(dispatcher, state, ending_uid)
     local current_p = state.players[uid]
 
     -- ==========================================
-    -- 2. 判定阶段 (处理所有判定牌 + 延时锦囊)
+    -- 2. 判定阶段 (判定前触发 + 延时锦囊处理)
     -- ==========================================
-    -- 先处理延时锦囊（max_iter 防止无限循环）
+    -- 判定阶段前触发哈基姆【星象】（在延时锦囊之前，星象可影响判定牌顺序）
+    local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
+    if suspended then
+        state.pending_turn_continuation = {uid = uid}
+        return
+    end
+
+    -- 再处理延时锦囊（max_iter 防止无限循环）
     local delayed_iter = 0
     while #current_p.delayed_effects > 0 and current_p.health > 0 and delayed_iter < 20 do
         delayed_iter = delayed_iter + 1
@@ -710,13 +727,6 @@ function M.finish_turn_end(dispatcher, state, ending_uid)
             end
             return M.next_turn(dispatcher, state)
         end
-    end
-
-    -- 判定阶段前触发哈基姆【星象】
-    local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
-    if suspended then
-        state.pending_turn_continuation = {uid = uid}
-        return
     end
 
     M.do_judgment_and_draw_phase(dispatcher, state)
@@ -748,12 +758,19 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
         return
     end
 
-    rules.draw_cards(state, uid, 2)
+    -- 兵粮寸断跳过摸牌阶段
+    if current_p.skip_draw_phase then
+        current_p.skip_draw_phase = nil
+        log_info(state, current_p.username .. " 被兵粮寸断，跳过摸牌阶段")
+    else
+        local draw_count = state.config and state.config.match.draw_cards_per_turn or 2
+        rules.draw_cards(state, uid, draw_count)
+    end
     rules.broadcast_update(dispatcher, state)
-    -- 检查沙漠诅咒跳过出牌阶段
+    -- 乐不思蜀跳过出牌阶段
     if current_p.skip_play_phase then
         current_p.skip_play_phase = nil
-         log_info(state, current_p.username .. " 跳过出牌阶段")
+        log_info(state, current_p.username .. " 跳过出牌阶段")
         M.next_turn(dispatcher, state)
     else
         hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
@@ -940,6 +957,7 @@ function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
     if state.pending_shutdown then
         -- 第二次调用（由 match_loop 兜底或编排器二次通知），清理后结束
         clear_all_player_status(state)
+        state.pending_shutdown = nil
         return nil
     end
 

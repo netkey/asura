@@ -317,6 +317,19 @@ local function ai_handle_pending(state)
                 break
             end
 
+        elseif action.type == "WAITING_FOR_COUNTER" then
+            local p = state.players[action.current_target]
+            if not p then state.pending_action = nil; break end
+            rules.handle_response(state._dispatcher, state, action.current_target, {confirm=false})
+
+        elseif action.type == "WAITING_FOR_BORROW_WEAPON" then
+            rules.handle_response(state._dispatcher, state, action.target_id, {confirm=false})
+
+        elseif action.type == "WAITING_FOR_FIRE_GUESS" then
+            local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"}
+            rules.handle_response(state._dispatcher, state, action.caster_id,
+                {confirm=true, guess=suits[math.random(#suits)]})
+
         else
             io.stderr:write("[WARN] 未知 pending_action: " .. tostring(action.type) .. "\n")
             state.pending_action = nil
@@ -435,13 +448,13 @@ local function ai_choose(state, uid)
             if c.type == "DELAYED_TRICK" then return {card_id=c.id, target_id=target_id} end
         end
     end
-    -- 7. 即时锦囊（需目标的：决斗/拆/顺）
+    -- 7. 即时锦囊（需目标的：决斗/拆/顺/借刀杀人/火攻）
     if target_id then
-        local targeted = find_trick({"duel", "discard_one", "steal_one"})
+        local targeted = find_trick({"duel", "discard_one", "steal_one", "borrow_weapon", "fire_attack"})
         if targeted then return {card_id=targeted.id, target_id=target_id} end
     end
-    -- 8. 不需要目标的锦囊（无中生有/桃园结义/五谷丰登）
-    local self_trick = find_trick({"draw_two", "mass_heal", "mass_draw"})
+    -- 8. 不需要目标的锦囊（无中生有/桃园结义/五谷丰登/铁索连环重铸）
+    local self_trick = find_trick({"draw_two", "mass_heal", "mass_draw", "iron_chain"})
     if self_trick then return {card_id=self_trick.id} end
 
     return nil

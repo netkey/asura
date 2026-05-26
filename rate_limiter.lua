@@ -1,6 +1,6 @@
 -- rate_limiter.lua  per-user 滑动窗口限流
 -- 基于 Nakama Storage，OCC version 写入防止并发 TOCTOU 绕过
--- 写入失败（并发冲突）时直接拒绝，不因 Storage 抖动阻塞正常业务
+-- 写入失败（并发冲突）时重试一次，防止窗口边界合法请求被误拒
 
 local M = {}
 
@@ -21,6 +21,7 @@ function M.check(nk, uid, action, max_calls, window_secs)
     end
 
     local new_rec
+    local is_expired = false
     if rec and (now - rec.window_start) < window_secs then
         if rec.count >= max_calls then
             return false
@@ -28,11 +29,9 @@ function M.check(nk, uid, action, max_calls, window_secs)
         new_rec = { count = rec.count + 1, window_start = rec.window_start }
     else
         new_rec = { count = 1, window_start = now }
-        -- 保留 version 做原地更新：窗口过期但 key 仍存在，version="*" 会因 key 已存在而失败
+        is_expired = (rec ~= nil)  -- 窗口过期重置场景
     end
 
-    -- OCC 写入：version="*" 表示仅当记录不存在时写入（首次或窗口重置）
-    --            version=具体值 表示仅当版本匹配时更新，防止并发计数器竞争
     local write_version = version or "*"
     local ok = pcall(nk.storage_write, {{
         collection       = "rate_limits",
@@ -44,8 +43,38 @@ function M.check(nk, uid, action, max_calls, window_secs)
         permission_write = 0,
     }})
 
+    -- OCC 冲突时重试一次（窗口边界并发）
     if not ok then
-        -- 版本冲突（并发请求同时通过检查）：拒绝此次请求
+        local retry_obj = nk.storage_read({{
+            collection = "rate_limits",
+            key        = action,
+            user_id    = uid,
+        }})
+        if #retry_obj > 0 then
+            local r_rec = retry_obj[1].value
+            local r_ver = retry_obj[1].version
+            if r_rec and (now - r_rec.window_start) < window_secs then
+                if r_rec.count >= max_calls then return false end
+                new_rec = { count = r_rec.count + 1, window_start = r_rec.window_start }
+            else
+                new_rec = { count = 1, window_start = now }
+            end
+            ok = pcall(nk.storage_write, {{
+                collection = "rate_limits", key = action, user_id = uid,
+                value = new_rec, version = r_ver or "*",
+                permission_read = 0, permission_write = 0,
+            }})
+        else
+            -- 记录已被删除（极低概率），创建新记录
+            ok = pcall(nk.storage_write, {{
+                collection = "rate_limits", key = action, user_id = uid,
+                value = { count = 1, window_start = now }, version = "*",
+                permission_read = 0, permission_write = 0,
+            }})
+        end
+    end
+
+    if not ok then
         return false
     end
 
