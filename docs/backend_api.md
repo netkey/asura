@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.4.0 · 最后更新：2026-05-07  
+> 版本：v0.5.0 · 最后更新：2026-05-26  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -46,22 +46,22 @@
 | 反贼（REBEL）| 消灭主公 |
 | 内奸（TRAITOR）| 最后一个存活 |
 
-### 牌堆构成（96 张）
+### 牌堆构成（108 张）
 
 | 牌型 | 数量 | 说明 |
 |------|------|------|
-| ATTACK（攻击）| 30 | 基础攻击 |
-| DEFENSE（防御）| 15 | 防御攻击 |
+| ATTACK（攻击）| 20 | 基础攻击 |
+| DEFENSE（防御）| 12 | 防御攻击 |
 | HEAL（治疗）| 8 | 回复 1 点血量 |
-| AOE_SANDSTORM（沙尘暴）| 6 | 全场除自己外受 1 点伤害 |
-| DRAW_TWO（无中生有）| 8 | 摸 2 张牌 |
-| JUDGE_STORM（天谴）| 6 | 延时判定，黑桃 2-9 造成 3 点伤害并传递 |
-| WINE（酒）| 6 | 攻击+1 或濒死回 1 血 |
-| WEAPON（武器）| 5 | 装备：攻击+1 |
-| ARMOR（防具）| 5 | 装备：受到伤害-1 |
-| HORSE（马匹）| 4 | 装备：速度加成 |
-| INSTANT_TRICK（即时锦囊）| 3 | 随机效果 |
-| DELAYED_TRICK（延时锦囊）| 等 | 延时效果 |
+| AOE_SANDSTORM（沙尘暴）| 4 | 全场除自己外受 1 点伤害 |
+| DRAW_TWO（无中生有）| 6 | 摸 2 张牌 |
+| JUDGE_STORM（天谴）| 4 | 延时判定，黑桃 2-9 造成 3 点伤害并传递 |
+| WINE（酒）| 6 | 攻击+1 或濒死回 1 血，阿拉伯烈酒击杀额外摸 2 张 |
+| WEAPON（武器）| 10 | 波斯长剑/大马士革弯刀/流星锤/阿拉伯弯刀 |
+| ARMOR（防具）| 6 | 波斯盾牌/古兰经护盾/锁子甲 |
+| HORSE（马匹）| 6 | 阿拉伯战马（进攻）/骆驼（防御）|
+| INSTANT_TRICK（即时锦囊）| 8 | 沙漠罗盘/诱降/以物易物/沙漠风暴 |
+| DELAYED_TRICK（延时锦囊）| 6 | 黑血蛊/沙漠诅咒/虚弱标记 |
 
 ---
 
@@ -113,12 +113,10 @@
 
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
-| `100` | 技能使用者 | 英雄主动技能（弃牌类）询问，如阿拉丁【神灯】 | `{"type":"skill_choice","skill":"shen_deng","description":"是否弃置2张牌？","min_cards":2,"max_cards":2}` |
-| `101` | 技能使用者或目标玩家 | 英雄交互技能询问，如苏莱曼【御风】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"yu_feng","description":"是否发动【御风】？","targets":[...]}` |
-| `102` | 哈基姆玩家 | 判定阶段【星象】触发，展示牌堆顶 N 张供重排 | `{"type":"hakim_peek","peeked":[{"id":"c_01","type":"JUDGE_STORM",...}],"count":3}` |
+| `101` | 技能使用者或目标玩家 | 英雄技能询问，如阿拉丁【神灯】、苏莱曼【御风】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"yu_feng","description":"是否发动【御风】？","targets":[...]}` |
 | `106` | 锦囊使用者 | 锦囊牌【沙漠罗盘】或【诱降】的私有信息（牌堆预览 / 目标手牌） | peek3: `{"event":"peek3_choose","peeked":[...]}` / discard: `{"event":"peek_hand_choose","target_id":"uid","hand":[...]}` |
 
-> **接收 101/102 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
+> **接收 101 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
 
 #### OpCode 10 Payload 结构
 
@@ -464,8 +462,11 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 获取当前赛季信息。
 
 ```json
-// 出参
-{"season": {"season_id": "s1", "leaderboard_id": "lb1"}}
+// 出参（活跃）
+{"active": true, "season": {"season_id": "2026_Q2", "name": "2026年第二赛季", "start_time": 1746057600, "end_time": 1753833600, "leaderboard_id": "season_2026_Q2"}}
+
+// 出参（无赛季）
+{"active": false}
 ```
 
 #### `get_my_stats`
@@ -475,6 +476,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 // 出参
 {
   "stats": {
+    "season_id": "2026_Q2",
     "games": 42, "wins": 28, "losses": 14,
     "pvp_wins": 18, "identity_wins": 10,
     "rating": 1350, "best_streak": 7, "current_streak": 3,
@@ -485,12 +487,13 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 ```
 
 #### `get_match_history`
-获取对局历史记录（最近 50 场）。
+获取对局历史记录（最近 50 场，按时间倒序）。
 
 ```json
 // 出参
 {
-  "history": [
+  "season_id": "2026_Q2",
+  "records": [
     {
       "timestamp": 1746000000, "mode": "pvp", "hero": "aladdin",
       "result": "WIN", "rating_change": 10, "rating_after": 1350,
@@ -501,11 +504,14 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 ```
 
 #### `get_leaderboard`
-获取赛季排行榜（前 100 名）。
+获取赛季排行榜（默认前 20 名，最多 100 名）。
 
 ```json
+// 入参（可选）
+{"limit": 20}
+
 // 出参
-{"records": [{"rank": 1, "username": "PlayerA", "score": 1800}]}
+{"season_id": "2026_Q2", "leaderboard": [{"rank": 1, "user_id": "xxx", "username": "PlayerA", "rating": 1800}]}
 ```
 
 ---
@@ -662,7 +668,7 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `admin_grant_gold` | 手动发放金币 | `{"user_id":"...","amount":100}` |
 | `admin_set_free_event` | 设置限时免费英雄活动 | `{"heroes":["hakim"],"start_time":ts,"end_time":ts}` |
 | `admin_set_config` | 更新游戏参数配置 | 见 game_config.lua |
-| `admin_start_season` | 开启新赛季 | `{"season_id":"s2","leaderboard_id":"lb2"}` |
+| `admin_start_season` | 开启新赛季（按 start_time 自动生成季度 ID） | `{"name":"2026年第二赛季","start_time":1746057600,"end_time":1753833600}` |
 | `admin_end_season` | 结束当前赛季 | `{}` |
 | `admin_refresh_google_token` | 强制刷新 Google OAuth token 缓存 | `{}` |
 
