@@ -11,13 +11,17 @@ M.DEFAULTS = {
         monarch_health    = 5,   -- 主公初始血量（含额外+1）
         initial_hand_size = 4,   -- 游戏开始时每人摸牌数
         turn_timeout      = 30,  -- 回合超时秒数（超时触发托管）
+        draw_cards_per_turn = 2, -- 每回合摸牌阶段摸牌数
+        max_wine_per_turn  = 1,   -- 每回合最多用酒数（增伤用）
     },
     combat = {
-        rebel_kill_reward   = 3, -- 击杀反贼后奖励摸牌数
-        judge_storm_damage  = 3, -- 天谴触发时的伤害值
-        armor_damage_reduce = 1, -- 普通防具每次减伤量
-        sword_damage_bonus  = 1, -- 剑类武器攻击伤害加成
-        wine_damage_bonus   = 1, -- 酒牌触发的攻击伤害加成
+        rebel_kill_reward    = 3, -- 击杀反贼后奖励摸牌数
+        armor_damage_reduce  = 1, -- 普通防具每次减伤量
+        sword_damage_bonus   = 1, -- 剑类武器攻击伤害加成
+        wine_damage_bonus    = 1, -- 酒牌触发的攻击伤害加成
+        lightning_damage     = 3, -- 闪电判定命中伤害
+        attack_range_default = 1, -- 默认武器射程
+        duel_timeout         = 15, -- 决斗响应超时
     },
     -- 临时覆盖 hero_catalog.lua 中的英雄定价，不影响代码定义
     -- 示例：{ hakim = 300 } 将哈基姆临时折扣至 300 金

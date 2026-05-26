@@ -1,6 +1,6 @@
 -- demo_concurrent.lua  全英雄并发验证 Demo
 -- 15 局对局 Round-Robin 推进，覆盖全部 30 个英雄
--- Run: lua demo_concurrent.lua
+-- Run: lua5.4 demo_concurrent.lua
 
 --------------------------------------------------------------------------------
 -- Mock Setup
@@ -11,7 +11,6 @@ local nk = {
     logger_info              = function() end,
     logger_warn              = function() end,
     storage_read             = function(reads)
-        -- 为 season_config/current 返回一个有效赛季，其余返回空
         if reads and reads[1] and reads[1].collection == "season_config" then
             return {{ value = { season_id = "s1", leaderboard_id = "lb1" } }}
         end
@@ -55,8 +54,6 @@ local function make_dispatcher(prefix)
                 TRIGGERS[hero] = TRIGGERS[hero] or {}
                 TRIGGERS[hero][skill] = (TRIGGERS[hero][skill] or 0) + 1
             end
-            -- 取消下行注释可输出详细日志
-            -- if msg ~= "" then print(prefix .. " " .. msg) end
         end,
         match_label_update = function() end,
     }
@@ -66,16 +63,39 @@ end
 -- Helpers
 --------------------------------------------------------------------------------
 local CN = {
-    ATTACK="攻击", DEFENSE="防御", HEAL="治疗",
-    AOE_SANDSTORM="沙尘暴", DRAW_TWO="无中生有", JUDGE_STORM="天谴",
-    WEAPON="武器", ARMOR="防具", HORSE="马匹", WINE="酒",
-    DELAYED_TRICK="延时锦囊", INSTANT_TRICK="即时锦囊",
+    ATTACK="攻击", DEFENSE="防御", HEAL="治疗", WINE="酒",
+    WEAPON="武器", ARMOR="防具", HORSE="马匹",
+    DELAYED_TRICK="延时", INSTANT_TRICK="锦囊",
 }
 local function hand_str(hand)
     local t = {}
-    for _, c in ipairs(hand) do table.insert(t, CN[c.type] or c.type) end
+    for _, c in ipairs(hand) do
+        local label = CN[c.type] or c.type
+        if c.type == "INSTANT_TRICK" and c.subtype then
+            local st_map = { draw_two="无中生有", aoe_attack="南蛮", aoe_defense="万箭",
+                duel="决斗", discard_one="拆", steal_one="顺", mass_heal="桃园", mass_draw="五谷" }
+            label = st_map[c.subtype] or c.subtype
+        elseif c.type == "DELAYED_TRICK" and c.subtype then
+            local st_map = { skip_play="乐", skip_draw="兵", lightning="闪电" }
+            label = st_map[c.subtype] or c.subtype
+        end
+        table.insert(t, label)
+    end
     return #t > 0 and table.concat(t, "/") or "空"
 end
+
+-- 卡牌优先级（越低越优先丢弃/越不重要）
+local DISCARD_PRIORITY = {
+    ATTACK = 1, DEFENSE = 1, HEAL = 0, WINE = 1,
+    INSTANT_TRICK = 2, DELAYED_TRICK = 3,
+    WEAPON = 4, ARMOR = 4, HORSE = 4,
+}
+-- 卡牌价值（越高越值得保留）
+local VALUE_PRIORITY = {
+    HEAL = 10, DEFENSE = 9, ATTACK = 8, WINE = 7,
+    INSTANT_TRICK = 6, DELAYED_TRICK = 3,
+    WEAPON = 4, ARMOR = 4, HORSE = 4,
+}
 
 --------------------------------------------------------------------------------
 -- AI：解决所有 pending_action（覆盖全部 30 个英雄的技能响应）
@@ -85,7 +105,7 @@ local function ai_handle_pending(state)
         local action = state.pending_action
         if not action then break end
 
-        -- ---- 防御/AOE 响应：非致命伤不下防，省牌 ----
+        -- ---- 防御/AOE 响应 ----
         if action.type == "WAITING_FOR_DEFENSE" then
             local p = state.players[action.target_id]
             if not p then state.pending_action = nil; break end
@@ -102,29 +122,43 @@ local function ai_handle_pending(state)
         elseif action.type == "WAITING_FOR_AOE" then
             local p = state.players[action.current_target]
             if not p then state.pending_action = nil; break end
+            local required = action.required_response or "DEFENSE"
             if 1 >= p.health then
-                local def_card
-                for _, c in ipairs(p.hand) do if c.type == "DEFENSE" then def_card = c; break end end
+                local found_card
+                for _, c in ipairs(p.hand) do
+                    if c.type == required then found_card = c; break end
+                end
                 rules.handle_response(state._dispatcher, state, action.current_target,
-                    {confirm = def_card ~= nil, card_id = def_card and def_card.id or nil})
+                    {confirm = found_card ~= nil, card_id = found_card and found_card.id or nil})
             else
                 rules.handle_response(state._dispatcher, state, action.current_target, {confirm=false})
             end
+
+        -- ---- 决斗 ----
+        elseif action.type == "WAITING_FOR_DUEL" then
+            local current = action.is_attackers_turn and action.attacker_id or action.target_id
+            local p = state.players[current]
+            local atk_card
+            if p then
+                for _, c in ipairs(p.hand) do
+                    if c.type == "ATTACK" then atk_card = c; break end
+                end
+            end
+            rules.handle_response(state._dispatcher, state, current,
+                {confirm = atk_card ~= nil, card_id = atk_card and atk_card.id or nil})
+
+        -- ---- 锦囊选择（过河拆桥/顺手牵羊） ----
+        elseif action.type == "WAITING_FOR_TRICK_SELECT" then
+            -- 让 fallback 随机选
+            rules.handle_response(state._dispatcher, state, action.source_id, {confirm=false})
 
         -- ---- 英雄技能响应 ----
         elseif action.type == "ALADDIN_LAMP" then
             local p = state.players[action.player_id]
             if #p.hand >= 2 then
-                -- 废牌优先：天谴 > 延时锦囊 > 沙尘暴 > 装备牌 > 其他
-                local discard_scores = {
-                    JUDGE_STORM = 5, DELAYED_TRICK = 4, AOE_SANDSTORM = 3,
-                    WEAPON = 2, ARMOR = 2, HORSE = 2,
-                    INSTANT_TRICK = 1, DRAW_TWO = 1, WINE = 1,
-                    HEAL = 0, DEFENSE = 0, ATTACK = 0,
-                }
                 local scored = {}
                 for _, c in ipairs(p.hand) do
-                    table.insert(scored, {id = c.id, score = discard_scores[c.type] or 0})
+                    table.insert(scored, {id = c.id, score = DISCARD_PRIORITY[c.type] or 0})
                 end
                 table.sort(scored, function(a, b) return a.score > b.score end)
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
@@ -137,15 +171,11 @@ local function ai_handle_pending(state)
             hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
 
         elseif action.type == "HAKIM_XING_XIANG" then
-            -- 观星：按优先级排序（最好的放前面），on_response 会自己摸2张
             if action.cards and #action.cards > 0 then
-                local card_priority = { HEAL=10, DEFENSE=9, ATTACK=8, WINE=7,
-                    INSTANT_TRICK=6, DRAW_TWO=5, AOE_SANDSTORM=4,
-                    DELAYED_TRICK=3, JUDGE_STORM=2, WEAPON=1, ARMOR=1, HORSE=1 }
                 local sorted = {}
                 for _, c in ipairs(action.cards) do table.insert(sorted, c) end
                 table.sort(sorted, function(a, b)
-                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                    return (VALUE_PRIORITY[a.type] or 0) > (VALUE_PRIORITY[b.type] or 0)
                 end)
                 local sorted_ids = {}
                 for _, c in ipairs(sorted) do table.insert(sorted_ids, c.id) end
@@ -156,15 +186,14 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "SCHEHERAZADE_QIANYE" then
-            -- 受到伤害后反制：弃自己最差的牌，选攻击者展示牌中第一张弃置
             local p = state.players[action.player_id]
             if p and #p.hand >= 1 and action.shown_cards and #action.shown_cards > 0 then
-                -- 选自己最差的牌（优先天谴/延时锦囊/沙尘暴）
-                local waste_priority = { JUDGE_STORM=5, DELAYED_TRICK=4, AOE_SANDSTORM=3, WEAPON=2, ARMOR=2, HORSE=2 }
-                local worst, worst_idx = nil, 1
+                -- 弃掉最不重要的牌
+                local worst_idx = 1
+                local worst_score = 0
                 for i, c in ipairs(p.hand) do
-                    local s = waste_priority[c.type] or 0
-                    if not worst or s > worst then worst, worst_idx = s, i end
+                    local s = DISCARD_PRIORITY[c.type] or 0
+                    if s > worst_score then worst_score = s; worst_idx = i end
                 end
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
                     {confirm=true, own_card_id=p.hand[worst_idx].id, target_card_id=action.shown_cards[1].id})
@@ -173,7 +202,6 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "HARUN_CHOOSE" then
-            -- 令目标承受1点伤害（不弃牌）
             hero_mgr.handle_response(state._dispatcher, state, action.player_id,
                 {confirm=true, choose_discard=false})
 
@@ -190,37 +218,27 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "AL_KHWARIZMI_SUANFA" then
-            -- 看4张牌，按优先级排序，保留最好的2张
             if action.cards and #action.cards > 0 then
-                local card_priority = {
-                    HEAL = 10, DEFENSE = 9, ATTACK = 8, WINE = 7,
-                    INSTANT_TRICK = 6, DRAW_TWO = 5, AOE_SANDSTORM = 4,
-                    DELAYED_TRICK = 3, JUDGE_STORM = 2,
-                    WEAPON = 1, ARMOR = 1, HORSE = 1,
-                }
                 local sorted = {}
                 for _, c in ipairs(action.cards) do table.insert(sorted, c) end
                 table.sort(sorted, function(a, b)
-                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                    return (VALUE_PRIORITY[a.type] or 0) > (VALUE_PRIORITY[b.type] or 0)
                 end)
-                local sorted_ids = {}
+                local sorted_ids, keep_ids = {}, {}
                 for _, c in ipairs(sorted) do table.insert(sorted_ids, c.id) end
+                for i = 1, math.min(2, #sorted) do table.insert(keep_ids, sorted[i].id) end
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, sorted_ids=sorted_ids, keep_ids={sorted[1].id, sorted[2].id}})
+                    {confirm=true, sorted_ids=sorted_ids, keep_ids=keep_ids})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
 
         elseif action.type == "AL_BIRUNI_CELIANG" then
-            -- 看4选2：按优先级排序，保留最好的2张
             if action.cards and #action.cards > 0 then
-                local card_priority = { HEAL=10, DEFENSE=9, ATTACK=8, WINE=7,
-                    INSTANT_TRICK=6, DRAW_TWO=5, AOE_SANDSTORM=4,
-                    DELAYED_TRICK=3, JUDGE_STORM=2, WEAPON=1, ARMOR=1, HORSE=1 }
                 local sorted = {}
                 for _, c in ipairs(action.cards) do table.insert(sorted, c) end
                 table.sort(sorted, function(a, b)
-                    return (card_priority[a.type] or 0) > (card_priority[b.type] or 0)
+                    return (VALUE_PRIORITY[a.type] or 0) > (VALUE_PRIORITY[b.type] or 0)
                 end)
                 local keep = {}
                 for i = 1, math.min(2, #sorted) do table.insert(keep, sorted[i].id) end
@@ -240,9 +258,9 @@ local function ai_handle_pending(state)
 
         elseif action.type == "SULEIMAN_YU_FENG" then
             if action.targets and #action.targets > 0 then
-                local block_types = {"ATTACK", "DEFENSE", "HEAL", "AOE_SANDSTORM"}
+                local block_types = {"ATTACK", "DEFENSE", "HEAL"}
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, target_id=action.targets[1].id, block_type=block_types[math.random(4)]})
+                    {confirm=true, target_id=action.targets[1].id, block_type=block_types[math.random(#block_types)]})
             else
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
             end
@@ -256,11 +274,9 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "ENHEDUANNA_SONG_CI" then
-            -- 发动颂词摸4给1，净收益+3，总是发动
             hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})
 
         elseif action.type == "ENHEDUANNA_SONG_CI_GIVE" then
-            -- 选第一张手牌给第一个可选目标
             if action.hand_cards and #action.hand_cards > 0 and action.targets and #action.targets > 0 then
                 hero_mgr.handle_response(state._dispatcher, state, action.player_id,
                     {confirm=true, card_id=action.hand_cards[1].id, target_id=action.targets[1].id})
@@ -280,15 +296,18 @@ local function ai_handle_pending(state)
             local rescuer_id = action.rescuers and action.rescuers[action.current_rescuer_idx]
             local rescuer = state.players[rescuer_id]
             if rescuer then
+                local dying_id = action.dying_player_id
+                local is_self = (rescuer_id == dying_id)
                 local rescue_idx
                 for i, c in ipairs(rescuer.hand) do
-                    if c.type == "HEAL" or (c.suit == "HEART" and rescuer.hero == "avicenna") then
+                    -- 自救可用桃/酒；救他人只能用桃
+                    if c.type == "HEAL" or (is_self and c.type == "WINE")
+                        or (c.suit == "HEART" and rescuer.hero == "avicenna") then
                         rescue_idx = i; break
                     end
                 end
                 if rescue_idx then
-                    local card = table.remove(rescuer.hand, rescue_idx)
-                    table.insert(state.discard_pile, card)
+                    local card = rescuer.hand[rescue_idx]
                     rules.handle_response(state._dispatcher, state, rescuer_id, {confirm=true, card_id=card.id})
                 else
                     rules.handle_response(state._dispatcher, state, rescuer_id, {confirm=false})
@@ -298,12 +317,7 @@ local function ai_handle_pending(state)
                 break
             end
 
-        elseif action.type == "WAITING_FOR_TRICK_SELECT" then
-            -- 锦囊选择：默认 confirm=true（接受默认行为）
-            rules.handle_response(state._dispatcher, state, action.chooser_id or action.player_id, {confirm=true})
-
         else
-            -- 未知 pending_action，清除防止死锁
             io.stderr:write("[WARN] 未知 pending_action: " .. tostring(action.type) .. "\n")
             state.pending_action = nil
             break
@@ -321,7 +335,6 @@ local function ai_choose(state, uid)
     local target_id
 
     if p.role == "NONE" then
-        -- PVP 模式：选最低血量的存活对手
         for oid, op in pairs(state.players) do
             if oid ~= uid and op.health > 0 then
                 if not target_id or op.health < state.players[target_id].health then
@@ -330,7 +343,6 @@ local function ai_choose(state, uid)
             end
         end
     else
-        -- identity 模式：角色感知选择
         local monarch_id
         local rebel_count, minister_count = 0, 0
         for oid, op in pairs(state.players) do
@@ -343,7 +355,6 @@ local function ai_choose(state, uid)
 
         if p.role == "REBEL" then
             target_id = monarch_id
-
         elseif p.role == "TRAITOR" then
             if rebel_count > 0 then
                 for oid, op in pairs(state.players) do
@@ -362,9 +373,7 @@ local function ai_choose(state, uid)
             else
                 target_id = monarch_id
             end
-
         else
-            -- MONARCH / MINISTER：集火最低血量的反贼或内奸
             for oid, op in pairs(state.players) do
                 if oid ~= uid and op.health > 0
                    and (op.role == "REBEL" or op.role == "TRAITOR") then
@@ -375,7 +384,6 @@ local function ai_choose(state, uid)
             end
         end
 
-        -- 兜底
         if not target_id then
             for oid, op in pairs(state.players) do
                 if oid ~= uid and op.health > 0 then target_id = oid; break end
@@ -384,6 +392,16 @@ local function ai_choose(state, uid)
     end
 
     -- ── 出牌优先级 ───────────────────────────────────────────────────────
+    local function find_trick(subtypes)
+        for _, c in ipairs(p.hand) do
+            if c.type == "INSTANT_TRICK" then
+                for _, s in ipairs(subtypes) do
+                    if c.subtype == s then return c end
+                end
+            end
+        end
+    end
+
     -- 1. 装备（武器/防具/马）
     for _, c in ipairs(p.hand) do
         if c.type == "WEAPON" or c.type == "ARMOR" or c.type == "HORSE" then
@@ -396,11 +414,10 @@ local function ai_choose(state, uid)
             if c.type == "HEAL" then return {card_id=c.id} end
         end
     end
-    -- 3. AOE（群伤先放，最大化目标数）
-    for _, c in ipairs(p.hand) do
-        if c.type == "AOE_SANDSTORM" then return {card_id=c.id} end
-    end
-    -- 4. 酒牌（喝酒增伤）
+    -- 3. AOE（南蛮/万箭）
+    local aoe = find_trick({"aoe_attack", "aoe_defense"})
+    if aoe then return {card_id=aoe.id} end
+    -- 4. 酒牌
     if not p.weapon_buff then
         for _, c in ipairs(p.hand) do
             if c.type == "WINE" then return {card_id=c.id} end
@@ -412,30 +429,21 @@ local function ai_choose(state, uid)
             if c.type == "ATTACK" then return {card_id=c.id, target_id=target_id} end
         end
     end
-    -- 6. 延时锦囊挂到对手
+    -- 6. 延时锦囊
     if target_id then
         for _, c in ipairs(p.hand) do
             if c.type == "DELAYED_TRICK" then return {card_id=c.id, target_id=target_id} end
         end
     end
-    -- 7. 即时锦囊
-    for _, c in ipairs(p.hand) do
-        if c.type == "INSTANT_TRICK" then
-            local needs_target = c.subtype == "discard_enemy_card" or c.subtype == "swap_hands"
-            if needs_target and target_id then return {card_id=c.id, target_id=target_id}
-            elseif not needs_target then return {card_id=c.id} end
-        end
-    end
-    -- 8. 无中生有
-    for _, c in ipairs(p.hand) do
-        if c.type == "DRAW_TWO" then return {card_id=c.id} end
-    end
-    -- 9. 天谴
+    -- 7. 即时锦囊（需目标的：决斗/拆/顺）
     if target_id then
-        for _, c in ipairs(p.hand) do
-            if c.type == "JUDGE_STORM" then return {card_id=c.id, target_id=target_id} end
-        end
+        local targeted = find_trick({"duel", "discard_one", "steal_one"})
+        if targeted then return {card_id=targeted.id, target_id=target_id} end
     end
+    -- 8. 不需要目标的锦囊（无中生有/桃园结义/五谷丰登）
+    local self_trick = find_trick({"draw_two", "mass_heal", "mass_draw"})
+    if self_trick then return {card_id=self_trick.id} end
+
     return nil
 end
 
@@ -453,7 +461,6 @@ local function tick_match(m)
         return true
     end
 
-    -- 先解决挂起的操作
     if m.state.pending_action then
         ai_handle_pending(m.state)
         return true
@@ -479,9 +486,6 @@ end
 
 --------------------------------------------------------------------------------
 -- 15 局对局配置（覆盖全部 30 英雄）
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- 生成随机对局配置：5 局 2 人 + 5 局 5 人
 --------------------------------------------------------------------------------
 local ALL_HEROES_LIST = {
     "aladdin","alibaba","saladin","hakim","scheherazade","jafar",
@@ -544,10 +548,9 @@ for i, cfg in ipairs(MATCH_CONFIGS) do
     local label     = string.format("[对局%02d]", i)
     local disp      = make_dispatcher(label)
     local ctx       = {}
-    local plist     = cfg.players or {cfg.p1, cfg.p2}  -- 统一视为玩家列表
+    local plist     = cfg.players
     local max_p     = #plist
 
-    -- 不传 mode，由 match_init 根据人数自动选择（2人→pvp，5人→identity）
     local state = handler.match_init(ctx, {max_players=max_p})
     state._dispatcher = disp
 
@@ -557,7 +560,6 @@ for i, cfg in ipairs(MATCH_CONFIGS) do
         state._dispatcher = disp
     end
 
-    -- 强制指定英雄（覆盖随机分配）
     for _, pc in ipairs(plist) do
         state.players[pc.id].hero = pc.hero
     end

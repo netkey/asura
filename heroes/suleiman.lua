@@ -5,10 +5,9 @@ local M = {}
 -- 技能：【御风】 - 出牌阶段开始时，宣告一名玩家+一种牌型，该玩家本回合不能使用该类型牌
 
 local BLOCKABLE_TYPES = {
-    ATTACK        = "攻击",
-    DEFENSE       = "防御",
-    HEAL          = "治疗",
-    AOE_SANDSTORM = "沙尘暴",
+    ATTACK  = "攻击",
+    DEFENSE = "防御",
+    HEAL    = "治疗",
 }
 
 function M.on_play_phase_start(dispatcher, state, player_id)

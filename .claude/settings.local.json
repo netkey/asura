@@ -9,7 +9,62 @@
       "Bash(git push *)",
       "Bash(lua *)",
       "Bash(git status *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(grep -E \"\\\\.\\(lua|json|yaml\\)$\")",
+      "Bash(git -C /Users/yalla/work/mycode/asura diff --stat)",
+      "Bash(git -C /Users/yalla/work/mycode/asura status)",
+      "Bash(git -C /Users/yalla/work/mycode/asura add api.lua hero_catalog.lua)",
+      "Bash(git -C /Users/yalla/work/mycode/asura commit -m ' *)",
+      "Bash(git *)",
+      "Bash(awk -F\"\\\\\"\" '{print $\\(NF-1\\)}')",
+      "Bash(awk '/nk.storage_write/,/\\\\}\\\\}/ {print NR\": \"$0}' /Users/yalla/work/mycode/asura/season_manager.lua)",
+      "Bash(grep -E \"\\\\.\\(yml|yaml|env|md\\)$|Dockerfile\")",
+      "Bash(awk -F: '{print $2}')",
+      "Bash(awk -F',' '{print $1, $2}')",
+      "Bash(mkdir -p ~/work/mycode/asura-client/docs)",
+      "Bash(cp /Users/yalla/work/mycode/asura/docs/backend_api.md ~/work/mycode/asura-client/docs/server_api.md)",
+      "Bash(docker-compose ls *)",
+      "Bash(claude mcp *)",
+      "Bash(gh auth *)",
+      "Bash(claude plugin *)",
+      "Bash(luac -p /Users/yalla/work/mycode/asura/game_rules.lua)",
+      "Bash(luajit -p /Users/yalla/work/mycode/asura/game_rules.lua)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 *)",
+      "Bash(brew install *)",
+      "Bash(xargs -I{} basename {} .lua)",
+      "Bash(luac -p heroes/gilgamesh.lua match_handler.lua demo_concurrent.lua)",
+      "Bash(luac -p match_handler.lua heroes/gilgamesh.lua demo_concurrent.lua)",
+      "Bash(luac -p /Users/yalla/work/mycode/asura/match_handler.lua)",
+      "Bash(luac -p /Users/yalla/work/mycode/asura/.github/workflows/ci.yml)",
+      "Bash(luac *)",
+      "Bash(lua5.4 *)",
+      "Bash(ruby *)",
+      "Bash(grep -nA1 \"WAITING_FOR_AOE\" /Users/yalla/work/mycode/asura/game_rules.lua)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"${CLAUDE_TOOL_INPUT}\" | grep -q '\\.lua$' && luac -p \"${CLAUDE_TOOL_INPUT}\" 2>&1 && echo '[OK] Lua syntax check passed' || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"${CLAUDE_TOOL_INPUT}\" | grep -qE '(\\.env$|\\.env\\.|credentials|secrets)'; then echo 'BLOCKED: editing .env or credential files requires user confirmation'; exit 1; fi"
+          }
+        ]
+      }
     ]
   }
 }

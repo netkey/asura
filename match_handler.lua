@@ -193,6 +193,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 username = p.username,
                 health = ph,
                 max_health = ph,
+                seat_idx = #state.presence_ids - 1,  -- 座位号（0-indexed），整局不变
                 hand = {},
                 hero = want_hero,
                 skin_id = equipped_skins[want_hero] or nil,   -- 装备的皮肤（nil=默认）
@@ -276,31 +277,28 @@ function M.match_join(context, dispatcher, tick, state, presences)
         end
 
         rules.start_game(dispatcher, state)
-		rules.broadcast_update(dispatcher, state)
-        -- 如果主公已经确定，next_turn 逻辑里会正确从主公开始
-        --M.next_turn(dispatcher, state)
-		-- 开始第一个回合
-        -- 注意：这里不需要再调 next_turn，因为 start_game 已经发过牌了，直接等待主公出牌即可
+        M.do_judgment_and_draw_phase(dispatcher, state)
+        rules.broadcast_update(dispatcher, state)
         log_info(state, "对局正式启动！总人数：" .. current_count)
     end
     return state
 end
 
 -- 托管防御决策：致命伤才出防御牌，否则放弃
-local function auto_defend(dispatcher, state, defender_id, incoming_damage)
+local function auto_defend(dispatcher, state, defender_id, incoming_damage, required_type)
     local defender = state.players[defender_id]
     if not defender or defender.health <= 0 then return end
 
     if incoming_damage >= defender.health then
-        -- 找一张防御牌
+        -- 找一张所需类型的牌
         for _, card in ipairs(defender.hand) do
-            if card.type == "DEFENSE" then
+            if card.type == (required_type or "DEFENSE") then
                 rules.handle_response(dispatcher, state, defender_id, { confirm = true, card_id = card.id })
                 return
             end
         end
     end
-    -- 非致命 or 无防御牌：放弃
+    -- 非致命 or 无所需牌：放弃
     rules.handle_response(dispatcher, state, defender_id, { confirm = false })
 end
 
@@ -312,14 +310,17 @@ local function auto_resolve_pending(dispatcher, state)
     if act.type == "WAITING_FOR_DEFENSE" then
         auto_defend(dispatcher, state, act.target_id, act.damage or 1)
     elseif act.type == "WAITING_FOR_AOE" then
-        auto_defend(dispatcher, state, act.current_target, 1)
+        auto_defend(dispatcher, state, act.current_target, 1, act.required_response)
     elseif act.type == "WAITING_FOR_RESCUE" then
         local rescuer_id = act.rescuers and act.rescuers[act.current_rescuer_idx]
         local rescuer = rescuer_id and state.players[rescuer_id]
         if rescuer then
+            local dying_id = act.dying_player_id
+            local is_self = (rescuer_id == dying_id)
             local found
             for _, c in ipairs(rescuer.hand) do
-                if c.type == "HEAL" then
+                if c.type == "HEAL" or (is_self and c.type == "WINE")
+                    or (c.suit == "HEART" and rescuer.hero == "avicenna") then
                     rules.handle_response(dispatcher, state, rescuer_id, { confirm = true, card_id = c.id })
                     found = true
                     break
@@ -332,7 +333,10 @@ local function auto_resolve_pending(dispatcher, state)
             state.pending_action = nil
         end
     elseif act.type == "WAITING_FOR_TRICK_SELECT" then
-        rules.handle_response(dispatcher, state, act.chooser_id, { confirm = false })
+        rules.handle_response(dispatcher, state, act.source_id, { confirm = false })
+    elseif act.type == "WAITING_FOR_DUEL" then
+        local duel_id = act.is_attackers_turn and act.attacker_id or act.target_id
+        rules.handle_response(dispatcher, state, duel_id, { confirm = false })
     elseif act.type == "ENHEDUANNA_SONG_CI" then
         -- 颂词：总是发动（净收益 +3）
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
@@ -456,10 +460,15 @@ function M.perform_auto_play(dispatcher, state)
         end
     end
 
-    -- 4. AOE：有群伤先放
-    local aoe = find_card("AOE_SANDSTORM")
-    if aoe then
-        play_and_resolve({ card_id = aoe.id })
+    -- 4. AOE：有群伤先放（南蛮入侵或万箭齐发）
+    local function find_trick(subtype)
+        for _, c in ipairs(player.hand) do
+            if c.type == "INSTANT_TRICK" and c.subtype == subtype then return c end
+        end
+    end
+    local aoe_card = find_trick("aoe_attack") or find_trick("aoe_defense")
+    if aoe_card then
+        play_and_resolve({ card_id = aoe_card.id })
     end
 
     -- 5. 喝酒：有酒且手里还有杀才喝（避免白喝）
@@ -655,7 +664,10 @@ end
 -- 回合结束收尾：重置攻击计数 → 弃牌阶段 → 切换到下一玩家
 function M.finish_turn_end(dispatcher, state, ending_uid)
     local ep_reset = state.players[ending_uid]
-    if ep_reset then ep_reset.attacks_this_turn = 0 end
+    if ep_reset then
+        ep_reset.attacks_this_turn = 0
+        ep_reset.wine_used_this_turn = false
+    end
 
     -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
     if ending_uid then
@@ -684,43 +696,27 @@ function M.finish_turn_end(dispatcher, state, ending_uid)
     -- ==========================================
     -- 2. 判定阶段 (处理所有判定牌 + 延时锦囊)
     -- ==========================================
-    -- 先处理延时锦囊（max_iter 防止未来扩展时意外无限循环）
+    -- 先处理延时锦囊（max_iter 防止无限循环）
     local delayed_iter = 0
     while #current_p.delayed_effects > 0 and current_p.health > 0 and delayed_iter < 20 do
         delayed_iter = delayed_iter + 1
         local d_eff = table.remove(current_p.delayed_effects, 1)
-        if d_eff.subtype == "discard1_draw2" then
-            -- 黑血蛊：弃1张牌，摸2张
-            if #current_p.hand > 0 then
-                local discarded = table.remove(current_p.hand, math.random(#current_p.hand))
-                table.insert(state.discard_pile, discarded)
+        rules.process_delayed_judgment(dispatcher, state, current_p, d_eff)
+        -- 闪电可能造成伤害触发濒死
+        if current_p.health <= 0 then
+            -- 如果闪电已触发 WAITING_FOR_RESCUE，不要覆盖，让主循环处理救援
+            if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
+                return
             end
-            rules.draw_cards(state, uid, 2)
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【黑血蛊】结算：弃1摸2"
-            }))
-        elseif d_eff.subtype == "skip_play_phase" then
-            -- 沙漠诅咒：跳过出牌阶段
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【沙漠诅咒】结算：跳过出牌阶段"
-            }))
-            current_p.skip_play_phase = true
-        elseif d_eff.subtype == "attack_minus1" then
-            -- 虚弱标记：本回合攻击伤害-1
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = current_p.username .. " 的【虚弱标记】结算：本回合攻击伤害-1"
-            }))
-            current_p.attack_debuff = true
+            return M.next_turn(dispatcher, state)
         end
     end
 
-    -- 判定阶段前触发哈基姆【星象】：可以在判定前观看并调整牌堆顶
-    if #current_p.judgments > 0 then
-        local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
-        if suspended then
-            state.pending_turn_continuation = {uid = uid}
-            return
-        end
+    -- 判定阶段前触发哈基姆【星象】
+    local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
+    if suspended then
+        state.pending_turn_continuation = {uid = uid}
+        return
     end
 
     M.do_judgment_and_draw_phase(dispatcher, state)
@@ -734,46 +730,9 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
         return M.next_turn(dispatcher, state)
     end
 
-    -- 处理判定牌
-    while #current_p.judgments > 0 and current_p.health > 0 do
-        local j_card = table.remove(current_p.judgments)
-        local result_card = rules.execute_judgment(state)
-
-        if j_card.type == "JUDGE_STORM" then
-            if result_card.suit == "SPADE" and result_card.number >= 2 and result_card.number <= 9 then
-                local jdmg = state.config and state.config.combat.judge_storm_damage or 3
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【天谴】爆发！" .. current_p.username .. " 受到 " .. jdmg .. " 点天雷伤害！"
-                }))
-                state._in_judgment_phase = true
-                rules.apply_damage(dispatcher, state, uid, jdmg, j_card.from)
-                state._in_judgment_phase = nil
-                if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
-                    return
-                end
-            else
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【天谴】未命中，传送至下一位玩家。"
-                }))
-                if state.status == STATE.PLAYING then
-                    local next_uid = rules.get_next_player_id(state)
-                    if next_uid ~= uid then
-                        table.insert(state.players[next_uid].judgments, j_card)
-                    else
-                        -- 仅剩一个存活玩家，天谴消散
-                        dispatcher.broadcast_message(11, nk.json_encode({
-                            content = "【天谴】找不到其他目标，消散了。"
-                        }))
-                    end
-                end
-            end
-        end
-
-        -- execute_judgment 已将此牌放入 discard_pile，此处不再重复插入
-
-        if current_p.health <= 0 then
-            return M.next_turn(dispatcher, state)
-        end
+    -- 判定牌已移除（JUDGE_STORM 替换为闪电，在 delayed_effects 中处理）
+    if current_p.health <= 0 then
+        return M.next_turn(dispatcher, state)
     end
 
     -- 重置每回合状态标志
@@ -863,6 +822,7 @@ function M.send_spectator_state(dispatcher, state, presence, target_player_id)
             hp              = target.health,
             role            = target.role,
             hero            = target.hero,
+            seat_idx        = target.seat_idx,
             equipment       = target.equipment,
             delayed_effects = target.delayed_effects,
             weapon_buff     = target.weapon_buff,
@@ -910,6 +870,7 @@ function M.send_full_state_to_player(dispatcher, state, presence)
             weapon_buff     = p_data.weapon_buff,
             judgments       = p_data.judgments,
             skin_id         = p_data.skin_id,
+            seat_idx        = p_data.seat_idx,
         },
         others = {}
     }

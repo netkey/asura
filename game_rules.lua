@@ -13,68 +13,104 @@ math.randomseed(os.time() + math.floor(os.clock() * 1e6))
 -- 1. 卡牌效果定义
 -- ==========================================
 local CARD_EFFECTS = {
-    ["ATTACK"] = function(dispatcher, state, source_id, target_id)
+    -- 杀 — 等待防御响应
+    ["ATTACK"] = function(dispatcher, state, source_id, target_id, card)
         local hero_mgr = require("hero_manager")
+        local p = state.players[source_id]
+        local target = state.players[target_id]
+        if not target or target.health <= 0 then return end
 
-        -- 触发：攻击前钩子（优先于免疫检查，确保所有英雄钩子都能执行）
+        -- 攻击前钩子（阿拉丁/贾法尔/杜尼亚扎德/旭烈兀等）
         hero_mgr.trigger("on_before_attack", dispatcher, state, source_id, target_id)
 
-        -- 杜尼亚扎德【续篇】：攻击者本回合已被该目标免疫
+        -- 杜尼亚扎德【续篇】：本回合已被该目标免疫
         if state.dunyazad_immune and state.dunyazad_immune[source_id] == target_id then
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = state.players[target_id].username .. " 的【续篇】令此次攻击无效"
             }))
-            state.attack_bonus = nil   -- 清理 on_before_attack 可能设置的状态
+            state.attack_bonus = nil
             state.attack_cancelled = nil
-            state.jafar_du_ji = nil
+            state.dunyazad_immune = nil
             return
         end
 
-        -- 旭烈兀【铁蹄】若取消本次攻击则直接返回
+        -- 旭烈兀【铁蹄】取消攻击
         if state.attack_cancelled then
+            state.attack_bonus = nil
             state.attack_cancelled = nil
             return
         end
 
-        -- attacks_this_turn 计数（纳芙蒂蒂/安塔拉用）
-        local sp = state.players[source_id]
-        if sp then sp.attacks_this_turn = (sp.attacks_this_turn or 0) + 1 end
-
-        -- 阿拉伯弯刀：攻击后摸1张
-        if sp and sp.equipment.weapon and sp.equipment.weapon.subtype == "draw_card" then
-            M.draw_cards(state, source_id, 1)
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = sp.username .. " 的【阿拉伯弯刀】触发：攻击后摸1张"
-            }))
+        -- 仁王盾：黑色攻击被封锁
+        if target.equipment.armor and target.equipment.armor.subtype == "block_black_attack" then
+            if card.suit == "SPADE" or card.suit == "CLUB" then
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = target.username .. " 的【仁王盾】挡住了黑色攻击！"
+                }))
+                return
+            end
         end
 
-        -- 计算基础伤害
+        -- attacks_this_turn 已在 handle_play_card 中递增
+        if p then p.attacks_this_turn = (p.attacks_this_turn or 0) + 1 end
+
+        -- 计算基础伤害（含 attack_debuff）
         local dmg = 1
-        if sp and sp.attack_debuff then dmg = math.max(0, dmg - 1) end
+        if p and p.attack_debuff then dmg = math.max(0, dmg - 1) end
 
-        -- 流星锤：攻击无视防具（标记攻击bonus让防御阶段知道伤害）
-        if sp and sp.equipment.weapon and sp.equipment.weapon.subtype == "meteor" then
-            state.attack_forced = true
-        end
-
-        -- 旭烈兀【铁蹄】：attack_bonus 标志
+        -- 旭烈兀【铁蹄】attack_bonus
         if state.attack_bonus then
             dmg = dmg + state.attack_bonus
             state.attack_bonus = nil
         end
 
-        -- 【核心修改】：不再自动扣防御牌，而是进入等待防御状态
+        -- 古锭刀：目标无手牌时伤害+1
+        if p and p.equipment.weapon and p.equipment.weapon.subtype == "blade_pierce" then
+            if #target.hand == 0 then dmg = dmg + 1 end
+        end
+
+        -- 火攻：攻击标记为火焰伤害
+        local dmg_type = "normal"
+        if p and p.equipment.weapon and p.equipment.weapon.subtype == "fire_weapon" then
+            dmg_type = "fire"
+        end
+
+        -- 八卦阵：先判定
+        if target.equipment.armor and target.equipment.armor.subtype == "dodge_judgment" then
+            local judge_card = M.execute_judgment(state)
+            local is_red = judge_card.suit == "HEART" or judge_card.suit == "DIAMOND"
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = target.username .. " 的【八卦阵】判定为 "
+                    .. (judge_card.suit or "?") .. " " .. (judge_card.number or "?")
+                    .. "（" .. (is_red and "红色" or "黑色") .. "）"
+            }))
+            if is_red then
+                -- 红色=自动闪避
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = target.username .. " 的【八卦阵】判定成功，自动闪避！"
+                }))
+                return
+            end
+            -- 黑色=八卦阵无效，继续走防御
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = target.username .. " 的【八卦阵】判定失败，仍需出【防御】"
+            }))
+        end
+
+        -- 进入等待防御状态
         state.pending_action = {
             type = "WAITING_FOR_DEFENSE",
             attacker_id = source_id,
             target_id = target_id,
             damage = dmg,
+            damage_type = dmg_type,
             jafar_du_ji = state.jafar_du_ji,
-            deadline = os.time() + 15
+            attack_card = card,
+            deadline = os.time() + 15,
         }
         state.jafar_du_ji = nil
 
-        -- 通知客户端：A 攻击 B，B 准备操作
+        -- 通知目标出防御
         dispatcher.broadcast_message(105, nk.json_encode({
             attacker = source_id,
             target = target_id,
@@ -83,225 +119,275 @@ local CARD_EFFECTS = {
         }))
     end,
 
+    -- 桃 — 恢复 1 点生命值
     ["HEAL"] = function(dispatcher, state, source_id)
         local p = state.players[source_id]
         if p.health < p.max_health then
             p.health = p.health + 1
-            dispatcher.broadcast_message(11, nk.json_encode({ content = p.username .. " 使用了【药】，恢复了 1 点生命值" }))
-        end
-    end,
-
-    ["AOE_SANDSTORM"] = function(dispatcher, state, source_id)
-        -- 苏莱曼【御风】：被封锁的牌型无法使用
-        if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == source_id
-            and state.suleiman_yu_feng.blocked_type == "AOE_SANDSTORM" then
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = state.players[source_id].username .. " 被【御风】封锁，无法使用【沙尘暴】！",
-                hero = "suleiman", skill = "yu_feng"
+                content = p.username .. " 使用了【药】，恢复了 1 点生命值"
             }))
-            return
         end
-
-        -- AOE 更复杂：它需要全场所有人按顺序结算防御
-        -- 我们先简单处理，建立一个"待结算列表"
-        local targets = {}
-        for uid, p in pairs(state.players) do
-            if uid ~= source_id and p.health > 0 then
-                table.insert(targets, uid)
-            end
-        end
-
-        if #targets == 0 then return end   -- 场上只有自己时 AOE 无效
-
-        state.pending_action = {
-            type = "WAITING_FOR_AOE",
-            attacker_id = source_id,
-            remaining_targets = targets,
-            current_target = table.remove(targets, 1),
-            aoe_type = "SANDSTORM",
-            deadline = os.time() + 15,
-        }
-
-        -- 通知当前第一个目标出牌
-        M.notify_aoe_target(dispatcher, state)
     end,
 
-	["DRAW_TWO"] = function(dispatcher, state, source_id)
-        local player = state.players[source_id]
+    -- 酒 — 标记 weapon_buff，下次攻击伤害+1
+    ["WINE"] = function(dispatcher, state, source_id, _, card)
+        local p = state.players[source_id]
+        -- 上限检查已在 handle_play_card 中完成（wine_used_this_turn）
+        p.weapon_buff = true
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " 使用了【无中生有】",
-            card_type = "DRAW_TWO"
+            content = p.username .. " 饮【" .. card.name .. "】，下次攻击伤害+1",
+            card = card
         }))
-        M.draw_cards(state, source_id, 2)
-        M.broadcast_update(dispatcher, state)
     end,
 
+    -- 武器 — 装备到武器槽，替换旧武器
+    ["WEAPON"] = function(dispatcher, state, source_id, _, card)
+        local p = state.players[source_id]
+        local old = p.equipment.weapon
+        if old then
+            table.insert(state.discard_pile, old)
+        end
+        p.equipment.weapon = card
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = p.username .. " 装备【" .. card.name .. "】",
+            card = card
+        }))
+    end,
 
-	["JUDGE_STORM"] = function(dispatcher, state, source_id, target_id)
-    	local target = state.players[target_id]
-    	-- 将这张牌挂到目标的判定区数组里
-    	table.insert(target.judgments, { type = "JUDGE_STORM", from = source_id })
-    	log_info(state, "【天谴】已挂在 " .. target.username .. " 的面前")
-	end,
+    -- 防具 — 装备到防具槽，替换旧防具
+    ["ARMOR"] = function(dispatcher, state, source_id, _, card)
+        local p = state.players[source_id]
+        local old = p.equipment.armor
+        if old then
+            table.insert(state.discard_pile, old)
+        end
+        p.equipment.armor = card
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = p.username .. " 装备【" .. card.name .. "】",
+            card = card
+        }))
+    end,
 
-	-- 武器牌：装备到武器槽，替换旧武器
-	["WEAPON"] = function(dispatcher, state, source_id, _, card)
-		local p = state.players[source_id]
-		local old = p.equipment.weapon
-		if old then
-			table.insert(state.discard_pile, old)
-			log_info(state, p.username .. " 替换旧武器：" .. old.name)
-		end
-		p.equipment.weapon = card
-		dispatcher.broadcast_message(11, nk.json_encode({
-			content = p.username .. " 装备【" .. card.name .. "】",
-			card = card
-		}))
-		-- 流星锤：攻击无视防具；阿拉伯弯刀：攻击后摸1牌 — 这些在ATTACK结算时处理
-	end,
+    -- 马牌 — 装备到马槽，替换旧马
+    ["HORSE"] = function(dispatcher, state, source_id, _, card)
+        local p = state.players[source_id]
+        local old = p.equipment.horse
+        if old then
+            table.insert(state.discard_pile, old)
+        end
+        p.equipment.horse = card
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = p.username .. " 装备【" .. card.name .. "】",
+            card = card
+        }))
+    end,
 
-	-- 防具牌：装备到防具槽，替换旧防具
-	["ARMOR"] = function(dispatcher, state, source_id, _, card)
-		local p = state.players[source_id]
-		local old = p.equipment.armor
-		if old then
-			table.insert(state.discard_pile, old)
-		end
-		p.equipment.armor = card
-		dispatcher.broadcast_message(11, nk.json_encode({
-			content = p.username .. " 装备【" .. card.name .. "】",
-			card = card
-		}))
-	end,
+    -- 即时锦囊
+    ["INSTANT_TRICK"] = function(dispatcher, state, source_id, target_id, card)
+        local p = state.players[source_id]
 
-	-- 马牌：装备到马槽，替换旧马
-	["HORSE"] = function(dispatcher, state, source_id, _, card)
-		local p = state.players[source_id]
-		local old = p.equipment.horse
-		if old then
-			table.insert(state.discard_pile, old)
-		end
-		p.equipment.horse = card
-		dispatcher.broadcast_message(11, nk.json_encode({
-			content = p.username .. " 装备【" .. card.name .. "】",
-			card = card
-		}))
-	end,
+        if card.subtype == "draw_two" then
+            -- 无中生有
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 使用了【无中生有】",
+                card_type = "draw_two"
+            }))
+            M.draw_cards(state, source_id, 2)
+            M.broadcast_update(dispatcher, state)
 
-	-- 酒牌：标记 weapon_buff，下次攻击伤害+1
-	["WINE"] = function(dispatcher, state, source_id, _, card)
-		local p = state.players[source_id]
-		p.weapon_buff = true
-		p.wine_subtype = card.subtype  -- 记录 subtype 用于击杀奖励
-		dispatcher.broadcast_message(11, nk.json_encode({
-			content = p.username .. " 饮【" .. card.name .. "】，下次攻击伤害+1",
-			card = card
-		}))
-	end,
+        elseif card.subtype == "aoe_attack" then
+            -- 南蛮入侵：全场出杀
+            local targets = {}
+            for uid, p2 in pairs(state.players) do
+                if uid ~= source_id and p2.health > 0 then
+                    table.insert(targets, uid)
+                end
+            end
+            if #targets == 0 then return end
 
-	-- 延时锦囊：挂在 delayed_effects，下回合判定阶段触发
-	["DELAYED_TRICK"] = function(dispatcher, state, source_id, target_id, card)
-		local target = state.players[target_id or source_id]
-		table.insert(target.delayed_effects, {
-			name = card.name,
-			subtype = card.subtype,
-			from = source_id
-		})
-		dispatcher.broadcast_message(11, nk.json_encode({
-			content = target.username .. " 被挂上【" .. card.name .. "】",
-			card = card
-		}))
-	end,
+            state.pending_action = {
+                type = "WAITING_FOR_AOE",
+                attacker_id = source_id,
+                remaining_targets = targets,
+                current_target = table.remove(targets, 1),
+                aoe_subtype = "aoe_attack",
+                required_response = "ATTACK",
+                deadline = os.time() + 15,
+            }
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 发动了【沙漠侵袭】（南蛮入侵），全体需出【杀】！"
+            }))
+            M.notify_aoe_target(dispatcher, state)
 
-	-- 即时锦囊：打出即生效
-	["INSTANT_TRICK"] = function(dispatcher, state, source_id, target_id, card)
-		local p = state.players[source_id]
-		if card.subtype == "peek3_reorder" then
-			-- 沙漠罗盘：取出牌堆顶3张，挂起等待玩家选择放回顺序
-			local peeked = {}
-			for i = 1, 3 do
-				if #state.deck == 0 then
-					state.deck = M.shuffle(state.discard_pile)
-					state.discard_pile = {}
-				end
-				if #state.deck > 0 then
-					table.insert(peeked, table.remove(state.deck, 1))
-				end
-			end
-			if #peeked == 0 then return end
-			state.pending_action = {
-				type       = "WAITING_FOR_TRICK_SELECT",
-				subtype    = "peek3_reorder",
-				chooser_id = source_id,
-				peeked     = peeked,
-				deadline   = os.time() + 20,
-			}
-			dispatcher.broadcast_message(11, nk.json_encode({
-				content = p.username .. " 使用【沙漠罗盘】，正在选择牌堆顺序…",
-				card    = card,
-			}))
-			-- 仅向使用者私发3张预览
-			if state.presences[source_id] then
-				dispatcher.broadcast_message(106, nk.json_encode({
-					event  = "peek3_choose",
-					peeked = peeked,
-				}), {state.presences[source_id]})
-			end
+        elseif card.subtype == "aoe_defense" then
+            -- 万箭齐发：全场出闪
+            local targets = {}
+            for uid, p2 in pairs(state.players) do
+                if uid ~= source_id and p2.health > 0 then
+                    table.insert(targets, uid)
+                end
+            end
+            if #targets == 0 then return end
 
-		elseif card.subtype == "discard_enemy_card" then
-			-- 诱降：挂起，让使用者看目标手牌并选择弃哪张
-			local target = state.players[target_id]
-			if not target or #target.hand == 0 then return end
-			state.pending_action = {
-				type       = "WAITING_FOR_TRICK_SELECT",
-				subtype    = "discard_enemy_card",
-				chooser_id = source_id,
-				target_id  = target_id,
-				deadline   = os.time() + 20,
-			}
-			dispatcher.broadcast_message(11, nk.json_encode({
-				content = p.username .. " 对 " .. target.username .. " 使用【诱降】，正在选择弃置…",
-				card    = card,
-			}))
-			-- 仅向使用者私发目标手牌（含 card id，供选择）
-			if state.presences[source_id] then
-				dispatcher.broadcast_message(106, nk.json_encode({
-					event     = "peek_hand_choose",
-					target_id = target_id,
-					hand      = target.hand,
-				}), {state.presences[source_id]})
-			end
+            state.pending_action = {
+                type = "WAITING_FOR_AOE",
+                attacker_id = source_id,
+                remaining_targets = targets,
+                current_target = table.remove(targets, 1),
+                aoe_subtype = "aoe_defense",
+                required_response = "DEFENSE",
+                deadline = os.time() + 15,
+            }
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 发动了【万箭齐发】，全体需出【闪】！"
+            }))
+            M.notify_aoe_target(dispatcher, state)
 
-		elseif card.subtype == "swap_hands" then
-			-- 以物易物：与目标交换全部手牌
-			local target = state.players[target_id]
-			if target then
-				local tmp = target.hand
-				target.hand = p.hand
-				p.hand = tmp
-				dispatcher.broadcast_message(11, nk.json_encode({
-					content = p.username .. " 与 " .. target.username .. " 使用【以物易物】交换手牌",
-					card = card
-				}))
-			end
+        elseif card.subtype == "duel" then
+            -- 决斗
+            local target = state.players[target_id]
+            if not target then return end
 
-		elseif card.subtype == "shuffle_draw2" then
-			-- 沙漠风暴：弃牌堆洗入牌堆，然后摸2张
-			state.deck = M.shuffle(state.discard_pile)
-			state.discard_pile = {}
-			M.draw_cards(state, source_id, 2)
-			dispatcher.broadcast_message(11, nk.json_encode({
-				content = p.username .. " 使用【沙漠风暴】，洗牌堆并摸2张",
-				card = card
-			}))
-		end
-	end,
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 对 " .. target.username .. " 发起决斗！"
+            }))
 
+            -- 检查目标是否有杀
+            local has_attack = false
+            for _, c in ipairs(target.hand) do
+                if c.type == "ATTACK" then has_attack = true; break end
+            end
+            if not has_attack then
+                -- 无杀立即受伤害
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = target.username .. " 无法出【杀】，决斗失败，受到 1 点伤害"
+                }))
+                M.apply_damage(dispatcher, state, target_id, 1, source_id)
+                return
+            end
+
+            state.pending_action = {
+                type = "WAITING_FOR_DUEL",
+                attacker_id = source_id,
+                target_id = target_id,
+                is_attackers_turn = false,  -- 目标先出杀
+                deadline = os.time() + 15,
+            }
+            dispatcher.broadcast_message(105, nk.json_encode({
+                event = "duel_require_attack",
+                target_id = target_id,
+                msg = "决斗！请出【杀】或放弃（将受1点伤害）",
+            }))
+
+        elseif card.subtype == "discard_one" then
+            -- 过河拆桥
+            local target = state.players[target_id]
+            if not target then return end
+            if #target.hand == 0 and not target.equipment.weapon
+                and not target.equipment.armor and not target.equipment.horse then
+                return  -- 无可弃牌
+            end
+
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 对 " .. target.username .. " 使用【诱降】"
+            }))
+
+            state.pending_action = {
+                type = "WAITING_FOR_TRICK_SELECT",
+                subtype = "discard_one",
+                source_id = source_id,
+                target_id = target_id,
+                deadline = os.time() + 15,
+            }
+            if state.presences[source_id] then
+                dispatcher.broadcast_message(106, nk.json_encode({
+                    event = "pick_target_card",
+                    target_id = target_id,
+                    hand = target.hand,
+                    equipment = target.equipment,
+                    purpose = "discard",
+                }), {state.presences[source_id]})
+            end
+
+        elseif card.subtype == "steal_one" then
+            -- 顺手牵羊（需在攻击距离1内）
+            local target = state.players[target_id]
+            if not target then return end
+            if #target.hand == 0 and not target.equipment.weapon
+                and not target.equipment.armor and not target.equipment.horse then
+                return
+            end
+
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 对 " .. target.username .. " 使用【顺手牵羊】"
+            }))
+
+            state.pending_action = {
+                type = "WAITING_FOR_TRICK_SELECT",
+                subtype = "steal_one",
+                source_id = source_id,
+                target_id = target_id,
+                deadline = os.time() + 15,
+            }
+            if state.presences[source_id] then
+                dispatcher.broadcast_message(106, nk.json_encode({
+                    event = "pick_target_card",
+                    target_id = target_id,
+                    hand = target.hand,
+                    equipment = target.equipment,
+                    purpose = "steal",
+                }), {state.presences[source_id]})
+            end
+
+        elseif card.subtype == "mass_heal" then
+            -- 桃园结义：全场各回复1点
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 使用了【桃园结义】，全体回复 1 点生命值"
+            }))
+            for _, p2 in pairs(state.players) do
+                if p2.health > 0 and p2.health < p2.max_health then
+                    p2.health = p2.health + 1
+                end
+            end
+            M.broadcast_update(dispatcher, state)
+
+        elseif card.subtype == "mass_draw" then
+            -- 五谷丰登：按座次各摸1张
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = p.username .. " 使用了【五谷丰登】，全体摸牌"
+            }))
+            for _, uid in ipairs(state.presence_ids) do
+                local p2 = state.players[uid]
+                if p2 and p2.health > 0 then
+                    M.draw_cards(state, uid, 1)
+                end
+            end
+            M.broadcast_update(dispatcher, state)
+        end
+    end,
+
+    -- 延时锦囊：挂在目标 delayed_effects，判定阶段处理
+    ["DELAYED_TRICK"] = function(dispatcher, state, source_id, target_id, card)
+        local target = state.players[target_id or source_id]
+        table.insert(target.delayed_effects, {
+            id = card.id,
+            name = card.name,
+            subtype = card.subtype,
+            suit = card.suit,
+            number = card.number,
+            from = source_id,
+        })
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = target.username .. " 被挂上【" .. card.name .. "】",
+            card = card
+        }))
+    end,
 }
 
-
-
--- 通知当前 AOE 目标准备防御，或结算完成
+-- ==========================================
+-- 2. AOE 通知
+-- ==========================================
 function M.notify_aoe_target(dispatcher, state)
     local action = state.pending_action
     if not action or action.type ~= "WAITING_FOR_AOE" then return end
@@ -313,18 +399,83 @@ function M.notify_aoe_target(dispatcher, state)
         return
     end
 
+    local required_name = action.required_response == "ATTACK" and "【杀】" or "【闪】"
     dispatcher.broadcast_message(105, nk.json_encode({
         attacker = action.attacker_id,
         target   = target_id,
-        msg      = "受到【沙尘暴】，请出示【防御】或放弃"
+        required = action.required_response,
+        msg      = "受到范围攻击，请出示" .. required_name .. "或放弃"
     }))
 end
 
 -- ==========================================
--- 2. 身份局核心逻辑 (新增)
+-- 3. 距离系统
 -- ==========================================
 
--- 奖惩机制：杀反贼奖3张，主公杀忠臣弃光牌
+-- 座位距离（双向最短路径）
+function M.seat_distance(state, a_id, b_id)
+    if a_id == b_id then return 0 end
+    local a_seat, b_seat
+    for i, uid in ipairs(state.presence_ids) do
+        if uid == a_id then a_seat = i end
+        if uid == b_id then b_seat = i end
+    end
+    if not a_seat or not b_seat then return 99 end
+    local n = #state.presence_ids
+    local diff = math.abs(a_seat - b_seat)
+    return math.min(diff, n - diff)
+end
+
+-- 攻击距离（考虑进攻马-1）
+function M.attack_distance(state, src_id, tgt_id)
+    local dist = M.seat_distance(state, src_id, tgt_id)
+    local src = state.players[src_id]
+    if src and src.equipment.horse and src.equipment.horse.subtype == "offense" then
+        dist = math.max(0, dist - 1)
+    end
+    return dist
+end
+
+-- 被攻击距离（考虑防守马+1）
+function M.defend_distance(state, src_id, tgt_id)
+    local dist = M.seat_distance(state, src_id, tgt_id)
+    local tgt = state.players[tgt_id]
+    if tgt and tgt.equipment.horse and tgt.equipment.horse.subtype == "defense" then
+        dist = dist + 1
+    end
+    return dist
+end
+
+-- 武器射程
+function M.weapon_range(state, player_id)
+    local p = state.players[player_id]
+    if not p or not p.equipment.weapon then return 1 end
+    local ranges = {
+        unlimited_attack  = 1,
+        reattempt_discard2= 3,
+        reattempt_attack  = 3,
+        spear_discard2    = 3,
+        halberd_triple    = 4,
+        blade_pierce      = 2,
+        twin_discard      = 2,
+        fire_weapon       = 1,
+        bow_strip_horse   = 5,
+    }
+    return ranges[p.equipment.weapon.subtype] or 1
+end
+
+-- 是否能攻击目标（距离+武器射程检查）
+function M.can_attack(state, src_id, tgt_id)
+    if src_id == tgt_id then return false end
+    local dist = M.defend_distance(state, src_id, tgt_id)
+    local range = M.weapon_range(state, src_id)
+    return dist <= range
+end
+
+-- ==========================================
+-- 4. 身份奖惩 + 胜负判定
+-- ==========================================
+
 function M.handle_role_reward(dispatcher, state, killer_id, victim_id)
     local killer = state.players[killer_id]
     local victim = state.players[victim_id]
@@ -333,16 +484,18 @@ function M.handle_role_reward(dispatcher, state, killer_id, victim_id)
     if victim.role == "REBEL" then
         local reward = state.config and state.config.combat.rebel_kill_reward or 3
         M.draw_cards(state, killer_id, reward)
-        dispatcher.broadcast_message(11, nk.json_encode({content = killer.username .. " 击毙反贼，奖励 " .. reward .. " 张牌"}))
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = killer.username .. " 击毙反贼，奖励 " .. reward .. " 张牌"
+        }))
     elseif victim.role == "MINISTER" and killer.role == "MONARCH" then
         killer.hand = {}
-        dispatcher.broadcast_message(11, nk.json_encode({content = "主公误杀忠臣，对手牌进行了大清洗！"}))
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = "主公误杀忠臣，对手牌进行了大清洗！"
+        }))
     end
 end
 
--- 胜负判定逻辑
 function M.check_victory(dispatcher, state)
-    -- PVP 模式：任意玩家死亡即结束
     if state.mode == "pvp" then
         for _, p in pairs(state.players) do
             if p.health <= 0 then return true, "PVP_WIN" end
@@ -350,7 +503,6 @@ function M.check_victory(dispatcher, state)
         return false, nil
     end
 
-    -- identity 模式：按角色阵营判定
     local alive = { MONARCH = 0, MINISTER = 0, REBEL = 0, TRAITOR = 0 }
     for _, p in pairs(state.players) do
         if p.health > 0 then
@@ -358,7 +510,6 @@ function M.check_victory(dispatcher, state)
         end
     end
 
-    -- 1. 主公阵亡
     if alive.MONARCH == 0 then
         if alive.REBEL == 0 and alive.MINISTER == 0 and alive.TRAITOR == 1 then
             return true, "TRAITOR_WIN"
@@ -366,7 +517,6 @@ function M.check_victory(dispatcher, state)
         return true, "REBEL_WIN"
     end
 
-    -- 2. 反贼和内奸全灭
     if alive.REBEL == 0 and alive.TRAITOR == 0 then
         return true, "MONARCH_WIN"
     end
@@ -375,8 +525,9 @@ function M.check_victory(dispatcher, state)
 end
 
 -- ==========================================
--- 3. 基础功能 (牌堆、摸牌等)
+-- 5. 基础功能（牌堆、摸牌等）
 -- ==========================================
+
 function M.start_game(dispatcher, state)
     local hand_size = state.config and state.config.match.initial_hand_size or 4
     for uid, _ in pairs(state.players) do
@@ -384,110 +535,10 @@ function M.start_game(dispatcher, state)
     end
 end
 
---[[old
 function M.create_deck()
-    local deck = {}
-    for i = 1, 20 do table.insert(deck, {id = "atk_"..i, type = "ATTACK", name = "大马士革弯刀"}) end
-    for i = 1, 10 do table.insert(deck, {id = "def_"..i, type = "DEFENSE", name = "蜃景"}) end
-    for i = 1, 5 do table.insert(deck, {id = "heal_"..i, type = "HEAL", name = "椰枣"}) end
-    for i = 1, 3 do table.insert(deck, {id = "aoe_"..i, type = "AOE_SANDSTORM", name = "沙尘暴"}) end
-    return M.shuffle(deck)
+    local card_deck = require("card_deck")
+    return card_deck.create_deck()
 end
---]]
-
-function M.create_deck()
-    local deck = {}
-    local suits = {"HEART", "SPADE", "CLUB", "DIAMOND"}
-
-    -- 基础牌 (54张)
-    for i = 1, 20 do
-        table.insert(deck, { id = "atk_"..i, type = "ATTACK", name = "大马士革弯刀", suit = suits[math.random(4)], number = math.random(1, 13) })
-    end
-    for i = 1, 12 do
-        table.insert(deck, { id = "def_"..i, type = "DEFENSE", name = "蜃景", suit = suits[math.random(4)], number = math.random(1, 13) })
-    end
-    for i = 1, 8 do
-        table.insert(deck, { id = "heal_"..i, type = "HEAL", name = "椰枣", suit = "HEART", number = math.random(1, 13) })
-    end
-    for i = 1, 4 do
-        table.insert(deck, { id = "aoe_"..i, type = "AOE_SANDSTORM", name = "沙尘暴", suit = "CLUB", number = math.random(1, 13) })
-    end
-    for i = 1, 6 do
-        table.insert(deck, { id = "draw2_"..i, type = "DRAW_TWO", name = "无中生有", suit = "DIAMOND", number = math.random(1, 13) })
-    end
-    for i = 1, 4 do
-        table.insert(deck, { id = "judge_"..i, type = "JUDGE_STORM", name = "天谴", suit = "SPADE", number = 1 })
-    end
-
-    -- 武器牌 (10张) — 装备区永久生效
-    for i = 1, 3 do
-        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "波斯长剑", subtype = "sword", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 4, 6 do
-        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "大马士革弯刀", subtype = "scimitar", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 7, 8 do
-        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "流星锤", subtype = "meteor", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 9, 10 do
-        table.insert(deck, { id = "weapon_"..i, type = "WEAPON", name = "阿拉伯弯刀", subtype = "draw_card", suit = suits[math.random(4)], number = 1 })
-    end
-
-    -- 防具牌 (6张)
-    for i = 1, 2 do
-        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "波斯盾牌", subtype = "reduce_damage", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 3, 4 do
-        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "古兰经护盾", subtype = "immortal_once", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 5, 6 do
-        table.insert(deck, { id = "armor_"..i, type = "ARMOR", name = "锁子甲", subtype = "reduce_aoe", suit = suits[math.random(4)], number = 1 })
-    end
-
-    -- 马牌 (6张)
-    for i = 1, 3 do
-        table.insert(deck, { id = "horse_"..i, type = "HORSE", name = "阿拉伯战马", subtype = "offense", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 4, 6 do
-        table.insert(deck, { id = "horse_"..i, type = "HORSE", name = "骆驼", subtype = "defense", suit = suits[math.random(4)], number = 1 })
-    end
-
-    -- 酒牌 (6张)
-    for i = 1, 3 do
-        table.insert(deck, { id = "wine_"..i, type = "WINE", name = "椰枣酒", subtype = "damage_plus1", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 4, 6 do
-        table.insert(deck, { id = "wine_"..i, type = "WINE", name = "阿拉伯烈酒", subtype = "damage_plus1_kill_draw2", suit = suits[math.random(4)], number = 1 })
-    end
-
-    -- 延时锦囊 (6张)
-    for i = 1, 2 do
-        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "黑血蛊", subtype = "discard1_draw2", suit = "SPADE", number = 1 })
-    end
-    for i = 3, 4 do
-        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "沙漠诅咒", subtype = "skip_play_phase", suit = "SPADE", number = 1 })
-    end
-    for i = 5, 6 do
-        table.insert(deck, { id = "delay_"..i, type = "DELAYED_TRICK", name = "虚弱标记", subtype = "attack_minus1", suit = "SPADE", number = 1 })
-    end
-
-    -- 即时锦囊 (8张)
-    for i = 1, 2 do
-        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "沙漠罗盘", subtype = "peek3_reorder", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 3, 4 do
-        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "诱降", subtype = "discard_enemy_card", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 5, 6 do
-        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "以物易物", subtype = "swap_hands", suit = suits[math.random(4)], number = 1 })
-    end
-    for i = 7, 8 do
-        table.insert(deck, { id = "trick_"..i, type = "INSTANT_TRICK", name = "沙漠风暴", subtype = "shuffle_draw2", suit = suits[math.random(4)], number = 1 })
-    end
-
-    return M.shuffle(deck)
-end
-
 
 function M.shuffle(t)
     local result = {}
@@ -501,7 +552,6 @@ end
 
 function M.get_next_player_id(state)
     local current_idx = 1
-    -- 找到当前玩家在座次表中的索引
     for i, id in ipairs(state.presence_ids) do
         if id == state.current_turn_id then
             current_idx = i
@@ -509,7 +559,6 @@ function M.get_next_player_id(state)
         end
     end
 
-    -- 循环寻找下一个存活的玩家
     local next_idx = current_idx
     for i = 1, #state.presence_ids do
         next_idx = (next_idx % #state.presence_ids) + 1
@@ -518,7 +567,7 @@ function M.get_next_player_id(state)
             return next_uid
         end
     end
-    return state.current_turn_id -- 如果只剩一人，返回自己
+    return state.current_turn_id
 end
 
 function M.draw_cards(state, player_id, count)
@@ -536,8 +585,9 @@ function M.draw_cards(state, player_id, count)
 end
 
 -- ==========================================
--- 4. 核心出牌与伤害
+-- 6. 核心出牌与伤害
 -- ==========================================
+
 function M.handle_play_card(dispatcher, state, player_id, payload)
     local player = state.players[player_id]
     if not player or player.health <= 0 then return false end
@@ -549,7 +599,7 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
         if type(target_id) ~= "string" then return false end
         local target = state.players[target_id]
         if not target or target.health <= 0 then return false end
-        if target_id == player_id then return false end
+        if target_id == player_id and card.type ~= "DELAYED_TRICK" then return false end
     end
 
     local card_idx = nil
@@ -557,37 +607,88 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     for i, c in ipairs(player.hand) do
         if c.id == payload.card_id then card_idx = i; card = c; break end
     end
+    if not card_idx then return false end
 
-    if card_idx then
-        -- 苏莱曼【御风】：检查是否被封锁
-        if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id
-            and card.type == state.suleiman_yu_feng.blocked_type then
+    -- ========== 前置校验 ==========
+
+    -- 苏莱曼【御风】：检查封锁
+    if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id
+        and card.type == state.suleiman_yu_feng.blocked_type then
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = string.format("%s 被【御风】封锁，无法使用【%s】！",
+                player.username, card.name),
+            hero = "suleiman", skill = "yu_feng"
+        }))
+        return false
+    end
+
+    -- 酒每回合限1次（增伤用）
+    if card.type == "WINE" and player.wine_used_this_turn then
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 本回合已用过酒，无法再使用"
+        }))
+        return false
+    end
+
+    -- 攻击次数限制（连弩机无视）
+    if card.type == "ATTACK" then
+        local has_unlimited = player.equipment.weapon
+            and player.equipment.weapon.subtype == "unlimited_attack"
+        if (player.attacks_this_turn or 0) >= 1 and not has_unlimited then
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s 被【御风】封锁，无法使用【%s】！",
-                    player.username, card.name),
-                hero = "suleiman", skill = "yu_feng"
+                content = player.username .. " 本回合已出过【杀】，无法再出"
             }))
             return false
         end
-
-        table.remove(player.hand, card_idx)
-        -- 装备牌不进弃牌堆，直接进装备槽；其余牌正常弃置
-        local is_equipment = card.type == "WEAPON" or card.type == "ARMOR" or card.type == "HORSE"
-        if not is_equipment then
-            table.insert(state.discard_pile, card)
-        end
-
-        if CARD_EFFECTS[card.type] then
-            CARD_EFFECTS[card.type](dispatcher, state, player_id, target_id, card)
-        end
-
-        M.broadcast_update(dispatcher, state)
-        return true
     end
-    return false
+
+    -- 距离检查（杀/顺手牵羊）
+    if card.type == "ATTACK" and target_id then
+        if not M.can_attack(state, player_id, target_id) then
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = player.username .. " 攻击距离不足，无法攻击 " .. state.players[target_id].username
+            }))
+            return false
+        end
+    end
+
+    -- 顺手牵羊也需要距离检查（默认距离1）
+    if card.type == "INSTANT_TRICK" and card.subtype == "steal_one" and target_id then
+        local dist = M.seat_distance(state, player_id, target_id)
+        if dist > 1 then
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = player.username .. " 距离 " .. state.players[target_id].username
+                    .. " 太远，无法使用【顺手牵羊】"
+            }))
+            return false
+        end
+    end
+
+    -- ========== 移除手牌 ==========
+    table.remove(player.hand, card_idx)
+
+    -- 装备牌不进弃牌堆，其余正常弃置
+    local is_equipment = card.type == "WEAPON" or card.type == "ARMOR" or card.type == "HORSE"
+    if not is_equipment then
+        table.insert(state.discard_pile, card)
+    end
+
+    -- 酒使用标记
+    if card.type == "WINE" then
+        player.wine_used_this_turn = true
+        player.weapon_buff = true
+    end
+
+    -- 执行卡牌效果
+    if CARD_EFFECTS[card.type] then
+        CARD_EFFECTS[card.type](dispatcher, state, player_id, target_id, card)
+    end
+
+    M.broadcast_update(dispatcher, state)
+    return true
 end
 
--- 真正处决一名濒死玩家（弃牌、广播、奖惩）
+-- 处决濒死玩家
 local function execute_death(dispatcher, state, target_id, source_id)
     local target = state.players[target_id]
     local hero_mgr = require("hero_manager")
@@ -595,8 +696,6 @@ local function execute_death(dispatcher, state, target_id, source_id)
         hero_mgr.trigger("on_kill", dispatcher, state, source_id, target_id)
     end
     for i = 1, #target.hand do table.insert(state.discard_pile, table.remove(target.hand)) end
-    -- Equipment ownership: slot card → discard_pile; slot cleared to nil.
-    -- Cards live in exactly one place: hand, an equipment slot, or discard_pile.
     for _, card in pairs(target.equipment) do
         if card then table.insert(state.discard_pile, card) end
     end
@@ -610,34 +709,29 @@ local function execute_death(dispatcher, state, target_id, source_id)
         player_id = target_id,
         role      = target.role,
     }))
-    local source = source_id and state.players[source_id]
-    if source and source.pending_wine_kill_draw then
-        source.pending_wine_kill_draw = nil
-        M.draw_cards(state, source_id, 2)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = source.username .. " 因【阿拉伯烈酒】效果额外摸2张"
-        }))
-    end
     M.handle_role_reward(dispatcher, state, source_id, target_id)
 end
 
 function M.handle_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
     if not action then return end
-    -- 规范化 confirm 为严格 boolean
     payload.confirm = (payload.confirm == true)
 
+    -- ==================== 防御响应 ====================
     if action.type == "WAITING_FOR_DEFENSE" then
         if action.target_id ~= player_id then return end
-        -- 流星锤：无视防具，强制命中
+
+        -- 流星锤（旧武器兼容）：无视防具，强制命中
         if state.attack_forced then
             state.attack_forced = nil
             state.pending_action = nil
-            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
             return
         end
+
         if payload.confirm == true then
             local defender = state.players[player_id]
+
             -- 贾法尔【毒计】第二步：已出1张防御，还需再出1张
             if action.jafar_step2 then
                 local card_idx = nil
@@ -646,7 +740,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
                         card_idx = i; break
                     end
                 end
-                if card_idx and not (state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
+                if card_idx and not (state.suleiman_yu_feng
+                    and state.suleiman_yu_feng.target_id == player_id
+                    and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
                     table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
                     state.pending_action = nil
                     dispatcher.broadcast_message(11, nk.json_encode({
@@ -656,16 +752,16 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 else
                     if card_idx then
                         dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s 被【御风】封锁，无法使用【防御】！",
-                                defender.username),
+                            content = string.format("%s 被【御风】封锁，无法使用【防御】！", defender.username),
                             hero = "suleiman", skill = "yu_feng"
                         }))
                     end
                     state.pending_action = nil
-                    M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+                    M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
                 end
                 return
             end
+
             -- 普通防御 / 贾法尔第一步
             local card_idx = nil
             for i, card in ipairs(defender.hand) do
@@ -673,22 +769,24 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     card_idx = i; break
                 end
             end
-            if not card_idx or (state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
+            if not card_idx or (state.suleiman_yu_feng
+                and state.suleiman_yu_feng.target_id == player_id
+                and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
                 if card_idx and state.suleiman_yu_feng then
                     dispatcher.broadcast_message(11, nk.json_encode({
-                        content = string.format("%s 被【御风】封锁，无法使用【防御】！",
-                            state.players[player_id].username),
+                        content = string.format("%s 被【御风】封锁，无法使用【防御】！", state.players[player_id].username),
                         hero = "suleiman", skill = "yu_feng"
                     }))
                 end
                 state.attack_bonus = nil
-                M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
+                M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
                 if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
                     state.pending_action = nil
                 end
                 return
             end
             table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
+
             -- 贾法尔【毒计】第一步完成：提示需要第二张防御
             if action.jafar_du_ji then
                 state.pending_action = {
@@ -696,6 +794,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     attacker_id = action.attacker_id,
                     target_id = action.target_id,
                     damage = action.damage,
+                    damage_type = action.damage_type,
                     jafar_step2 = true,
                     deadline = os.time() + 15,
                 }
@@ -707,30 +806,34 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 }))
                 return
             end
+
+            -- 正常防御成功
             state.pending_action = nil
             M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
         else
-            -- 旭烈兀【铁蹄】：attack_bonus 已整合进 action.damage
+            -- 放弃防御：直接受伤害
             state.attack_bonus = nil
-            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id)
-            -- 若 apply_damage 触发了濒死求救，不覆盖 pending_action
+            M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
             if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
                 state.pending_action = nil
             end
         end
 
+    -- ==================== AOE 响应 ====================
     elseif action.type == "WAITING_FOR_AOE" then
         if action.current_target ~= player_id then return end
         local defended = false
         if payload.confirm == true and type(payload.card_id) == "string" then
             local defender = state.players[player_id]
             for i, card in ipairs(defender.hand) do
-                if card.id == payload.card_id and card.type == "DEFENSE" then
-                    -- 苏莱曼【御风】封锁防御
-                    if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id and state.suleiman_yu_feng.blocked_type == "DEFENSE" then
+                if card.id == payload.card_id and card.type == action.required_response then
+                    -- 御风封锁
+                    if state.suleiman_yu_feng
+                        and state.suleiman_yu_feng.target_id == player_id
+                        and state.suleiman_yu_feng.blocked_type == action.required_response then
                         dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s 被【御风】封锁，无法使用【防御】！",
-                                defender.username),
+                            content = string.format("%s 被【御风】封锁，无法使用【%s】！",
+                                defender.username, action.required_response),
                             hero = "suleiman", skill = "yu_feng"
                         }))
                         break
@@ -742,14 +845,11 @@ function M.handle_response(dispatcher, state, player_id, payload)
             end
         end
         if not defended then
-            -- 未防御（或防御牌无效/不存在），扣血
-            M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id)
-            -- 若扣血触发了濒死求救，暂停 AOE 等待救援，parent_action 已在 apply_damage 中设好
+            M.apply_damage(dispatcher, state, player_id, 1, action.attacker_id, "normal")
             if state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE" then
                 return
             end
         end
-        -- 推进到下一个目标（刷新 deadline，避免前一目标救援耗尽时间后下一目标立即超时）
         if #action.remaining_targets > 0 then
             action.current_target = table.remove(action.remaining_targets, 1)
             action.deadline       = os.time() + 15
@@ -759,6 +859,52 @@ function M.handle_response(dispatcher, state, player_id, payload)
             M.broadcast_update(dispatcher, state)
         end
 
+    -- ==================== 决斗响应 ====================
+    elseif action.type == "WAITING_FOR_DUEL" then
+        local current_player = action.is_attackers_turn and action.attacker_id or action.target_id
+        if player_id ~= current_player then return end
+
+        if payload.confirm == true and type(payload.card_id) == "string" then
+            local p = state.players[player_id]
+            local card_idx = nil
+            for i, c in ipairs(p.hand) do
+                if c.id == payload.card_id and c.type == "ATTACK" then
+                    card_idx = i; break
+                end
+            end
+            if card_idx then
+                -- 出杀回应决斗
+                local played = table.remove(p.hand, card_idx)
+                table.insert(state.discard_pile, played)
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = p.username .. " 打出【" .. played.name .. "】回应决斗"
+                }))
+
+                -- 切换攻防方
+                action.is_attackers_turn = not action.is_attackers_turn
+                action.deadline = os.time() + 15
+
+                local next_id = action.is_attackers_turn and action.attacker_id or action.target_id
+                local next_p = state.players[next_id]
+                dispatcher.broadcast_message(105, nk.json_encode({
+                    event = "duel_require_attack",
+                    target_id = next_id,
+                    msg = "决斗！请出【杀】或放弃",
+                }))
+                return
+            end
+        end
+
+        -- 无法出杀：受到1点伤害
+        state.pending_action = nil
+        local victim = state.players[player_id]
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = victim.username .. " 决斗失败，受到 1 点伤害"
+        }))
+        local duel_source = action.is_attackers_turn and action.target_id or action.attacker_id
+        M.apply_damage(dispatcher, state, player_id, 1, duel_source, "normal")
+
+    -- ==================== 濒死求救 ====================
     elseif action.type == "WAITING_FOR_RESCUE" then
         local dying_id    = action.dying_player_id
         local rescuer_id  = action.rescuers[action.current_rescuer_idx]
@@ -767,8 +913,11 @@ function M.handle_response(dispatcher, state, player_id, payload)
         local rescued = false
         if payload.confirm == true and type(payload.card_id) == "string" then
             local rescuer = state.players[player_id]
+            local is_self = (player_id == dying_id)
             for i, card in ipairs(rescuer.hand) do
-                local can_rescue = card.type == "HEAL" or card.type == "WINE"
+                -- 自救可用桃/酒；救他人只能用桃
+                local can_rescue = (is_self and card.type == "WINE")
+                    or card.type == "HEAL"
                     or (card.suit == "HEART" and rescuer.hero == "avicenna")
                 if card.id == payload.card_id and can_rescue then
                     table.remove(rescuer.hand, i)
@@ -789,7 +938,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
         local parent = action.parent_action
         local function resume_aoe_or_end(p)
             if p and p.type == "JUDGMENT_CONTINUATION" then
-                -- 判定阶段中触发了求救，救援结束后通过 pending_turn_continuation 恢复判定+摸牌
                 state.pending_action = nil
                 state.pending_turn_continuation = { uid = state.current_turn_id }
                 M.broadcast_update(dispatcher, state)
@@ -797,7 +945,17 @@ function M.handle_response(dispatcher, state, player_id, payload)
             end
             state.pending_action = p
             if p then
-                if #p.remaining_targets > 0 then
+                if p.type == "WAITING_FOR_AOE" then
+                    -- rescue 完成后推进到下一个目标
+                    p.deadline = os.time() + 15
+                    if #p.remaining_targets > 0 then
+                        p.current_target = table.remove(p.remaining_targets, 1)
+                        M.notify_aoe_target(dispatcher, state)
+                    else
+                        state.pending_action = nil
+                        M.broadcast_update(dispatcher, state)
+                    end
+                elseif #p.remaining_targets > 0 then
                     p.current_target = table.remove(p.remaining_targets, 1)
                     p.deadline       = os.time() + 15
                     M.notify_aoe_target(dispatcher, state)
@@ -824,71 +982,61 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     rescuer_id      = next_id,
                 }))
             else
-                -- 无人救援，正式处决
                 execute_death(dispatcher, state, dying_id, action.attacker_id)
                 resume_aoe_or_end(parent)
             end
         end
+
+    -- ==================== 锦囊选择（过河拆桥/顺手牵羊） ====================
     elseif action.type == "WAITING_FOR_TRICK_SELECT" then
-        if player_id ~= action.chooser_id then return end
+        if player_id ~= action.source_id then return end
+        local target = state.players[action.target_id]
+        if not target then state.pending_action = nil; M.broadcast_update(dispatcher, state); return end
 
-        if action.subtype == "peek3_reorder" then
-            local peeked = action.peeked
-            local placed = false
-            if payload.confirm == true and type(payload.sorted_ids) == "table" and #payload.sorted_ids == #peeked then
-                local id_map = {}
-                for _, c in ipairs(peeked) do id_map[c.id] = c end
-                -- validate all ids exist
-                local valid = true
-                for _, sid in ipairs(payload.sorted_ids) do
-                    if type(sid) ~= "string" or not id_map[sid] then valid = false; break end
-                end
-                if valid then
-                    -- put back in the client-chosen order (first in array = top of deck)
-                    for i = #payload.sorted_ids, 1, -1 do
-                        table.insert(state.deck, 1, id_map[payload.sorted_ids[i]])
+        local function pick_card(remove_fn)
+            local found = false
+            if payload.confirm == true and type(payload.card_id) == "string" then
+                for i, c in ipairs(target.hand) do
+                    if c.id == payload.card_id then
+                        remove_fn(table.remove(target.hand, i))
+                        found = true
+                        break
                     end
-                    placed = true
                 end
-            end
-            if not placed then
-                -- timeout or invalid: restore original order
-                for i = #peeked, 1, -1 do table.insert(state.deck, 1, peeked[i]) end
-            end
-
-        elseif action.subtype == "discard_enemy_card" then
-            local target = state.players[action.target_id]
-            local discarded = nil
-            if target and #target.hand > 0 then
-                if payload.confirm == true and type(payload.card_id) == "string" then
-                    for i, card in ipairs(target.hand) do
-                        if card.id == payload.card_id then
-                            discarded = table.remove(target.hand, i)
+                if not found then
+                    for slot, c in pairs(target.equipment) do
+                        if type(c) == "table" and c.id == payload.card_id then
+                            target.equipment[slot] = nil
+                            remove_fn(c)
+                            found = true
                             break
                         end
                     end
                 end
-                -- fallback: random if no valid selection
-                if not discarded then
-                    discarded = table.remove(target.hand, math.random(#target.hand))
-                end
-                table.insert(state.discard_pile, discarded)
-                local chooser = state.players[action.chooser_id]
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content  = (chooser and chooser.username or "?") .. " 使用【诱降】弃置了 " .. (discarded.name or discarded.type),
-                    event    = "trick_discard",
-                    card     = discarded,
-                    target_id = action.target_id,
-                }))
+            end
+            if not found and #target.hand > 0 then
+                remove_fn(table.remove(target.hand, math.random(#target.hand)))
             end
         end
+
+        if action.subtype == "discard_one" then
+            pick_card(function(c) table.insert(state.discard_pile, c) end)
+        elseif action.subtype == "steal_one" then
+            pick_card(function(c) table.insert(state.players[action.source_id].hand, c) end)
+        end
+
+        local source_p = state.players[action.source_id]
+        local action_name = action.subtype == "discard_one" and "诱降" or "顺手牵羊"
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = (source_p and source_p.username or "?") .. " 使用【" .. action_name .. "】"
+        }))
 
         state.pending_action = nil
         M.broadcast_update(dispatcher, state)
     end
 end
 
--- 防御成功后续逻辑（pending_action 由调用方在进入本函数前已清除）
+-- 防御成功后续逻辑
 function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     log_info(state, "防御成功，正在检查攻击者是否有追击技能...")
     local hero_mgr = require("hero_manager")
@@ -899,48 +1047,34 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     end
 end
 
-
-
-function M.apply_damage(dispatcher, state, target_id, amount, source_id)
+function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_type)
+    dmg_type = dmg_type or "normal"
     local target = state.players[target_id]
     if not target or target.health <= 0 then return end
 
     -- 计算攻击加成（来源方装备+酒牌），固定伤害场景跳过
     local source = source_id and state.players[source_id]
     if source and not state._fixed_damage then
-        -- 武器加成
-        if source.equipment.weapon then
-            local wtype = source.equipment.weapon.subtype
-            if wtype == "sword" then
-                amount = amount + (state.config and state.config.combat.sword_damage_bonus or 1)
-            end
-        end
-        -- 酒牌buff：仅对杀生效，AOE/锦囊不触发（buff 保留）
-        local is_aoe = state.pending_action and state.pending_action.type == "WAITING_FOR_AOE"
-        if source.weapon_buff and not is_aoe then
+        -- 酒牌buff：仅对普通攻击生效，AOE/锦囊不触发
+        local is_special = state.pending_action and (
+            state.pending_action.type == "WAITING_FOR_AOE"
+            or state.pending_action.type == "WAITING_FOR_DUEL"
+        )
+        if source.weapon_buff and not is_special then
             amount = amount + (state.config and state.config.combat.wine_damage_bonus or 1)
             source.weapon_buff = nil
-            -- 阿拉伯烈酒：击杀额外摸2
-            source.pending_wine_kill_draw = (source.wine_subtype == "damage_plus1_kill_draw2")
-            source.wine_subtype = nil
         end
     end
 
-    -- 防具减伤
-    if target.equipment.armor then
-        local atype = target.equipment.armor.subtype
-        if atype == "reduce_damage" then
-            local reduce = state.config and state.config.combat.armor_damage_reduce or 1
-            amount = math.max(0, amount - reduce)
-        elseif atype == "immortal_once" and amount >= target.health then
-            -- 古兰经护盾：免疫致命伤害（每局限1次）
-            if not target.immortal_used then
-                amount = 0
-                target.immortal_used = true
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. " 的【古兰经护盾】免疫了致命伤害！"
-                }))
-            end
+    -- 藤甲：火焰伤害+1，普通伤害-1
+    if target.equipment.armor and target.equipment.armor.subtype == "fire_weakness" then
+        if dmg_type == "fire" then
+            amount = amount + 1
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = target.username .. " 的【藤甲】被火焰灼烧，伤害+1！"
+            }))
+        else
+            amount = math.max(0, amount - 1)
         end
     end
 
@@ -964,12 +1098,14 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
     end
     hero_mgr.trigger("on_damaged", dispatcher, state, target_id, amount, source_id)
 
-    dispatcher.broadcast_message(20, nk.json_encode({ event = "damage", target = target_id, source = source_id, amount = amount }))
+    dispatcher.broadcast_message(20, nk.json_encode({
+        event = "damage", target = target_id, source = source_id, amount = amount, dmg_type = dmg_type
+    }))
 
     if target.health <= 0 then
-        -- 进入濒死求救流程：从濒死者的下一位存活玩家开始，依次询问是否救援
-        local rescuers = {}
-        local start_idx = 1
+        -- 进入濒死求救流程
+        local rescuers = { target_id }
+        local start_idx
         for i, uid in ipairs(state.presence_ids) do
             if uid == target_id then start_idx = i + 1; break end
         end
@@ -981,7 +1117,6 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
             end
         end
 
-        -- 保存父 pending_action：AOE → 继续 AOE；判定阶段 → 继续判定+摸牌；普通攻击 → nil
         local parent
         if state.pending_action and state.pending_action.type == "WAITING_FOR_AOE" then
             parent = state.pending_action
@@ -1006,7 +1141,6 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
                 rescuer_id      = rescuers[1],
             }))
         else
-            -- 没有人可以救援，直接处决
             execute_death(dispatcher, state, target_id, source_id)
             state.pending_action = parent
         end
@@ -1014,7 +1148,7 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id)
 end
 
 -- ==========================================
--- 5. 状态广播 (身份迷雾版)
+-- 7. 状态广播（身份迷雾版）
 -- ==========================================
 function M.broadcast_update(dispatcher, state)
     for uid, presence in pairs(state.presences) do
@@ -1034,12 +1168,12 @@ function M.broadcast_update(dispatcher, state)
                 delayed_effects = p_data.delayed_effects,
                 weapon_buff     = p_data.weapon_buff,
                 skin_id         = p_data.skin_id,
+                seat_idx        = p_data.seat_idx,
             },
             others = {}
         }
         for other_id, other_p in pairs(state.players) do
             if other_id ~= uid then
-                -- 身份迷雾逻辑：只有主公或已阵亡或游戏结束才看得到别人的身份
                 local visible_role = "UNKNOWN"
                 if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
                     visible_role = other_p.role
@@ -1054,12 +1188,12 @@ function M.broadcast_update(dispatcher, state)
                     role       = visible_role,
                     equipment  = other_p.equipment,
                     skin_id    = other_p.skin_id,
+                    seat_idx   = other_p.seat_idx,
                 })
             end
         end
         dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
 
-        -- 同步给所有旁观该玩家的旁观者（视野与该玩家完全相同）
         if state.spectators then
             for _, spec in pairs(state.spectators) do
                 if spec.target_player_id == uid then
@@ -1077,20 +1211,98 @@ function M.broadcast_update(dispatcher, state)
     end
 end
 
+-- ==========================================
+-- 8. 判定系统
+-- ==========================================
 
+-- 抽取判定牌（从牌堆顶取一张）
 function M.execute_judgment(state)
     if #state.deck == 0 then
         if #state.discard_pile == 0 then
-            -- 极端情况：牌堆和弃牌堆均空，返回安全的默认牌避免崩溃
             return {id="dummy_judge", type="DEFENSE", suit="HEART", number=1, name="虚判"}
         end
         state.deck = M.shuffle(state.discard_pile)
         state.discard_pile = {}
     end
-
     local judge_card = table.remove(state.deck, 1)
     table.insert(state.discard_pile, judge_card)
     return judge_card
+end
+
+-- 处理延时锦囊判定
+-- 返回值: true=已由本函数处理完毕 / false=效果未生效需要外部继续处理
+function M.process_delayed_judgment(dispatcher, state, player, eff)
+    if eff.subtype == "skip_play" then
+        -- 乐不思蜀：判定牌非HEART则跳过出牌阶段
+        local judge_card = M.execute_judgment(state)
+        local skip = judge_card.suit ~= "HEART"
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 的【乐不思蜀】判定："
+                .. (judge_card.suit or "?") .. (judge_card.number or "?")
+                .. "（" .. (skip and "跳过出牌阶段" or "判定成功，不出局") .. "）"
+        }))
+        if skip then
+            player.skip_play_phase = true
+        end
+        return true
+
+    elseif eff.subtype == "skip_draw" then
+        -- 兵粮寸断：判定牌非CLUB则跳过摸牌阶段
+        local judge_card = M.execute_judgment(state)
+        local skip = judge_card.suit ~= "CLUB"
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 的【兵粮寸断】判定："
+                .. (judge_card.suit or "?") .. (judge_card.number or "?")
+                .. "（" .. (skip and "跳过摸牌阶段" or "判定成功，正常摸牌") .. "）"
+        }))
+        if skip then
+            player.skip_draw_phase = true
+        end
+        return true
+
+    elseif eff.subtype == "lightning" then
+        -- 闪电：判定黑桃2-9则受3点雷电伤害，否则传给下家
+        local judge_card = M.execute_judgment(state)
+        local hit = (judge_card.suit == "SPADE" and judge_card.number >= 2 and judge_card.number <= 9)
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 的【闪电】判定："
+                .. (judge_card.suit or "?") .. (judge_card.number or "?")
+                .. "（" .. (hit and "闪电命中！" or "未命中，传给下家") .. "）"
+        }))
+        if hit then
+            state._in_judgment_phase = true
+            local dmg = state.config and state.config.combat.lightning_damage or 3
+            M.apply_damage(dispatcher, state, player.id, dmg, nil, "lightning")
+            state._in_judgment_phase = false
+            return true
+        else
+            -- 传给下家
+            local next_uid = M.get_next_player_id(state)
+            if next_uid == player.id then
+                -- 绕一圈回到自己：闪电消失
+                dispatcher.broadcast_message(11, nk.json_encode({
+                    content = "【闪电】绕了一圈无人中，自行消散"
+                }))
+                return true
+            end
+            local next_p = state.players[next_uid]
+            if next_p then
+                eff.from = player.id
+                table.insert(next_p.delayed_effects, {
+                    id = eff.id,
+                    name = eff.name,
+                    subtype = eff.subtype,
+                    suit = eff.suit,
+                    number = eff.number,
+                    from = eff.from,
+                })
+            end
+            return true
+        end
+    end
+
+    -- 未知 subtype，跳过
+    return true
 end
 
 return M
