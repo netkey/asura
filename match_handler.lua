@@ -97,6 +97,9 @@ end
 -- ==========================================
 function M.match_init(context, params)
     local max_players = params.max_players or 2
+    if type(max_players) ~= "number" or max_players < 1 or max_players > 10 then
+        error("max_players must be 1-10")
+    end
     -- 2人局默认 pvp（公平对战），5人局默认 identity（身份局）
     local mode = params.mode or (max_players == 2 and "pvp" or "identity")
     local state = {
@@ -121,6 +124,7 @@ function M.match_init(context, params)
 
 		-- 高并发与托管系统配置
         current_turn_elapsed = 0,   -- 当前玩家已思考的时间
+        consecutive_autoplay = 0,   -- 连续托管次数（用于加速全托管对局）
     }
     -- 加载服务端配置（首局对局初始化时读取，整局复用）
     local cfg = config.load(nk)
@@ -330,7 +334,8 @@ local function auto_resolve_pending(dispatcher, state)
                 rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
             end
         else
-            state.pending_action = nil
+            -- 救援者已死亡，跳过并继续链中的下一个救援者
+            rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
         end
     elseif act.type == "WAITING_FOR_TRICK_SELECT" then
         rules.handle_response(dispatcher, state, act.source_id, { confirm = false })
@@ -410,6 +415,10 @@ local function auto_resolve_pending(dispatcher, state)
         -- 从已揭示牌中读取真实花色，使托管行为与手动一致
         local guess = act.revealed_card and act.revealed_card.suit or "HEART"
         rules.handle_response(dispatcher, state, act.caster_id, { confirm = true, guess = guess })
+    elseif act.type == "WAITING_FOR_DISCARD" then
+        -- 超时自动弃牌：从末尾弃
+        auto_discard_from_end(dispatcher, state, act.player_id, act.discard_count)
+        state.pending_discard_continuation = {uid = act.player_id}
     else
         -- 兜底：未知 pending_action 清除并记录
         log_warn(state, "auto_resolve_pending: 未知类型 " .. tostring(act.type) .. "，强制清除")
@@ -422,14 +431,21 @@ function M.perform_auto_play(dispatcher, state)
     local uid = state.current_turn_id
     if not uid then return end
 
+    state.consecutive_autoplay = (state.consecutive_autoplay or 0) + 1
+
     local player = state.players[uid]
 
-    -- 1. 清理挂起的技能选择（所有 pending 有 deadline ≤20s < turn_timeout=30s，
-    --     因此超时前已被 auto_resolve_pending 处理，此处不会命中；兜底清理 + 补偿摸牌）
+    -- 1. 清理挂起的技能选择或弃牌等待（兜底清理）
     if state.pending_action and state.pending_action.player_id == uid then
+        if state.pending_action.type == "WAITING_FOR_DISCARD" then
+            auto_discard_from_end(dispatcher, state, uid, state.pending_action.discard_count)
+        else
+            rules.draw_cards(state, uid, 2)
+        end
         state.pending_action = nil
-        rules.draw_cards(state, uid, 2)
     end
+    -- perform_auto_play 将自行调用 next_turn 推进回合，清除任何挂起的弃牌续接标记
+    state.pending_discard_continuation = nil
 
     if not player or player.health <= 0 then
         M.next_turn(dispatcher, state)
@@ -537,9 +553,17 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- ==========================================
     -- 只有在对局进行中才计时
     if state.status == STATE.PLAYING then
-        -- 检查 pending_action 超时（防止防御/AOE/求救等待永久卡死）
+        -- 检查 pending_action 超时（防止防御/AOE/求救/弃牌等待永久卡死）
         if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
             auto_resolve_pending(dispatcher, state)
+            return state
+        end
+
+        -- 恢复被弃牌阶段挂起的回合切换（弃牌完成后继续）
+        if state.pending_discard_continuation and not state.pending_action then
+            local dc = state.pending_discard_continuation
+            state.pending_discard_continuation = nil
+            M.finish_turn_end_continue(dispatcher, state, dc.uid)
             return state
         end
 
@@ -576,8 +600,27 @@ function M.match_loop(context, dispatcher, tick, state, messages)
 
         state.current_turn_elapsed = state.current_turn_elapsed + 1
 
-        -- 检查是否思考超时
-        if state.current_turn_elapsed >= state.turn_timeout then
+        -- 计算有效超时：全断线 → 3s，连续托管≥3 → 5s，否则正常30s
+        local effective_timeout = state.turn_timeout
+        if state.consecutive_autoplay >= 3 then
+            effective_timeout = 5
+        end
+        -- 全断线加速：所有存活玩家均已掉线时降为3s（优先级更高）
+        local all_offline = true
+        for pid, p in pairs(state.players) do
+            if p.health > 0 and state.presences[pid] then
+                all_offline = false
+                break
+            end
+        end
+        if all_offline then
+            effective_timeout = 3
+        end
+
+        -- 检查是否思考超时（跨玩家 pending_action 如防御/AOE/决斗由 deadline 处理，不在此超时）
+        local has_cross_pending = state.pending_action
+            and state.pending_action.player_id ~= state.current_turn_id
+        if state.current_turn_elapsed >= effective_timeout and not has_cross_pending then
             log_info(state, "玩家 " .. (state.current_turn_id or "未知") .. " 超时，执行托管")
             M.perform_auto_play(dispatcher, state)
             -- 托管后计时器会在 next_turn 中重置，这里直接返回 state 等待下一秒
@@ -594,12 +637,20 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         local uid = message.sender.user_id
         if not state.players[uid] or (state.status == STATE.PLAYING and state.players[uid].health <= 0) then goto continue end
 
-        -- 只要玩家有任何动作，就重置计时器，重新给 30 秒
-        state.current_turn_elapsed = 0
+        -- 当前回合玩家有任何动作，重置计时器和连续托管计数
+        -- 非当前回合玩家（如防御响应）不重置，由 pending_action.deadline 独立计时
+        if uid == state.current_turn_id then
+            state.current_turn_elapsed = 0
+            state.consecutive_autoplay = 0
+        end
 
-        -- 情况 A：处理挂起的技能响应（如哈基姆、阿拉丁）
+        -- 情况 A：处理挂起的技能响应（如哈基姆、阿拉丁）或弃牌选择
         if state.pending_action and state.pending_action.player_id == uid then
-            hero_mgr.handle_response(dispatcher, state, uid, payload)
+            if state.pending_action.type == "WAITING_FOR_DISCARD" then
+                M.handle_discard_response(dispatcher, state, uid, payload)
+            else
+                hero_mgr.handle_response(dispatcher, state, uid, payload)
+            end
         else
             -- 情况 B：常规回合操作
             if message.op_code == 3 then -- 出牌
@@ -675,29 +726,119 @@ function M.finish_turn_end(dispatcher, state, ending_uid)
     if ep_reset then
         ep_reset.attacks_this_turn = 0
         ep_reset.wine_used_this_turn = false
+        ep_reset.weapon_buff = nil -- 酒伤害加成仅限本回合
     end
 
-    -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量
-    if ending_uid then
-        local ep = state.players[ending_uid]
-        if ep and ep.health > 0 and #ep.hand > ep.health then
-            local discard_count = #ep.hand - ep.health
+    -- 1. 弃牌阶段：手牌数超过当前血量时弃至血量（在线等待选择，离线自动弃牌）
+    if ending_uid and M.do_discard_phase(dispatcher, state, ending_uid) then
+        return -- 挂起等待玩家选牌
+    end
+
+    M.finish_turn_end_continue(dispatcher, state, ending_uid)
+end
+
+-- 弃牌阶段：返回 true 表示挂起等待，false 表示已完成（无需弃牌或离线已自动弃牌）
+function M.do_discard_phase(dispatcher, state, ending_uid)
+    local ep = state.players[ending_uid]
+    if not ep or ep.health <= 0 or #ep.hand <= ep.health then
+        return false -- 无需弃牌
+    end
+
+    local discard_count = #ep.hand - ep.health
+    -- 在线且非托管模式的玩家等待手动选择；离线或托管模式（consecutive_autoplay>0）自动弃牌
+    if state.presences[ending_uid] and (state.consecutive_autoplay or 0) == 0 then
+        state.pending_action = {
+            type = "WAITING_FOR_DISCARD",
+            player_id = ending_uid,
+            discard_count = discard_count,
+            deadline = os.time() + state.turn_timeout,
+        }
+        dispatcher.broadcast_message(106, nk.json_encode({
+            event = "discard_required",
+            player_id = ending_uid,
+            discard_count = discard_count,
+            msg = ep.username .. " 需要弃置 " .. discard_count .. " 张牌",
+        }), {state.presences[ending_uid]})
+        state.pending_discard_continuation = {uid = ending_uid}
+        return true
+    end
+
+    -- 离线：自动从末尾弃牌
+    auto_discard_from_end(dispatcher, state, ending_uid, discard_count)
+    return false
+end
+
+-- 离线/超时自动弃牌：从手牌末尾移除
+local function auto_discard_from_end(dispatcher, state, uid, discard_count)
+    local ep = state.players[uid]
+    local discarded = {}
+    for _ = 1, discard_count do
+        local card = table.remove(ep.hand)
+        table.insert(state.discard_pile, card)
+        table.insert(discarded, card.name or card.type)
+    end
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content = ep.username .. " 弃牌阶段弃置 " .. discard_count ..
+                  " 张：" .. table.concat(discarded, "/")
+    }))
+end
+
+-- 处理玩家的弃牌选择（在线手动弃牌）
+function M.handle_discard_response(dispatcher, state, uid, payload)
+    local act = state.pending_action
+    if not act or act.type ~= "WAITING_FOR_DISCARD" or act.player_id ~= uid then return end
+
+    local ep = state.players[uid]
+    -- 校验 card_ids 合法性
+    if not payload.confirm or type(payload.card_ids) ~= "table"
+        or #payload.card_ids ~= act.discard_count then
+        -- 无效响应，视为放弃选择，自动从末尾弃
+        auto_discard_from_end(dispatcher, state, uid, act.discard_count)
+    else
+        -- 构建手牌 id→card 映射，验证每张牌都在手中
+        local hand_by_id = {}
+        for _, c in ipairs(ep.hand) do
+            hand_by_id[c.id] = c
+        end
+        local valid = true
+        for _, cid in ipairs(payload.card_ids) do
+            if not hand_by_id[cid] then valid = false; break end
+        end
+        if not valid then
+            auto_discard_from_end(dispatcher, state, uid, act.discard_count)
+        else
+            -- 从手牌中移除指定牌
             local discarded = {}
-            for _ = 1, discard_count do
-                local card = table.remove(ep.hand)
-                table.insert(state.discard_pile, card)
-                table.insert(discarded, card.name or card.type)
+            for _, cid in ipairs(payload.card_ids) do
+                local card = hand_by_id[cid]
+                for j, hc in ipairs(ep.hand) do
+                    if hc.id == cid then
+                        table.remove(ep.hand, j)
+                        table.insert(state.discard_pile, card)
+                        table.insert(discarded, card.name or card.type)
+                        break
+                    end
+                end
             end
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = ep.username .. " 弃牌阶段弃置 " .. discard_count ..
+                content = ep.username .. " 弃牌阶段弃置 " .. act.discard_count ..
                           " 张：" .. table.concat(discarded, "/")
             }))
         end
     end
 
-    -- 2. 切换到下一个存活玩家
+    state.pending_action = nil
+    state.pending_discard_continuation = {uid = uid}
+end
+
+-- 弃牌阶段完成后继续：切换下一玩家 → 判定 → 摸牌
+function M.finish_turn_end_continue(dispatcher, state, ending_uid)
     state.current_turn_id = rules.get_next_player_id(state)
     state.current_turn_elapsed = 0
+    -- 下一玩家在线则重置连续托管计数，否则保留以触发加速
+    if state.presences[state.current_turn_id] then
+        state.consecutive_autoplay = 0
+    end
     local uid = state.current_turn_id
     local current_p = state.players[uid]
 
@@ -735,12 +876,12 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
     local uid       = state.current_turn_id
     local current_p = state.players[uid]
     if not current_p or current_p.health <= 0 then
-        return M.next_turn(dispatcher, state)
-    end
-
-    -- 判定牌已移除（JUDGE_STORM 替换为闪电，在 delayed_effects 中处理）
-    if current_p.health <= 0 then
-        return M.next_turn(dispatcher, state)
+        -- 检查是否还有存活玩家，全死则不切回合（下个 tick 胜利判定会结束对局）
+        local next_id = rules.get_next_player_id(state)
+        if next_id ~= uid then
+            return M.next_turn(dispatcher, state)
+        end
+        return
     end
 
     -- 重置每回合状态标志
@@ -808,13 +949,12 @@ function M.match_leave(context, dispatcher, tick, state, presences)
         for _, p in ipairs(presences) do
             if state.players[p.user_id] and p.user_id == state.current_turn_id then
                 log_info(state, "当前回合玩家 " .. p.username .. " 掉线，立即托管")
-                -- 先 resolve 挂起的 pending_action，再打出牌
-                if state.pending_action then
+                -- 只处理断线玩家自己的 pending（技能选择等），跨玩家 pending（防御/AOE等）留给目标自行响应
+                if state.pending_action and state.pending_action.player_id == p.user_id then
                     auto_resolve_pending(dispatcher, state)
-                else
-                    M.perform_auto_play(dispatcher, state)
                 end
-                break
+                M.perform_auto_play(dispatcher, state)
+                -- 不 break：perform_auto_play 可能将回合切到另一个也在断线列表中的玩家
             end
         end
     end
@@ -849,7 +989,7 @@ function M.send_spectator_state(dispatcher, state, presence, target_player_id)
         if other_id ~= target_player_id then
             -- 与目标玩家视角相同的迷雾规则
             local visible_role = "UNKNOWN"
-            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
+            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == STATE.ENDED then
                 visible_role = other_p.role
             end
             table.insert(payload.others, {
@@ -892,7 +1032,7 @@ function M.send_full_state_to_player(dispatcher, state, presence)
     for other_id, other_p in pairs(state.players) do
         if other_id ~= uid then
             local visible_role = "UNKNOWN"
-            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
+            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == STATE.ENDED then
                 visible_role = other_p.role
             end
             table.insert(payload.others, {
@@ -913,7 +1053,7 @@ end
 
 function M.match_join_attempt(context, dispatcher, tick, state, presence, metadata)
     -- 如果游戏已经结束，不允许任何人再进来
-    if state.status == 2 then
+    if state.status == STATE.ENDED then
         return state, false, "游戏已结束"
     end
 
@@ -932,7 +1072,7 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
     end
 
     -- 如果是新玩家想中途加入已开始的游戏，拒绝
-    if state.status == 1 then
+    if state.status == STATE.PLAYING then
         return state, false, "对局已开始，无法中途加入"
     end
 
