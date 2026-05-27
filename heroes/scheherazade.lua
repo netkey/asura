@@ -55,6 +55,7 @@ function M.on_response(dispatcher, state, player_id, payload)
     state.pending_action = nil
 
     if payload.confirm ~= true or type(payload.own_card_id) ~= "string" or type(payload.target_card_id) ~= "string" then
+        require("game_rules").broadcast_update(dispatcher, state)
         return
     end
 

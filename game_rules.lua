@@ -1338,12 +1338,12 @@ function M.handle_response(dispatcher, state, player_id, payload)
     -- ==================== 火攻猜花色 ====================
     elseif action.type == "WAITING_FOR_FIRE_GUESS" then
         if player_id ~= action.caster_id then return end
-        if type(payload.guess) ~= "string" then return end
 
         state.pending_action = nil
         local target = state.players[action.target_id]
         local revealed_card = action.revealed_card
-        if payload.guess == revealed_card.suit then
+        local guessed = type(payload.guess) == "string" and payload.guess
+        if guessed and guessed == revealed_card.suit then
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = state.players[action.caster_id].username
                     .. " 猜中了花色（" .. revealed_card.suit .. "），"
@@ -1353,7 +1353,8 @@ function M.handle_response(dispatcher, state, player_id, payload)
         else
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = state.players[action.caster_id].username
-                    .. " 猜错了（猜了" .. payload.guess .. "，实际是" .. revealed_card.suit .. "）"
+                    .. (guessed and (" 猜错了（猜了" .. guessed .. "，实际是" .. revealed_card.suit .. "）")
+                        or " 放弃猜测花色")
             }))
         end
         M.broadcast_update(dispatcher, state)

@@ -32,6 +32,7 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     if payload.confirm ~= true then
         state.pending_action = nil
+        require("game_rules").broadcast_update(dispatcher, state)
         return
     end
 

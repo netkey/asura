@@ -46,7 +46,10 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     if action.type == "AVICENNA_ZHEN" then
         state.pending_action = nil
-        if payload.confirm ~= true or type(payload.card_id) ~= "string" then return end
+        if payload.confirm ~= true or type(payload.card_id) ~= "string" then
+            require("game_rules").broadcast_update(dispatcher, state)
+            return
+        end
 
         local player = state.players[player_id]
         for i, c in ipairs(player.hand) do

@@ -31,7 +31,10 @@ function M.on_response(dispatcher, state, player_id, payload)
     if action.player_id ~= player_id then return end
     state.pending_action = nil
 
-    if payload.confirm ~= true or type(payload.card_ids) ~= "table" then return end
+    if payload.confirm ~= true or type(payload.card_ids) ~= "table" then
+        require("game_rules").broadcast_update(dispatcher, state)
+        return
+    end
 
     local rules = require("game_rules")
     local player = state.players[player_id]
