@@ -907,6 +907,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
             state.attack_forced = nil
             state.pending_action = nil
             M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
+            M.broadcast_update(dispatcher, state)
             return
         end
 
@@ -939,6 +940,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     end
                     state.pending_action = nil
                     M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
+                    M.broadcast_update(dispatcher, state)
                 end
                 return
             end
@@ -963,6 +965,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
                 if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
                     state.pending_action = nil
+                    M.broadcast_update(dispatcher, state)
                 end
                 return
             end
@@ -997,6 +1000,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
             M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
             if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
                 state.pending_action = nil
+                M.broadcast_update(dispatcher, state)
             end
         end
 
@@ -1083,6 +1087,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
         }))
         local duel_source = action.is_attackers_turn and action.target_id or action.attacker_id
         M.apply_damage(dispatcher, state, player_id, 1, duel_source, "normal")
+        M.broadcast_update(dispatcher, state)
 
     -- ==================== 濒死求救 ====================
     elseif action.type == "WAITING_FOR_RESCUE" then
