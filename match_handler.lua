@@ -306,6 +306,22 @@ local function auto_defend(dispatcher, state, defender_id, incoming_damage, requ
     rules.handle_response(dispatcher, state, defender_id, { confirm = false })
 end
 
+-- 离线/超时自动弃牌：从手牌末尾移除
+local function auto_discard_from_end(dispatcher, state, uid, discard_count)
+    local ep = state.players[uid]
+    local discarded = {}
+    for _ = 1, discard_count do
+        local card = table.remove(ep.hand)
+        if not card then break end  -- 手牌已空（防御性保护）
+        table.insert(state.discard_pile, card)
+        table.insert(discarded, card.name or card.type)
+    end
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content = ep.username .. " 弃牌阶段弃置 " .. #discarded ..
+                  " 张：" .. table.concat(discarded, "/")
+    }))
+end
+
 -- 托管 AI 辅助：解决当前 pending_action（一层），为不支持复杂交互的托管提供默认选择
 local function auto_resolve_pending(dispatcher, state)
     local act = state.pending_action
@@ -418,6 +434,7 @@ local function auto_resolve_pending(dispatcher, state)
     elseif act.type == "WAITING_FOR_DISCARD" then
         -- 超时自动弃牌：从末尾弃
         auto_discard_from_end(dispatcher, state, act.player_id, act.discard_count)
+        state.pending_action = nil
         state.pending_discard_continuation = {uid = act.player_id}
     else
         -- 兜底：未知 pending_action 清除并记录
@@ -768,21 +785,6 @@ function M.do_discard_phase(dispatcher, state, ending_uid)
     return false
 end
 
--- 离线/超时自动弃牌：从手牌末尾移除
-local function auto_discard_from_end(dispatcher, state, uid, discard_count)
-    local ep = state.players[uid]
-    local discarded = {}
-    for _ = 1, discard_count do
-        local card = table.remove(ep.hand)
-        table.insert(state.discard_pile, card)
-        table.insert(discarded, card.name or card.type)
-    end
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = ep.username .. " 弃牌阶段弃置 " .. discard_count ..
-                  " 张：" .. table.concat(discarded, "/")
-    }))
-end
-
 -- 处理玩家的弃牌选择（在线手动弃牌）
 function M.handle_discard_response(dispatcher, state, uid, payload)
     local act = state.pending_action
@@ -795,14 +797,16 @@ function M.handle_discard_response(dispatcher, state, uid, payload)
         -- 无效响应，视为放弃选择，自动从末尾弃
         auto_discard_from_end(dispatcher, state, uid, act.discard_count)
     else
-        -- 构建手牌 id→card 映射，验证每张牌都在手中
+        -- 构建手牌 id→card 映射，同时检测重复 id（重复则校验失败）
         local hand_by_id = {}
         for _, c in ipairs(ep.hand) do
             hand_by_id[c.id] = c
         end
         local valid = true
+        local seen = {}
         for _, cid in ipairs(payload.card_ids) do
-            if not hand_by_id[cid] then valid = false; break end
+            if not hand_by_id[cid] or seen[cid] then valid = false; break end
+            seen[cid] = true
         end
         if not valid then
             auto_discard_from_end(dispatcher, state, uid, act.discard_count)

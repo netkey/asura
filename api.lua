@@ -374,7 +374,7 @@ local function admin_set_free_event(context, payload)
         end
     end
 
-    pcall(nk.storage_write, {{
+    local ok_w = pcall(nk.storage_write, {{
         collection       = "events",
         key              = "free_heroes",
         user_id          = nil,
@@ -383,6 +383,9 @@ local function admin_set_free_event(context, payload)
         permission_read  = 2,  -- 所有人可读（客户端可查询活动列表）
         permission_write = 0,
     }})
+    if not ok_w then
+        return nk.json_encode({ success = false, error = "storage_write_failed" })
+    end
 
     return nk.json_encode({ success = true, active_events = events })
 end
