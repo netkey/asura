@@ -40,9 +40,9 @@ function M.on_response(dispatcher, state, player_id, payload)
     local player = state.players[player_id]
 
     local to_discard = {}
-    local seen = {}  -- 防客户端传重複 card_id 少弃牌
+    local seen = {}
     for _, card_id in ipairs(payload.card_ids) do
-        if type(card_id) ~= "string" or seen[card_id] then break end
+        if type(card_id) ~= "string" or seen[card_id] then goto continue end
         seen[card_id] = true
         for _, card in ipairs(player.hand) do
             if card.id == card_id then
@@ -51,6 +51,7 @@ function M.on_response(dispatcher, state, player_id, payload)
             end
         end
         if #to_discard >= 2 then break end
+        ::continue::
     end
 
     if #to_discard >= 2 then
@@ -67,8 +68,8 @@ function M.on_response(dispatcher, state, player_id, payload)
             content = string.format("%s 发动【神灯】，弃置2张牌并摸2张牌！", player.username),
             hero = "aladdin", skill = "shen_deng"
         }))
-        rules.broadcast_update(dispatcher, state)
     end
+    rules.broadcast_update(dispatcher, state)
 end
 
 return M
