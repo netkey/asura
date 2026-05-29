@@ -596,9 +596,12 @@ end
 
 function M.check_victory(dispatcher, state)
     if state.mode == "pvp" then
+        local alive = 0
+        local winner
         for _, p in pairs(state.players) do
-            if p.health <= 0 then return true, "PVP_WIN" end
+            if p.health > 0 then alive = alive + 1; winner = p.id end
         end
+        if alive <= 1 then return true, winner end
         return false, nil
     end
 
@@ -1298,7 +1301,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
     elseif action.type == "WAITING_FOR_BORROW_WEAPON" then
         if player_id ~= action.target_id then return end
         local target_p = state.players[action.target_id]
-        if not target_p then state.pending_action = nil; return end
+        if not target_p then state.pending_action = nil; M.broadcast_update(dispatcher, state); return end
 
         if payload.confirm == true and type(payload.card_id) == "string" then
             -- 试图出杀

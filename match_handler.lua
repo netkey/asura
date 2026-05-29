@@ -349,6 +349,8 @@ local function auto_resolve_pending(dispatcher, state)
             if not found then
                 rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
             end
+        elseif not rescuer_id then
+            -- rescuer_idx 越界（P3 边缘），跳过，deadline 兜底
         else
             -- 救援者已死亡，跳过并继续链中的下一个救援者
             rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
@@ -916,7 +918,11 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
         log_info(state, current_p.username .. " 跳过出牌阶段")
         M.next_turn(dispatcher, state)
     else
-        hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
+        local suspended = hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
+        if suspended then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
     end
 end
 
