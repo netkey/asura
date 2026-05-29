@@ -62,7 +62,10 @@ function M.on_response(dispatcher, state, player_id, payload)
     local rules = require("game_rules")
     local player    = state.players[player_id]
     local attacker  = state.players[action.attacker_id]
-    if not player or not attacker then return end
+    if not player or not attacker then
+        rules.broadcast_update(dispatcher, state)
+        return
+    end
 
     -- 1. 弃置自己选择的1张牌（代价）
     local cost_paid = false
@@ -73,7 +76,10 @@ function M.on_response(dispatcher, state, player_id, payload)
             break
         end
     end
-    if not cost_paid then return end
+    if not cost_paid then
+        rules.broadcast_update(dispatcher, state)
+        return
+    end
 
     -- 2. 弃置攻击者被选择的那张牌
     for i, c in ipairs(attacker.hand) do

@@ -29,6 +29,7 @@ end
 function M.on_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
     if not action or action.type ~= "IBN_BATTUTA_YUAN_XING" then return end
+    if action.player_id ~= player_id then return end
 
     if payload.confirm ~= true then
         state.pending_action = nil

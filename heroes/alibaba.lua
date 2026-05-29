@@ -84,6 +84,7 @@ function M.on_response(dispatcher, state, player_id, payload)
             -- 攻击者可能已阵亡，跳过反击
             if not state.players[attacker_id] then
                 state.pending_action = nil
+                rules.broadcast_update(dispatcher, state)
                 return
             end
 
@@ -98,6 +99,7 @@ function M.on_response(dispatcher, state, player_id, payload)
     -- 只在 apply_damage 未触发濒死救援时才清除，避免覆盖 WAITING_FOR_RESCUE
     if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
         state.pending_action = nil
+        rules.broadcast_update(dispatcher, state)
     end
 end
 
