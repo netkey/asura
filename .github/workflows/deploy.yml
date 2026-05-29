@@ -31,6 +31,37 @@ jobs:
       - name: Start services
         run: docker compose -f /data/nakama/docker-compose.yml up -d
 
+      - name: Graceful restart Nakama to load new Lua modules
+        env:
+          DRAIN_WAIT: 300  # 等待现有对局自然结束的最大秒数
+        run: |
+          set -e
+          CID=$(docker compose -f /data/nakama/docker-compose.yml ps -q nakama)
+          if [ -z "$CID" ]; then
+            echo "Nakama 未运行，直接启动"
+            docker compose -f /data/nakama/docker-compose.yml up -d nakama
+            exit 0
+          fi
+
+          # 1. 标记对局为"不可加入"（通过更新 label）
+          #    当前 deploy 流程依赖 rsync 后重启生效，无法动态关闭匹配
+
+          # 2. 发送 SIGTERM 启动排空
+          echo "正在排空现有对局（最长 ${DRAIN_WAIT}s）..."
+          docker kill --signal SIGTERM "$CID" 2>/dev/null || true
+
+          # 3. 等待进程退出（排空完成或超时）
+          if timeout "$DRAIN_WAIT" docker wait "$CID" >/dev/null 2>&1; then
+            echo "对局已全部关闭，Nakama 正常退出"
+          else
+            echo "排空超时 ${DRAIN_WAIT}s，强制关闭（未结束的对局将丢失）"
+            docker kill "$CID" 2>/dev/null || true
+          fi
+
+          # 4. 启动新版本
+          docker compose -f /data/nakama/docker-compose.yml up -d nakama
+          echo "新版本已启动"
+
       - name: Health check
         run: |
           for i in $(seq 1 30); do

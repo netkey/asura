@@ -7,6 +7,20 @@ local season_mgr = require("season_manager")
 
 local M = {}
 
+-- 辅助：调用阶段钩子，若返回 true（技能创建了 pending_action），
+-- 设置 continuation + broadcast 后返回 true，由 match_loop 下轮恢复
+local function trigger_phase_hook(dispatcher, state, uid, hook_name, continuation_key)
+    local suspended = hero_mgr.trigger(hook_name, dispatcher, state, uid)
+    if suspended then
+        if continuation_key then
+            state[continuation_key] = {uid = uid}
+        end
+        rules.broadcast_update(dispatcher, state)
+        return true
+    end
+    return false
+end
+
 -- 游戏状态定义
 local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
 
@@ -349,10 +363,7 @@ local function auto_resolve_pending(dispatcher, state)
             if not found then
                 rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
             end
-        elseif not rescuer_id then
-            -- rescuer_idx 越界（P3 边缘），跳过，deadline 兜底
-        else
-            -- 救援者已死亡，跳过并继续链中的下一个救援者
+        elseif rescuer_id then  -- 救援者已死亡，跳过并继续链中的下一个救援者
             rules.handle_response(dispatcher, state, rescuer_id, { confirm = false })
         end
     elseif act.type == "WAITING_FOR_TRICK_SELECT" then
@@ -611,7 +622,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                     current_p.skip_play_phase = nil
                     M.next_turn(dispatcher, state)
                 else
-                    hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
+                    trigger_phase_hook(dispatcher, state, uid, "on_play_phase_start")
                 end
             end
             return state
@@ -852,11 +863,7 @@ function M.finish_turn_end_continue(dispatcher, state, ending_uid)
     -- 2. 判定阶段 (判定前触发 + 延时锦囊处理)
     -- ==========================================
     -- 判定阶段前触发哈基姆【星象】（在延时锦囊之前，星象可影响判定牌顺序）
-    local suspended = hero_mgr.trigger("on_judgment_phase_start", dispatcher, state, uid)
-    if suspended then
-        state.pending_turn_continuation = {uid = uid}
-        return
-    end
+    if trigger_phase_hook(dispatcher, state, uid, "on_judgment_phase_start", "pending_turn_continuation") then return end
 
     -- 再处理延时锦囊（max_iter 防止无限循环）
     local delayed_iter = 0
@@ -897,11 +904,7 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
     -- 回合计数（供 season_manager 写入 match_history）
     state.turns = (state.turns or 0) + 1
 
-    local draw_suspended = hero_mgr.trigger("on_draw_phase_start", dispatcher, state, uid)
-    if draw_suspended then
-        state.pending_draw_continuation = {uid = uid}
-        return
-    end
+    if trigger_phase_hook(dispatcher, state, uid, "on_draw_phase_start", "pending_draw_continuation") then return end
 
     -- 兵粮寸断跳过摸牌阶段
     if current_p.skip_draw_phase then
@@ -918,11 +921,7 @@ function M.do_judgment_and_draw_phase(dispatcher, state)
         log_info(state, current_p.username .. " 跳过出牌阶段")
         M.next_turn(dispatcher, state)
     else
-        local suspended = hero_mgr.trigger("on_play_phase_start", dispatcher, state, uid)
-        if suspended then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
+        if trigger_phase_hook(dispatcher, state, uid, "on_play_phase_start") then return end
     end
 end
 
