@@ -4,63 +4,83 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      TAG: ${{ steps.build.outputs.TAG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        id: build
+        run: |
+          TAG=$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA:0:6}
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          docker build -t ghcr.io/netkey/asura:$TAG .
+          echo "Built tag: $TAG"
+
+      - name: Push to ghcr.io
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/netkey/asura:${{ steps.build.outputs.TAG }}
+
   deploy:
+    needs: build
     runs-on: self-hosted
     env:
-      APP_DIR: /data/nakama/data/modules  # 映射到容器 /nakama/data/modules
+      NAKAMA_SRV_KEY: ${{ secrets.NAKAMA_SERVER_KEY || 'defaultkey' }}
+      GRACE: 120
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Sync code to modules dir
+      - name: Drain — 阻止新对局并通知现有对局排空
+        continue-on-error: true
         run: |
-          mkdir -p "$APP_DIR"
-          # 清理旧 demo 文件（避免 Nakama 启动时加载执行顶层代码）
-          rm -f "$APP_DIR"/demo*.lua
-          rsync -a --delete \
-            --exclude='.git/' --exclude='.github/' --exclude='.luacheckrc' \
-            --exclude='CLAUDE.md' --exclude='README.md' \
-            --exclude='.mcp.json' --exclude='demo*.lua' \
-            $GITHUB_WORKSPACE/ "$APP_DIR/"
+          echo "--- 排空开始（最长 ${GRACE}s）---"
+          curl -s -X POST "http://localhost:7350/v2/rpc/admin_drain?http_key=${NAKAMA_SRV_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"grace\":$GRACE}"
 
-      - name: Sync docker-compose.yml
-        run: |
-          cp $GITHUB_WORKSPACE/docker-compose.yml /data/nakama/docker-compose.yml
-
-      - name: Start services
-        run: docker compose -f /data/nakama/docker-compose.yml up -d
-
-      - name: Graceful restart Nakama to load new Lua modules
+      - name: Wait — 轮询等待对局结束
         env:
-          DRAIN_WAIT: 300  # 等待现有对局自然结束的最大秒数
+          DRAIN_START: ${{ github.run_id }}  # 仅用作唯一标记
         run: |
-          set -e
-          CID=$(docker compose -f /data/nakama/docker-compose.yml ps -q nakama)
-          if [ -z "$CID" ]; then
-            echo "Nakama 未运行，直接启动"
-            docker compose -f /data/nakama/docker-compose.yml up -d nakama
-            exit 0
-          fi
+          END=$((SECONDS + GRACE))
+          while [ $SECONDS -lt $END ]; do
+            count=$(curl -s -X POST \
+              "http://localhost:7350/v2/rpc/admin_get_match_count?http_key=${NAKAMA_SRV_KEY}" \
+              -H 'Content-Type: application/json' -d '{}' | \
+              python3 -c "import sys,json; print(json.load(sys.stdin).get('count',1))" 2>/dev/null || echo 1)
+            if [ "$count" -eq 0 ]; then
+              echo "所有对局已结束（耗时 ${SECONDS}s）"
+              break
+            fi
+            echo "等待 ${count} 个对局结束...（已等 ${SECONDS}s）"
+            sleep 5
+          done
+          echo "排空阶段完成（共等待 ${SECONDS}s）"
 
-          # 1. 标记对局为"不可加入"（通过更新 label）
-          #    当前 deploy 流程依赖 rsync 后重启生效，无法动态关闭匹配
-
-          # 2. 发送 SIGTERM 启动排空
-          echo "正在排空现有对局（最长 ${DRAIN_WAIT}s）..."
-          docker kill --signal SIGTERM "$CID" 2>/dev/null || true
-
-          # 3. 等待进程退出（排空完成或超时）
-          if timeout "$DRAIN_WAIT" docker wait "$CID" >/dev/null 2>&1; then
-            echo "对局已全部关闭，Nakama 正常退出"
-          else
-            echo "排空超时 ${DRAIN_WAIT}s，强制关闭（未结束的对局将丢失）"
-            docker kill "$CID" 2>/dev/null || true
-          fi
-
-          # 4. 启动新版本
-          docker compose -f /data/nakama/docker-compose.yml up -d nakama
-          echo "新版本已启动"
+      - name: Roll — 更新 docker-compose.yml 并重启
+        env:
+          TAG: ${{ needs.build.outputs.TAG }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          # 写入具体 tag 到 VPS 的 docker-compose.yml
+          sed -i "s|image: ghcr.io/netkey/asura:.*|image: ghcr.io/netkey/asura:${TAG}|" \
+            /data/nakama/docker-compose.yml
+          docker compose -f /data/nakama/docker-compose.yml pull nakama
+          docker compose -f /data/nakama/docker-compose.yml up -d
 
       - name: Health check
         run: |
@@ -73,3 +93,9 @@ jobs:
           done
           echo "Health check failed"
           exit 1
+
+      - name: Undrain — 恢复匹配
+        run: |
+          curl -s -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=${NAKAMA_SRV_KEY}" \
+            -H 'Content-Type: application/json' -d '{}'
+          echo "匹配已恢复"

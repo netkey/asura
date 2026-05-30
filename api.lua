@@ -53,9 +53,19 @@ end
 local VALID_MODES = {pvp = true, identity = true}
 local VALID_PLAYER_COUNTS = {[2] = true, [5] = true}
 
+local function is_draining()
+    local objects = nk.storage_read({{
+        collection = "ops", key = "drain", user_id = nil
+    }})
+    return #objects > 0 and objects[1].value and objects[1].value.active == true
+end
+
 local function find_or_create_match(context, payload)
     if not rate_limiter.check(nk, context.user_id, "find_or_create_match", 10, 60) then
         return nk.json_encode({ success = false, error = "too_many_requests" })
+    end
+    if is_draining() then
+        return nk.json_encode({ success = false, error = "maintenance" })
     end
     local ok, json = pcall(nk.json_decode, payload)
     if not ok or type(json) ~= "table" then
@@ -457,6 +467,70 @@ local function admin_set_config(context, payload)
     return nk.json_encode({ success = true, effective_config = effective })
 end
 nk.register_rpc(safe_rpc(admin_set_config), "admin_set_config")
+
+-- ==========================================
+-- 管理员排空对局（仅限服务端调用）
+-- payload: { "grace": 120 }  可选，默认 120 秒
+-- 写入 drain flag → match_signal 推送给所有活跃对局
+-- ==========================================
+local function admin_drain(context, payload)
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    local json  = nk.json_decode(payload)
+    local grace = tonumber(json and json.grace) or 120
+
+    -- 写入 drain flag（阻止新对局）
+    nk.storage_write({{
+        collection       = "ops",
+        key              = "drain",
+        user_id          = nil,
+        value            = { active = true, started_at = os.time() },
+        version          = "*",
+        permission_read  = 1,
+        permission_write = 0,
+    }})
+
+    -- 查询所有活跃 match，通过 match_signal 触发排空
+    local matches = nk.match_list(100, true)
+    local sent = 0
+    for _, m in ipairs(matches) do
+        pcall(nk.match_signal, m.match_id,
+            nk.json_encode({ event = "drain", grace = grace }))
+        sent = sent + 1
+    end
+
+    return nk.json_encode({ success = true, active_matches = sent, grace = grace })
+end
+nk.register_rpc(safe_rpc(admin_drain), "admin_drain")
+
+-- 解除排空
+local function admin_undrain(context, payload)
+    local is_admin = (context.env and context.env["__nakama_admin"] == "true")
+        or not context.user_id or context.user_id == ""
+    if not is_admin then
+        return nk.json_encode({ success = false, error = "需要管理员权限" })
+    end
+
+    nk.storage_delete({{
+        collection = "ops", key = "drain", user_id = nil
+    }})
+
+    return nk.json_encode({ success = true })
+end
+nk.register_rpc(safe_rpc(admin_undrain), "admin_undrain")
+
+-- 查询当前活跃对局数（供 deploy 脚本轮询排空进度）
+local function admin_get_match_count(context, payload)
+    local matches = nk.match_list(100, true)
+    local count = 0
+    for _, _ in ipairs(matches) do count = count + 1 end
+    return nk.json_encode({ count = count })
+end
+nk.register_rpc(safe_rpc(admin_get_match_count), "admin_get_match_count")
 
 -- ==========================================
 -- 查询当前赛季信息（公开）

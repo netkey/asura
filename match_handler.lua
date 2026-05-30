@@ -1129,6 +1129,22 @@ function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
     log_info(state, string.format("服务器关闭通知已发送，排空剩余 %d 秒", grace_seconds))
     return state
 end
-function M.match_signal(context, dispatcher, tick, state, data) return state, data end
+function M.match_signal(context, dispatcher, tick, state, data)
+    local ok, signal = pcall(nk.json_decode, data)
+    if ok and type(signal) == "table" and signal.event == "drain" then
+        local grace = tonumber(signal.grace) or 120
+        if not state.pending_shutdown then
+            state.pending_shutdown = os.time() + grace
+            dispatcher.broadcast_message(99, nk.json_encode({
+                event = "server_shutdown",
+                message = string.format("服务器即将维护，对局将在 %d 秒后结束", grace),
+                grace_seconds = grace,
+            }))
+            log_info(state, string.format("收到 drain 信号，排空剩余 %d 秒", grace))
+        end
+        return state, "draining"
+    end
+    return state, data
+end
 
 return M
