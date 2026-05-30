@@ -628,6 +628,13 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             return state
         end
 
+        -- 当前回合玩家已死，强制跳回合（决斗反杀/反击等场景）
+        local current_p = state.players[state.current_turn_id]
+        if not current_p or current_p.health <= 0 then
+            M.next_turn(dispatcher, state)
+            return state
+        end
+
         state.current_turn_elapsed = state.current_turn_elapsed + 1
 
         -- 计算有效超时：全断线 → 3s，连续托管≥3 → 5s，否则正常30s
@@ -711,6 +718,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         dispatcher.broadcast_message(30, nk.json_encode({winner = winner}))
         season_mgr.record_match(nk, state, winner)
         clear_all_player_status(state)
+        return nil
     end
 
     return state
