@@ -1,4 +1,4 @@
-FROM registry.heroiclabs.com/heroiclabs/nakama:3.22.0
+FROM ghcr.io/netkey/nakama-base:3.22.0
 
 # 拷贝 Lua 模块到 runtime path（不含 demo*.lua）
 COPY *.lua /nakama/data/modules/
