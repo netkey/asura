@@ -48,6 +48,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # 从运行中容器的 environment 读取实际的 http_key
+      # 容器有 NAKAMA_SERVER_KEY 环境变量（536a2bc 起已暴露）
       # 若容器未运行则跳过排空（部署完成后直接启动新容器）
       - name: Check Nakama & read server key
         id: nkkey
@@ -58,8 +59,12 @@ jobs:
             echo "Nakama 未运行，跳过排空步骤"
             exit 0
           fi
-          # 从 docker-compose.yml 环境变量读取 key（已在 environment: 中暴露）
-          KEY=$(grep -oP 'NAKAMA_SERVER_KEY:\s+\$\{.*:-\K[^}]+' /data/nakama/docker-compose.yml 2>/dev/null || true)
+          # 从运行中容器读取实际 key
+          KEY=$(docker exec nakama printenv NAKAMA_SERVER_KEY 2>/dev/null || true)
+          # 兜底：从仓库版本 docker-compose.yml 解析默认值
+          if [ -z "$KEY" ] && [ -f "${GITHUB_WORKSPACE}/docker-compose.yml" ]; then
+            KEY=$(grep -oP 'NAKAMA_SERVER_KEY:\s+\$\{.*:-\K[^}]+' "${GITHUB_WORKSPACE}/docker-compose.yml" 2>/dev/null || true)
+          fi
           echo "KEY=${KEY:-defaultkey}" >> $GITHUB_OUTPUT
           echo "RUNNING=true" >> $GITHUB_OUTPUT
           echo "读取到 NAKAMA_SERVER_KEY"
