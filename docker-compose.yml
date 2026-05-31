@@ -42,6 +42,7 @@ services:
         --runtime.path /nakama/data/modules
         --session.token_expiry_sec 7200
         --socket.server_key ${NAKAMA_SERVER_KEY:-defaultkey}
+        --runtime.http_key ${NAKAMA_SERVER_KEY:-defaultkey}
     ports:
       - "7349:7349"  # gRPC
       - "7350:7350"  # HTTP API
