@@ -127,7 +127,7 @@ jobs:
           sed -i "s|image: ghcr.io/netkey/asura:latest|image: ghcr.io/netkey/asura:${TAG}|" \
             /data/nakama/docker-compose.yml
           docker compose -f /data/nakama/docker-compose.yml pull nakama
-          docker compose -f /data/nakama/docker-compose.yml up -d
+          docker compose -f /data/nakama/docker-compose.yml up -d --force-recreate nakama
 
       - name: Health check
         run: |
