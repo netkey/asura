@@ -483,8 +483,12 @@ local function admin_drain(context, payload)
     local grace = 120
     if payload and payload ~= "" then
         local ok, parsed = pcall(nk.json_decode, payload)
-        if ok and type(parsed) == "number" then
-            grace = parsed
+        if ok then
+            if type(parsed) == "number" then
+                grace = parsed
+            elseif type(parsed) == "string" then
+                grace = tonumber(parsed) or grace
+            end
         end
     end
 

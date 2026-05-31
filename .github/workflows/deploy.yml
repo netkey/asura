@@ -87,7 +87,7 @@ jobs:
           for i in 1 2 3; do
             if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_drain?http_key=${KEY}" \
               -H 'Content-Type: application/json' \
-              -d "$GRACE"; then
+              -d "\"$GRACE\""; then
               echo "排空信号已发送"
               break
             fi
