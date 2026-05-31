@@ -59,9 +59,17 @@ jobs:
             echo "Nakama 未运行，跳过排空步骤"
             exit 0
           fi
-          # 从运行中容器读取实际 key
-          KEY=$(docker exec nakama printenv NAKAMA_SERVER_KEY 2>/dev/null || true)
-          # 兜底：从仓库版本 docker-compose.yml 解析默认值
+          # 读取实际 NAKAMA_SERVER_KEY，优先级：
+          # 1. VPS /data/nakama/.env（docker-compose 变量覆盖源）
+          # 2. 运行中容器环境变量（536a2bc 起已暴露）
+          # 3. docker-compose.yml 默认值
+          KEY=""
+          if [ -f "/data/nakama/.env" ]; then
+            KEY=$(grep -oP '^NAKAMA_SERVER_KEY=\K.+' /data/nakama/.env 2>/dev/null || true)
+          fi
+          if [ -z "$KEY" ]; then
+            KEY=$(docker exec nakama printenv NAKAMA_SERVER_KEY 2>/dev/null || true)
+          fi
           if [ -z "$KEY" ] && [ -f "${GITHUB_WORKSPACE}/docker-compose.yml" ]; then
             KEY=$(grep -oP 'NAKAMA_SERVER_KEY:\s+\$\{.*:-\K[^}]+' "${GITHUB_WORKSPACE}/docker-compose.yml" 2>/dev/null || true)
           fi
@@ -110,7 +118,6 @@ jobs:
       - name: Roll — 更新 docker-compose.yml 并重启
         env:
           TAG: ${{ needs.build.outputs.TAG }}
-          KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -118,12 +125,8 @@ jobs:
           sed -i "s|image: ghcr.io/netkey/asura:.*|image: ghcr.io/netkey/asura:${TAG}|" \
             /data/nakama/docker-compose.yml
           docker compose -f /data/nakama/docker-compose.yml pull nakama
-          # 保持 server key 与旧容器一致（未运行时不传，走 docker-compose 默认值）
-          if [ -n "${KEY}" ]; then
-            NAKAMA_SERVER_KEY="$KEY" docker compose -f /data/nakama/docker-compose.yml up -d
-          else
-            docker compose -f /data/nakama/docker-compose.yml up -d
-          fi
+          # 不传 NAKAMA_SERVER_KEY，docker-compose 自动从 .env 读取
+          docker compose -f /data/nakama/docker-compose.yml up -d
 
       - name: Health check
         run: |
@@ -138,15 +141,21 @@ jobs:
           exit 1
 
       - name: Undrain — 恢复匹配
-        if: steps.nkkey.outputs.RUNNING == 'true'
         env:
           KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
-          for i in 1 2 3; do
-            if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=${KEY}" \
+          # 尝试多个 key 源（主 key 可能被 .env 覆盖）
+          for key in "$KEY" "$(grep -oP '^NAKAMA_SERVER_KEY=\K.+' /data/nakama/.env 2>/dev/null)" "defaultkey"; do
+            [ -z "$key" ] && continue
+            if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=$key" \
               -H 'Content-Type: application/json' -d '{}'; then
               echo "匹配已恢复"
-              break
+              exit 0
             fi
-            sleep 3
           done
+          # 所有 key 都失败：直连 Postgres 清理 drain flag（最可靠兜底）
+          echo "警告：所有 http_key 认证失败，直连 Postgres 清理..."
+          docker exec postgres psql -U postgres -d nakama -c \
+            "DELETE FROM storage WHERE collection='ops' AND key='drain';" \
+            2>/dev/null && echo "drain flag 已清理" \
+            || echo "警告：无法清 drain flag，匹配可能被阻断"
