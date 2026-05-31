@@ -28,7 +28,7 @@ jobs:
       - name: Build Docker image
         id: build
         run: |
-          TAG=$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA:0:6}
+          TAG=$(date -u +%Y%m%d%H%M)-${GITHUB_SHA:0:6}
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           docker build -t ghcr.io/netkey/asura:$TAG .
           echo "Built tag: $TAG"
