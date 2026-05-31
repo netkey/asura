@@ -51,6 +51,7 @@ services:
       - "7350"
       - "7351"
     environment:
+      NAKAMA_SERVER_KEY:      ${NAKAMA_SERVER_KEY:-defaultkey}
       APPLE_IAP_SECRET:      ${APPLE_IAP_SECRET:-}
       GOOGLE_CLIENT_ID:      ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET:  ${GOOGLE_CLIENT_SECRET:-}

@@ -47,20 +47,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 从运行中的容器读取实际的 http_key，避免 hardcode
-      - name: Read Nakama server key
+      # 从运行中容器的 environment 读取实际的 http_key
+      # 若容器未运行则跳过排空（部署完成后直接启动新容器）
+      - name: Check Nakama & read server key
         id: nkkey
-        continue-on-error: true
         run: |
-          KEY=$(docker exec nakama env 2>/dev/null | grep NAKAMA_SERVER_KEY | cut -d= -f2- || true)
-          if [ -z "$KEY" ]; then
-            # 兜底：从 docker-compose.yml 提取默认值
-            RAW=$(grep -oP 'NAKAMA_SERVER_KEY:-?\K[^}]+' /data/nakama/docker-compose.yml 2>/dev/null || echo "defaultkey")
-            KEY="${RAW:-defaultkey}"
+          CID=$(docker ps -q -f name=nakama 2>/dev/null || true)
+          if [ -z "$CID" ]; then
+            echo "RUNNING=false" >> $GITHUB_OUTPUT
+            echo "Nakama 未运行，跳过排空步骤"
+            exit 0
           fi
-          echo "KEY=$KEY" >> $GITHUB_OUTPUT
+          # 从 docker-compose.yml 环境变量读取 key（已在 environment: 中暴露）
+          KEY=$(grep -oP 'NAKAMA_SERVER_KEY:\s+\$\{.*:-\K[^}]+' /data/nakama/docker-compose.yml 2>/dev/null || true)
+          echo "KEY=${KEY:-defaultkey}" >> $GITHUB_OUTPUT
+          echo "RUNNING=true" >> $GITHUB_OUTPUT
+          echo "读取到 NAKAMA_SERVER_KEY"
 
       - name: Drain — 阻止新对局并通知现有对局排空
+        if: steps.nkkey.outputs.RUNNING == 'true'
         env:
           KEY: ${{ steps.nkkey.outputs.KEY }}
         continue-on-error: true
@@ -78,6 +83,7 @@ jobs:
           done
 
       - name: Wait — 轮询等待对局结束
+        if: steps.nkkey.outputs.RUNNING == 'true'
         env:
           KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
@@ -107,8 +113,12 @@ jobs:
           sed -i "s|image: ghcr.io/netkey/asura:.*|image: ghcr.io/netkey/asura:${TAG}|" \
             /data/nakama/docker-compose.yml
           docker compose -f /data/nakama/docker-compose.yml pull nakama
-          # 保持 server key 与旧容器一致
-          NAKAMA_SERVER_KEY="$KEY" docker compose -f /data/nakama/docker-compose.yml up -d
+          # 保持 server key 与旧容器一致（未运行时不传，走 docker-compose 默认值）
+          if [ -n "${KEY}" ]; then
+            NAKAMA_SERVER_KEY="$KEY" docker compose -f /data/nakama/docker-compose.yml up -d
+          else
+            docker compose -f /data/nakama/docker-compose.yml up -d
+          fi
 
       - name: Health check
         run: |
@@ -123,6 +133,7 @@ jobs:
           exit 1
 
       - name: Undrain — 恢复匹配
+        if: steps.nkkey.outputs.RUNNING == 'true'
         env:
           KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
