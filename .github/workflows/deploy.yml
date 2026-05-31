@@ -43,29 +43,49 @@ jobs:
     needs: build
     runs-on: self-hosted
     env:
-      NAKAMA_SRV_KEY: ${{ secrets.NAKAMA_SERVER_KEY || 'defaultkey' }}
       GRACE: 120
     steps:
       - uses: actions/checkout@v4
 
+      # 从运行中的容器读取实际的 http_key，避免 hardcode
+      - name: Read Nakama server key
+        id: nkkey
+        continue-on-error: true
+        run: |
+          KEY=$(docker exec nakama env 2>/dev/null | grep NAKAMA_SERVER_KEY | cut -d= -f2- || true)
+          if [ -z "$KEY" ]; then
+            # 从 docker-compose.yml 兜底读取
+            KEY=$(grep 'server_key' /data/nakama/docker-compose.yml | sed "s/.*server_key //" | tr -d '${}:-')
+          fi
+          echo "KEY=${KEY:-defaultkey}" >> $GITHUB_OUTPUT
+
       - name: Drain — 阻止新对局并通知现有对局排空
+        env:
+          KEY: ${{ steps.nkkey.outputs.KEY }}
         continue-on-error: true
         run: |
           echo "--- 排空开始（最长 ${GRACE}s）---"
-          curl -s -X POST "http://localhost:7350/v2/rpc/admin_drain?http_key=${NAKAMA_SRV_KEY}" \
-            -H 'Content-Type: application/json' \
-            -d "{\"grace\":$GRACE}"
+          for i in 1 2 3; do
+            if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_drain?http_key=${KEY}" \
+              -H 'Content-Type: application/json' \
+              -d "{\"grace\":$GRACE}"; then
+              echo "排空信号已发送"
+              break
+            fi
+            echo "重试 $i/3..."
+            sleep 3
+          done
 
       - name: Wait — 轮询等待对局结束
         env:
-          DRAIN_START: ${{ github.run_id }}  # 仅用作唯一标记
+          KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
           END=$((SECONDS + GRACE))
           while [ $SECONDS -lt $END ]; do
-            count=$(curl -s -X POST \
-              "http://localhost:7350/v2/rpc/admin_get_match_count?http_key=${NAKAMA_SRV_KEY}" \
-              -H 'Content-Type: application/json' -d '{}' | \
-              python3 -c "import sys,json; print(json.load(sys.stdin).get('count',1))" 2>/dev/null || echo 1)
+            body=$(curl -sf -X POST \
+              "http://localhost:7350/v2/rpc/admin_get_match_count?http_key=${KEY}" \
+              -H 'Content-Type: application/json' -d '{}' 2>/dev/null || echo '{"count":1}')
+            count=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',1))")
             if [ "$count" -eq 0 ]; then
               echo "所有对局已结束（耗时 ${SECONDS}s）"
               break
@@ -78,6 +98,7 @@ jobs:
       - name: Roll — 更新 docker-compose.yml 并重启
         env:
           TAG: ${{ needs.build.outputs.TAG }}
+          KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -85,7 +106,8 @@ jobs:
           sed -i "s|image: ghcr.io/netkey/asura:.*|image: ghcr.io/netkey/asura:${TAG}|" \
             /data/nakama/docker-compose.yml
           docker compose -f /data/nakama/docker-compose.yml pull nakama
-          docker compose -f /data/nakama/docker-compose.yml up -d
+          # 保持 server key 与旧容器一致
+          NAKAMA_SERVER_KEY="$KEY" docker compose -f /data/nakama/docker-compose.yml up -d
 
       - name: Health check
         run: |
@@ -100,7 +122,14 @@ jobs:
           exit 1
 
       - name: Undrain — 恢复匹配
+        env:
+          KEY: ${{ steps.nkkey.outputs.KEY }}
         run: |
-          curl -s -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=${NAKAMA_SRV_KEY}" \
-            -H 'Content-Type: application/json' -d '{}'
-          echo "匹配已恢复"
+          for i in 1 2 3; do
+            if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=${KEY}" \
+              -H 'Content-Type: application/json' -d '{}'; then
+              echo "匹配已恢复"
+              break
+            fi
+            sleep 3
+          done
