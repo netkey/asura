@@ -470,7 +470,7 @@ nk.register_rpc(safe_rpc(admin_set_config), "admin_set_config")
 
 -- ==========================================
 -- 管理员排空对局（仅限服务端调用）
--- payload: { "grace": 120 }  可选，默认 120 秒
+-- payload: 可选 JSON 数字指定 grace 秒数
 -- 写入 drain flag → match_signal 推送给所有活跃对局
 -- ==========================================
 local function admin_drain(context, payload)
@@ -480,8 +480,13 @@ local function admin_drain(context, payload)
         return nk.json_encode({ success = false, error = "需要管理员权限" })
     end
 
-    local json  = nk.json_decode(payload)
-    local grace = tonumber(json and json.grace) or 120
+    local grace = 120
+    if payload and payload ~= "" then
+        local ok, parsed = pcall(nk.json_decode, payload)
+        if ok and type(parsed) == "number" then
+            grace = parsed
+        end
+    end
 
     -- 写入 drain flag（阻止新对局）
     nk.storage_write({{

@@ -87,7 +87,7 @@ jobs:
           for i in 1 2 3; do
             if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_drain?http_key=${KEY}" \
               -H 'Content-Type: application/json' \
-              -d "{\"grace\":$GRACE}"; then
+              -d "$GRACE"; then
               echo "排空信号已发送"
               break
             fi
@@ -104,7 +104,7 @@ jobs:
           while [ $SECONDS -lt $END ]; do
             body=$(curl -sf -X POST \
               "http://localhost:7350/v2/rpc/admin_get_match_count?http_key=${KEY}" \
-              -H 'Content-Type: application/json' -d '{}' 2>/dev/null || echo '{"count":1}')
+              -H 'Content-Type: application/json' -d '""' 2>/dev/null || echo '{"count":1}')
             count=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',1))")
             if [ "$count" -eq 0 ]; then
               echo "所有对局已结束（耗时 ${SECONDS}s）"
@@ -149,7 +149,7 @@ jobs:
           for key in "$KEY" "$(grep -oP '^NAKAMA_SERVER_KEY=\K.+' /data/nakama/.env 2>/dev/null)" "defaultkey"; do
             [ -z "$key" ] && continue
             if curl -sf -X POST "http://localhost:7350/v2/rpc/admin_undrain?http_key=$key" \
-              -H 'Content-Type: application/json' -d '{}'; then
+              -H 'Content-Type: application/json' -d '""'; then
               echo "匹配已恢复"
               exit 0
             fi
