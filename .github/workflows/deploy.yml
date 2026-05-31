@@ -121,11 +121,12 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          # 写入具体 tag 到 VPS 的 docker-compose.yml
-          sed -i "s|image: ghcr.io/netkey/asura:.*|image: ghcr.io/netkey/asura:${TAG}|" \
+          # 写入完整的 docker-compose.yml（仓库版本=最新，含 NAKAMA_SERVER_KEY env、无 volume）
+          cp "${GITHUB_WORKSPACE}/docker-compose.yml" /data/nakama/docker-compose.yml
+          # 替换 image tag 为本次构建的具体版本
+          sed -i "s|image: ghcr.io/netkey/asura:latest|image: ghcr.io/netkey/asura:${TAG}|" \
             /data/nakama/docker-compose.yml
           docker compose -f /data/nakama/docker-compose.yml pull nakama
-          # 不传 NAKAMA_SERVER_KEY，docker-compose 自动从 .env 读取
           docker compose -f /data/nakama/docker-compose.yml up -d
 
       - name: Health check
