@@ -54,10 +54,11 @@ jobs:
         run: |
           KEY=$(docker exec nakama env 2>/dev/null | grep NAKAMA_SERVER_KEY | cut -d= -f2- || true)
           if [ -z "$KEY" ]; then
-            # 从 docker-compose.yml 兜底读取
-            KEY=$(grep 'server_key' /data/nakama/docker-compose.yml | sed "s/.*server_key //" | tr -d '${}:-')
+            # 兜底：从 docker-compose.yml 提取默认值
+            RAW=$(grep -oP 'NAKAMA_SERVER_KEY:-?\K[^}]+' /data/nakama/docker-compose.yml 2>/dev/null || echo "defaultkey")
+            KEY="${RAW:-defaultkey}"
           fi
-          echo "KEY=${KEY:-defaultkey}" >> $GITHUB_OUTPUT
+          echo "KEY=$KEY" >> $GITHUB_OUTPUT
 
       - name: Drain — 阻止新对局并通知现有对局排空
         env:
