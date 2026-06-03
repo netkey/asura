@@ -160,3 +160,12 @@ jobs:
             "DELETE FROM storage WHERE collection='ops' AND key='drain';" \
             2>/dev/null && echo "drain flag 已清理" \
             || echo "警告：无法清 drain flag，匹配可能被阻断"
+
+      - name: Notify Hermes to retest
+        run: |
+          if ! curl -sf http://localhost:9123/health > /dev/null 2>&1; then
+            nohup python3 /root/.hermes/scripts/retest_server.py \
+              > /tmp/retest_server.log 2>&1 &
+            sleep 2
+          fi
+          curl -sf -X POST http://localhost:9123/retest
