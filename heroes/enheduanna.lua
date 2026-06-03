@@ -93,11 +93,16 @@ function M.on_response(dispatcher, state, player_id, payload)
             -- 无效响应：取第一张手牌给第一个可选目标
             if player and #player.hand > 0 then
                 local card = table.remove(player.hand, 1)
+                local given = false
                 for uid, p in pairs(state.players) do
                     if uid ~= player_id and p.health > 0 then
                         table.insert(p.hand, card)
+                        given = true
                         break
                     end
+                end
+                if not given then
+                    table.insert(state.discard_pile, card)
                 end
             end
         else

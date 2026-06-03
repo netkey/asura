@@ -763,14 +763,22 @@ local function admin_start_season(context, payload)
         end_time       = end_time,
         leaderboard_id = lb_id,
     }
-    nk.storage_write({{
+    -- OCC 乐观锁写入，防并发覆盖
+    local cur_objs = nk.storage_read({{
+        collection = "season_config", key = "current", user_id = nil
+    }})
+    local ok_w = pcall(nk.storage_write, {{
         collection       = "season_config",
         key              = "current",
         user_id          = nil,
         value            = season,
+        version          = (#cur_objs > 0) and cur_objs[1].version or "*",
         permission_read  = 2,
         permission_write = 0,
     }})
+    if not ok_w then
+        return nk.json_encode({ success = false, error = "conflict_retry" })
+    end
 
     return nk.json_encode({ success = true, season = season })
 end
@@ -791,8 +799,8 @@ local function admin_end_season(context, payload)
         return nk.json_encode({ success = false, error = "当前没有进行中的赛季" })
     end
 
-    -- 归档：将当前赛季配置写入历史记录
-    nk.storage_write({{
+    -- 归档：将当前赛季配置写入历史记录（pcall 防异常截断）
+    local ok_archive = pcall(nk.storage_write, {{
         collection       = "season_config",
         key              = "archive_" .. season.season_id,
         user_id          = nil,
@@ -800,8 +808,11 @@ local function admin_end_season(context, payload)
         permission_read  = 2,
         permission_write = 0,
     }})
+    if not ok_archive then
+        return nk.json_encode({ success = false, error = "archive_write_failed" })
+    end
 
-    -- 删除 current 赛季配置
+    -- 归档成功后再删除 current
     nk.storage_delete({{ collection = "season_config", key = "current", user_id = nil }})
 
     return nk.json_encode({ success = true, archived_season = season.season_id })

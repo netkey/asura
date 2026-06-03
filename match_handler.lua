@@ -62,7 +62,7 @@ local function write_user_status(uid, match_id, status, mode, current_players, m
         updated_at      = os.time(),
     }
     -- 持久化到 storage（供 get_friends_status RPC 兜底拉取）
-    nk.storage_write({{
+    pcall(nk.storage_write, {{
         collection       = "user_status",
         key              = "current_match",
         user_id          = uid,
@@ -474,10 +474,12 @@ function M.perform_auto_play(dispatcher, state)
     if state.pending_action and state.pending_action.player_id == uid then
         if state.pending_action.type == "WAITING_FOR_DISCARD" then
             auto_discard_from_end(dispatcher, state, uid, state.pending_action.discard_count)
+            state.pending_action = nil
         else
-            rules.draw_cards(state, uid, 2)
+            -- 技能选择超时（如 ALADDIN_LAMP/HARUN_SELECT_TARGET），
+            -- 交由 auto_resolve_pending 按技能规则处理，而非 draw_cards 武断清空
+            auto_resolve_pending(dispatcher, state)
         end
-        state.pending_action = nil
     end
     -- perform_auto_play 将自行调用 next_turn 推进回合，清除任何挂起的弃牌续接标记
     state.pending_discard_continuation = nil
@@ -544,7 +546,9 @@ function M.perform_auto_play(dispatcher, state)
     if atk then
         local target_id, min_hp = nil, math.huge
         for other_id, other_p in pairs(state.players) do
-            if other_id ~= uid and other_p.health > 0 and other_p.health < min_hp then
+            if other_id ~= uid and other_p.health > 0
+                and other_p.health < min_hp
+                and rules.can_attack(state, uid, other_id) then
                 target_id = other_id
                 min_hp = other_p.health
             end
@@ -741,6 +745,14 @@ function M.next_turn(dispatcher, state)
     end
 
     local ending_uid = state.current_turn_id
+    -- 若轮到的死者有挂起的技能 pending_action，清除之——否则下一玩家的 broadcast_update
+    -- 会发出死者的 pending_action.type（如 ALADDIN_LAMP 出现在非 Aladdin 玩家）
+    if state.pending_action and state.pending_action.player_id == ending_uid then
+        local ep = state.players[ending_uid]
+        if not ep or ep.health <= 0 then
+            state.pending_action = nil
+        end
+    end
     -- 清除苏莱曼【御风】：目标回合结束时清除封锁
     if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == ending_uid then
         state.suleiman_yu_feng = nil
@@ -993,7 +1005,10 @@ function M.send_spectator_state(dispatcher, state, presence, target_player_id)
     local payload = {
         is_spectator = true,
         current_turn = state.current_turn_id,
-        pending      = state.pending_action,
+        pending      = state.pending_action and {
+            type     = state.pending_action.type,
+            deadline = state.pending_action.deadline,
+        } or nil,
         me = {  -- 旁观者"以目标视角"看自己
             hand            = target.hand,
             hp              = target.health,

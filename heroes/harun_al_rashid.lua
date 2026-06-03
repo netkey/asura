@@ -96,7 +96,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         local caster_id = action.caster_id
 
         if target and target.health > 0 then
-            if payload.confirm ~= false and payload.choose_discard and #target.hand > 0 then
+            if payload.confirm == true and payload.choose_discard and #target.hand > 0 then
                 local card = table.remove(target.hand, math.random(#target.hand))
                 table.insert(state.discard_pile, card)
                 dispatcher.broadcast_message(11, nk.json_encode({

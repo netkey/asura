@@ -219,8 +219,8 @@ function M.record_match(nk, state, winner)
             mode         = state.mode,
         })
 
-        -- 更新排行榜
-        nk.leaderboard_record_write(
+        -- 更新排行榜（pcall 防单玩家异常截断后续结算）
+        pcall(nk.leaderboard_record_write,
             season.leaderboard_id,
             uid,
             p.username,
