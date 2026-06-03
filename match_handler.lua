@@ -441,7 +441,7 @@ local function auto_resolve_pending(dispatcher, state)
         end
     elseif act.type == "BASIRA_DONG_CHA" then
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-    elseif act.type == "DHUL_SKILL_CHOICE" or act.type == "DHUL_WESTWARD_TARGET" or act.type == "DHUL_EASTWARD_TARGET" then
+    elseif act.type == "DHUL_SKILL_CHOICE" or act.type == "DHUL_WESTWARD_TARGET" or act.type == "DHUL_EASTWARD_TARGET" or act.type == "DHUL_WEST_EXTRA" or act.type == "DHUL_EAST_EXTRA" then
         -- 双角王技能超时：跳过
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
     elseif act.type == "WAITING_FOR_COUNTER" then

@@ -489,6 +489,7 @@ local CARD_EFFECTS = {
         }))
     end,
 }
+M.CARD_EFFECTS = CARD_EFFECTS
 
 -- ==========================================
 -- 2. AOE 通知
@@ -558,6 +559,8 @@ end
 -- 进攻马-1，防守马+1，二者叠加
 function M.can_attack(state, src_id, tgt_id)
     if src_id == tgt_id then return false end
+    -- 双角王【远疆-西行】：本回合杀无距离限制
+    if state.dhul_westward and state.dhul_westward[src_id] then return true end
     local dist = M.seat_distance(state, src_id, tgt_id)
     local src = state.players[src_id]
     if src and src.equipment.horse and src.equipment.horse.subtype == "offense" then
@@ -805,6 +808,10 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
         end
     end
 
+    -- ========== 前置校验通过，通知钩子（双角王记录卡牌供【远疆】额外目标使用） ==========
+    local hero_mgr = require("hero_manager")
+    hero_mgr.trigger("on_card_played", dispatcher, state, player_id, card)
+
     -- ========== 移除手牌 ==========
     table.remove(player.hand, card_idx)
 
@@ -1006,6 +1013,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
             if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
                 state.pending_action = nil
                 M.broadcast_update(dispatcher, state)
+                -- 攻击链完全结束（无濒死），通知 hook（双角王【远疆-西行】额外目标）
+                local hero_mgr = require("hero_manager")
+                hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
             end
         end
 
@@ -1155,6 +1165,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 end
             else
                 M.broadcast_update(dispatcher, state)
+                -- 攻击伤害导致的濒死救援结束（非 AOE），通知 hook（双角王额外目标）
+                local hero_mgr = require("hero_manager")
+                hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
             end
         end
 
@@ -1255,6 +1268,11 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
         state.pending_action = nil
         M.broadcast_update(dispatcher, state)
+        -- 锦囊效果已执行（过河拆桥/顺手牵羊），通知 hook（双角王【远疆-东行】额外目标）
+        if action.subtype ~= "borrow_weapon" then
+            local hero_mgr = require("hero_manager")
+            hero_mgr.trigger("on_trick_resolved", dispatcher, state, action.source_id, action.subtype)
+        end
 
     -- ==================== 无懈可击窗口 ====================
     elseif action.type == "WAITING_FOR_COUNTER" then
@@ -1378,6 +1396,8 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
     if not suspended then
         dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
         M.broadcast_update(dispatcher, state)
+        -- 攻击链完全结束，通知 hook（双角王【远疆-西行】额外目标）
+        hero_mgr.trigger("on_attack_resolved", dispatcher, state, attacker_id)
     end
 end
 

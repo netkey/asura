@@ -2,32 +2,18 @@ local nk = require("nakama")
 local M = {}
 
 -- 双角王（Dhul-Qarnayn）- 《古兰经》中的伟大君主，筑壁垒、征远疆
--- 技能：【筑壁】 出牌阶段将手牌铸为壁垒（最多3枚）；任意角色受伤时自动消耗壁垒减伤1并摸1张；准备阶段从弃牌堆回收1张牌铸为壁垒
--- 技能：【远疆】 出牌阶段：西行→弃1张牌对攻击范围内角色造成1点伤害；东行→弃1张牌令目标摸1弃1。各限1次/回合
+-- 技能：【筑壁】 出牌阶段铸手牌为壁垒（最多3枚）；任意角色受伤时自动消耗壁垒减伤1并摸1张；准备阶段从弃牌堆回收1张补壁
+-- 技能：【远疆】 弃1张牌声明方位：西行→本回合杀无距离限制+可额外指定1目标；东行→本回合非延时锦囊可额外选1目标
 
 local MAX_WALLS = 3
 
--- 准备阶段：从弃牌堆回收1张牌铸为壁垒（不占出牌阶段次数）
-function M.on_draw_phase_start(dispatcher, state, player_id)
-    local p = state.players[player_id]
-    if p.hero ~= "dhul_qarnayn" then return false end
-    if p.health <= 0 then return false end
+-- 辅助：本地 pending_action 函数（需在 on_play_phase_start 前定义）
+local function _offer_skills(dispatcher, state, player_id, p)
+    local can_wall = p.dhul_wall_count < MAX_WALLS and #p.hand > 0
+    local can_west = not p.dhul_west_used and #p.hand > 0
+    local can_east = not p.dhul_east_used and #p.hand > 0
+    if not can_wall and not can_west and not can_east then return end
 
-    p.dhul_wall_count = p.dhul_wall_count or 0
-    if p.dhul_wall_count >= MAX_WALLS then return false end
-    if #state.discard_pile == 0 then return false end
-
-    p.dhul_wall_count = p.dhul_wall_count + 1
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【筑壁】，从弃牌堆回收1张牌补为壁垒（%d/%d）",
-            p.username, p.dhul_wall_count, MAX_WALLS),
-        hero    = "dhul_qarnayn", skill = "zhu_bi"
-    }))
-    return false
-end
-
-local function _offer_skills(dispatcher, state, player_id, p, can_wall, can_west, can_east)
-    -- 本地函数，必须在 on_play_phase_start 之前定义
     state.pending_action = {
         type       = "DHUL_SKILL_CHOICE",
         player_id  = player_id,
@@ -49,7 +35,26 @@ local function _offer_skills(dispatcher, state, player_id, p, can_wall, can_west
     }), {state.presences[player_id]})
 end
 
--- 出牌阶段：提供技能选择菜单
+-- 准备阶段：从弃牌堆回收1张牌铸为壁垒（不占出牌阶段次数）
+function M.on_draw_phase_start(dispatcher, state, player_id)
+    local p = state.players[player_id]
+    if p.hero ~= "dhul_qarnayn" then return false end
+    if p.health <= 0 then return false end
+
+    p.dhul_wall_count = p.dhul_wall_count or 0
+    if p.dhul_wall_count >= MAX_WALLS then return false end
+    if #state.discard_pile == 0 then return false end
+
+    p.dhul_wall_count = p.dhul_wall_count + 1
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content = string.format("%s 发动【筑壁】，从弃牌堆回收1张牌补为壁垒（%d/%d）",
+            p.username, p.dhul_wall_count, MAX_WALLS),
+        hero    = "dhul_qarnayn", skill = "zhu_bi"
+    }))
+    return false
+end
+
+-- 出牌阶段：提供技能选择菜单（筑壁/西行/东行）
 function M.on_play_phase_start(dispatcher, state, player_id)
     local p = state.players[player_id]
     if p.hero ~= "dhul_qarnayn" then return false end
@@ -59,17 +64,108 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     p.dhul_west_used   = p.dhul_west_used   or false
     p.dhul_east_used   = p.dhul_east_used   or false
 
-    local can_wall = p.dhul_wall_count < MAX_WALLS and #p.hand > 0
-    local can_west = not p.dhul_west_used and #p.hand > 0
-    local can_east = not p.dhul_east_used and #p.hand > 0
-    if not can_wall and not can_west and not can_east then return false end
+    _offer_skills(dispatcher, state, player_id, p)
+    return true
+end
 
-    _offer_skills(dispatcher, state, player_id, p, can_wall, can_west, can_east)
+-- 记录玩家打出的牌，供【远疆】额外目标使用
+function M.on_card_played(dispatcher, state, player_id, card)
+    local p = state.players[player_id]
+    if p.hero ~= "dhul_qarnayn" then return end
+    if p.health <= 0 then return end
+
+    if state.dhul_westward and state.dhul_westward[player_id] and card.type == "ATTACK" then
+        if not state.dhul_west_extra_used or not state.dhul_west_extra_used[player_id] then
+            state._dhul_last_attack_card = card
+        end
+    end
+    if state.dhul_eastward and state.dhul_eastward[player_id] and card.type == "INSTANT_TRICK" then
+        if not state.dhul_east_extra_used or not state.dhul_east_extra_used[player_id] then
+            state._dhul_last_trick_card = { card = card, subtype = card.subtype }
+        end
+    end
+end
+
+-- 【远疆-西行】额外攻击目标：攻击链结束后调用
+function M.on_attack_resolved(dispatcher, state, attacker_id)
+    if not state.dhul_westward or not state.dhul_westward[attacker_id] then return false end
+    local p = state.players[attacker_id]
+    if not p or p.health <= 0 then return false end
+    if state.dhul_west_extra_used and state.dhul_west_extra_used[attacker_id] then return false end
+    if not state._dhul_last_attack_card then return false end
+
+    -- 找额外攻击目标（存活、非本人、攻击链中尚未成为目标可能会重复，但取决于先后）
+    local targets = {}
+    for uid, p2 in pairs(state.players) do
+        if uid ~= attacker_id and p2.health > 0 then
+            table.insert(targets, {id = uid, name = p2.username})
+        end
+    end
+    if #targets == 0 then return false end
+
+    state.dhul_west_extra_used = state.dhul_west_extra_used or {}
+    state.dhul_west_extra_used[attacker_id] = true
+
+    state.pending_action = {
+        type       = "DHUL_WEST_EXTRA",
+        player_id  = attacker_id,
+        hero_id    = "dhul_qarnayn",
+        card       = state._dhul_last_attack_card,
+        targets    = targets,
+        deadline   = os.time() + 15,
+    }
+
+    dispatcher.broadcast_message(101, nk.json_encode({
+        type        = "skill_choice",
+        skill       = "yuan_jiang_west",
+        description = "【远疆-西行】选择额外攻击目标",
+        targets     = targets,
+    }), {state.presences[attacker_id]})
+    return true
+end
+
+-- 【远疆-东行】额外锦囊目标：非延时锦囊效果执行后调用
+function M.on_trick_resolved(dispatcher, state, player_id, subtype)
+    if not state.dhul_eastward or not state.dhul_eastward[player_id] then return false end
+    local p = state.players[player_id]
+    if not p or p.health <= 0 then return false end
+    if state.dhul_east_extra_used and state.dhul_east_extra_used[player_id] then return false end
+    if not state._dhul_last_trick_card then return false end
+
+    -- 仅对单体锦囊支持额外目标
+    if subtype ~= "discard_one" and subtype ~= "steal_one" then return false end
+
+    local targets = {}
+    for uid, p2 in pairs(state.players) do
+        if uid ~= player_id and p2.health > 0 then
+            table.insert(targets, {id = uid, name = p2.username})
+        end
+    end
+    if #targets == 0 then return false end
+
+    state.dhul_east_extra_used = state.dhul_east_extra_used or {}
+    state.dhul_east_extra_used[player_id] = true
+
+    state.pending_action = {
+        type        = "DHUL_EAST_EXTRA",
+        player_id   = player_id,
+        hero_id     = "dhul_qarnayn",
+        trick_type  = subtype,
+        trick_card  = state._dhul_last_trick_card.card,
+        targets     = targets,
+        deadline    = os.time() + 15,
+    }
+
+    dispatcher.broadcast_message(101, nk.json_encode({
+        type        = "skill_choice",
+        skill       = "yuan_jiang_east",
+        description = "【远疆-东行】选择额外锦囊目标",
+        targets     = targets,
+    }), {state.presences[player_id]})
     return true
 end
 
 -- 任意角色受伤时自动消耗壁垒减伤
--- player_id 为受伤者，遍历全场找 dhul_qarnayn 的壁垒消耗
 function M.on_before_damage(dispatcher, state, target_id, amount, source_id)
     if amount <= 0 then return false end
     for _, p in pairs(state.players) do
@@ -109,16 +205,23 @@ function M.on_response(dispatcher, state, player_id, payload)
             return
         end
 
-        if payload.skill == "wall" then
-            p.dhul_wall_count = (p.dhul_wall_count or 0) + 1
-            if payload.card_id and type(payload.card_id) == "string" then
-                for i, c in ipairs(p.hand) do
-                    if c.id == payload.card_id then
-                        table.insert(state.discard_pile, table.remove(p.hand, i))
-                        break
-                    end
+        local cost_paid = false
+        if type(payload.card_id) == "string" then
+            for i, c in ipairs(p.hand) do
+                if c.id == payload.card_id then
+                    table.insert(state.discard_pile, table.remove(p.hand, i))
+                    cost_paid = true
+                    break
                 end
             end
+        end
+        if not cost_paid then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+
+        if payload.skill == "wall" then
+            p.dhul_wall_count = (p.dhul_wall_count or 0) + 1
             dispatcher.broadcast_message(11, nk.json_encode({
                 content = string.format("%s 发动【筑壁】，铸1张手牌为壁垒（%d/%d）",
                     p.username, p.dhul_wall_count, MAX_WALLS),
@@ -126,156 +229,92 @@ function M.on_response(dispatcher, state, player_id, payload)
             }))
 
         elseif payload.skill == "westward" then
-            state.pending_action = {
-                type       = "DHUL_WESTWARD_TARGET",
-                player_id  = player_id,
-                hero_id    = "dhul_qarnayn",
-                deadline   = os.time() + 15,
-            }
-            local targets = {}
-            for uid, p2 in pairs(state.players) do
-                if uid ~= player_id and p2.health > 0 and rules.can_attack(state, player_id, uid) then
-                    table.insert(targets, {id = uid, name = p2.username})
-                end
-            end
-            if #targets == 0 then
-                rules.broadcast_update(dispatcher, state)
-                return
-            end
-            dispatcher.broadcast_message(101, nk.json_encode({
-                type = "skill_choice",
-                skill = "yuan_jiang_west",
-                description = "【远疆-西行】选择目标造成1点伤害",
-                targets = targets,
-            }), {state.presences[player_id]})
-            return
+            state.dhul_westward = state.dhul_westward or {}
+            state.dhul_westward[player_id] = true
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = string.format("%s 发动【远疆-西行】，本回合【杀】无距离限制且可额外指定1个目标",
+                    p.username),
+                hero = "dhul_qarnayn", skill = "yuan_jiang"
+            }))
 
         elseif payload.skill == "eastward" then
-            state.pending_action = {
-                type       = "DHUL_EASTWARD_TARGET",
-                player_id  = player_id,
-                hero_id    = "dhul_qarnayn",
-                deadline   = os.time() + 15,
-            }
-            local targets = {}
-            for uid, p2 in pairs(state.players) do
-                if uid ~= player_id and p2.health > 0 then
-                    table.insert(targets, {id = uid, name = p2.username})
-                end
-            end
-            if #targets == 0 then
+            state.dhul_eastward = state.dhul_eastward or {}
+            state.dhul_eastward[player_id] = true
+            dispatcher.broadcast_message(11, nk.json_encode({
+                content = string.format("%s 发动【远疆-东行】，本回合非延时锦囊可额外选择1个目标",
+                    p.username),
+                hero = "dhul_qarnayn", skill = "yuan_jiang"
+            }))
+
+        else
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+
+        -- 技能执行完后检查是否还有可用技能
+        _offer_skills(dispatcher, state, player_id, p)
+        rules.broadcast_update(dispatcher, state)
+
+    -- ========= 远疆-西行：选择额外攻击目标 =========
+    elseif action.type == "DHUL_WEST_EXTRA" then
+        state.pending_action = nil
+
+        if payload.confirm ~= true or type(payload.target_id) ~= "string" then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+        local target = state.players[payload.target_id]
+        if not target or target.health <= 0 then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+
+        -- 复用攻击效果（用记录的卡牌对额外目标发起攻击）
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = string.format("%s 发动【远疆-西行】，对 %s 发起额外攻击！",
+                p.username, target.username),
+            hero = "dhul_qarnayn", skill = "yuan_jiang"
+        }))
+        local card = action.card
+        local rules2 = require("game_rules")
+        rules2.CARD_EFFECTS["ATTACK"](dispatcher, state, player_id, payload.target_id, card)
+
+    -- ========= 远疆-东行：选择额外锦囊目标 =========
+    elseif action.type == "DHUL_EAST_EXTRA" then
+        state.pending_action = nil
+
+        if payload.confirm ~= true or type(payload.target_id) ~= "string" then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+        local target = state.players[payload.target_id]
+        if not target or target.health <= 0 then
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
+
+        -- 过河拆桥/顺手牵羊的距离限制
+        if action.trick_type == "steal_one" then
+            local dist = rules.seat_distance(state, player_id, payload.target_id)
+            if dist > 1 then
                 rules.broadcast_update(dispatcher, state)
                 return
             end
-            dispatcher.broadcast_message(101, nk.json_encode({
-                type = "skill_choice",
-                skill = "yuan_jiang_east",
-                description = "【远疆-东行】选择目标令其摸1弃1",
-                targets = targets,
-            }), {state.presences[player_id]})
-            return
-        else
-            -- 不可用的技能或未知命令 → 跳过
-            rules.broadcast_update(dispatcher, state)
-            return
         end
 
-        -- 技能执行完后检查是否还有可用技能，继续面板
-        local can_wall2 = p.dhul_wall_count < MAX_WALLS and #p.hand > 0
-        local can_west2 = not p.dhul_west_used and #p.hand > 0 and payload.skill ~= "westward"
-        local can_east2 = not p.dhul_east_used and #p.hand > 0 and payload.skill ~= "eastward"
-        if can_wall2 or can_west2 or can_east2 then
-            _offer_skills(dispatcher, state, player_id, p, can_wall2, can_west2, can_east2)
-        end
-        rules.broadcast_update(dispatcher, state)
-
-    -- ========= 远疆-西行：选择目标 =========
-    elseif action.type == "DHUL_WESTWARD_TARGET" then
-        state.pending_action = nil
-        p.dhul_west_used = true
-
-        if payload.confirm ~= true or type(payload.target_id) ~= "string" then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-        local target = state.players[payload.target_id]
-        if not target or target.health <= 0 then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-        if not rules.can_attack(state, player_id, payload.target_id) then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-
-        -- 弃1张牌
-        local cost_paid = false
-        if type(payload.card_id) == "string" then
-            for i, c in ipairs(p.hand) do
-                if c.id == payload.card_id then
-                    table.insert(state.discard_pile, table.remove(p.hand, i))
-                    cost_paid = true
-                    break
-                end
-            end
-        end
-        if not cost_paid then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-
-        rules.apply_damage(dispatcher, state, payload.target_id, 1, player_id)
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【远疆-西行】，弃1张牌对%s造成1点伤害！",
+            content = string.format("%s 发动【远疆-东行】，对 %s 使用额外锦囊！",
                 p.username, target.username),
             hero = "dhul_qarnayn", skill = "yuan_jiang"
         }))
-        if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
-            rules.broadcast_update(dispatcher, state)
-        end
 
-    -- ========= 远疆-东行：选择目标 =========
-    elseif action.type == "DHUL_EASTWARD_TARGET" then
-        state.pending_action = nil
-        p.dhul_east_used = true
-
-        if payload.confirm ~= true or type(payload.target_id) ~= "string" then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-        local target = state.players[payload.target_id]
-        if not target or target.health <= 0 then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-
-        -- 弃1张牌
-        local cost_paid = false
-        if type(payload.card_id) == "string" then
-            for i, c in ipairs(p.hand) do
-                if c.id == payload.card_id then
-                    table.insert(state.discard_pile, table.remove(p.hand, i))
-                    cost_paid = true
-                    break
-                end
-            end
-        end
-        if not cost_paid then
-            rules.broadcast_update(dispatcher, state)
-            return
-        end
-
-        -- 目标摸1弃1
-        rules.draw_cards(state, payload.target_id, 1)
-        if #target.hand > 0 then
-            table.insert(state.discard_pile, table.remove(target.hand, #target.hand))
-        end
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【远疆-东行】，弃1张牌令%s摸1弃1！",
-                p.username, target.username),
-            hero = "dhul_qarnayn", skill = "yuan_jiang"
-        }))
-        rules.broadcast_update(dispatcher, state)
+        local card = action.trick_card
+        local pt = state.pending_trick
+        -- 绕过 COUNTER 窗口直接执行效果（额外目标是同一锦囊的一部分）
+        local rules2 = require("game_rules")
+        rules2.CARD_EFFECTS["INSTANT_TRICK"](dispatcher, state, player_id, payload.target_id, card)
+        -- 如果重新进入了 WAITING_FOR_TRICK_SELECT（即原来的锦囊选择还没结束），
+        -- 此时 pending_action 已设为本 pending 的子类型，不做额外处理
     end
 end
 
@@ -285,6 +324,10 @@ function M.on_turn_end(dispatcher, state, player_id)
     if p.hero ~= "dhul_qarnayn" then return false end
     p.dhul_west_used = false
     p.dhul_east_used = false
+    state.dhul_westward = nil
+    state.dhul_eastward = nil
+    state._dhul_last_attack_card = nil
+    state._dhul_last_trick_card = nil
     return false
 end
 
