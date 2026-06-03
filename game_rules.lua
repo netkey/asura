@@ -416,9 +416,9 @@ local CARD_EFFECTS = {
         elseif card.subtype == "fire_attack" then
             -- 火攻：目标展示一张手牌，猜花色
             local target = state.players[target_id]
-            if not target or #target.hand == 0 then
+            if not target or target.health <= 0 or #target.hand == 0 then
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【火攻】目标无手牌"
+                    content = "【火攻】目标无手牌或已阵亡"
                 }))
                 return
             end

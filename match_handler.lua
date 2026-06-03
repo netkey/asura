@@ -305,7 +305,11 @@ end
 -- 托管防御决策：致命伤才出防御牌，否则放弃
 local function auto_defend(dispatcher, state, defender_id, incoming_damage, required_type)
     local defender = state.players[defender_id]
-    if not defender or defender.health <= 0 then return end
+    if not defender or defender.health <= 0 then
+        -- 目标已死亡，使用 confirm=false 推进 pending（防止 WAITING_FOR_DEFENSE/AOE 卡死）
+        rules.handle_response(dispatcher, state, defender_id, { confirm = false })
+        return
+    end
 
     if incoming_damage >= defender.health then
         -- 找一张所需类型的牌（required_type 必须传，不设后备默认值）
