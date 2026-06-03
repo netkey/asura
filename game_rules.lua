@@ -709,8 +709,10 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
             if current == player_id then blocked = true end
         elseif pa.type == "WAITING_FOR_TRICK_SELECT" and pa.source_id == player_id then
             blocked = true
-        elseif pa.type == "WAITING_FOR_COUNTER" and pa.current_target == player_id then
-            blocked = true
+        elseif pa.type == "WAITING_FOR_COUNTER" then
+            if pa.current_target == player_id or pa.caster_id == player_id then
+                blocked = true
+            end
         elseif pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == player_id then
             blocked = true
         elseif pa.type == "WAITING_FOR_FIRE_GUESS" and pa.caster_id == player_id then
@@ -1683,11 +1685,13 @@ function M.notify_counter_target(dispatcher, state)
     local target_id = action.current_target
     if not target_id then return end
 
+    local presence = state.presences[target_id]
+    if not presence then return end
     dispatcher.broadcast_message(105, nk.json_encode({
         type = "counter_opportunity",
         target = target_id,
         msg = "是否使用【无懈可击】抵消锦囊？"
-    }))
+    }), {presence})
 end
 
 return M
