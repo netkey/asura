@@ -73,19 +73,80 @@ local function find_or_create_match(context, payload)
     end
     local mode = VALID_MODES[json.mode] and json.mode or "pvp"
     local max_players = VALID_PLAYER_COUNTS[json.max_players] and json.max_players or 5
-    local query = "+label.mode:" .. mode .. " +label.open:1"
-    local matches = nk.match_list(10, true, nil, nil, nil, query)
-    if #matches > 0 then
-        return nk.json_encode({ match_id = matches[1].match_id })
+
+    -- OCC 存储槽：替代 match_list 解决 TOCTOU 竞态
+    -- 多个并发请求同时匹配时，只有 OCC 写入成功的请求创建 match，
+    -- 其余的通过重试找到已创建的 slot
+    -- 先确保记录存在，否则 OCC version="*" 无保护作用
+    local init_objs = nk.storage_read({{
+        collection = "ops", key = "match_slots", user_id = nil
+    }})
+    if #init_objs == 0 then
+        pcall(nk.storage_write, {{
+            collection = "ops", key = "match_slots", user_id = nil,
+            value = {}, version = "*",
+        }})
     end
-    -- 二次查询：降低并发时两人各自开房的概率（经典 TOCTOU）
-    matches = nk.match_list(10, true, nil, nil, nil, query)
-    if #matches > 0 then
-        return nk.json_encode({ match_id = matches[1].match_id })
+
+    for retry = 1, 5 do
+        local objects = nk.storage_read({{
+            collection = "ops", key = "match_slots", user_id = nil
+        }})
+        local slots = (#objects > 0) and objects[1].value or {}
+        local slots_ver = (#objects > 0) and objects[1].version or "*"
+        local now = os.time()
+
+        -- 过期清理（60s 无进展视为废弃）
+        for i = #slots, 1, -1 do
+            if now > (slots[i].expires_at or 0) and slots[i].expires_at then
+                table.remove(slots, i)
+            end
+        end
+
+        -- 查找有空间的 slot
+        for _, slot in ipairs(slots) do
+            if slot.mode == mode and (slot.count or 0) < max_players then
+                local matches = nk.match_list(1, false, nil, nil, nil,
+                    "+label.group_id:" .. slot.group_id)
+                if #matches > 0 then
+                    slot.count = (slot.count or 0) + 1
+                    local ok2 = pcall(nk.storage_write, {{
+                        collection = "ops", key = "match_slots", user_id = nil,
+                        value = slots, version = slots_ver,
+                    }})
+                    if ok2 then
+                        return nk.json_encode({ match_id = slot.match_id })
+                    end
+                    -- OCC 冲突，重试
+                    goto continue
+                end
+            end
+        end
+
+        -- 没有可用 slot，创建新的
+        local ok_id, uuid = pcall(nk.uuid_v4)
+        local group_id = (ok_id and uuid) or (os.time() .. context.user_id)
+        local match_id = nk.match_create("match_handler", {
+            max_players = max_players, mode = mode, group_id = group_id,
+        })
+        table.insert(slots, {
+            group_id = group_id, match_id = match_id, mode = mode,
+            count = 1, expires_at = now + 60,
+        })
+        local ok2 = pcall(nk.storage_write, {{
+            collection = "ops", key = "match_slots", user_id = nil,
+            value = slots, version = slots_ver,
+        }})
+        if ok2 then
+            return nk.json_encode({ match_id = match_id })
+        end
+        -- OCC 冲突（其他人已创建了新 match），重试找到他的 slot
+        ::continue::
     end
+
+    -- 兜底：直接创建（无 group_id，旧客户端兼容）
     local match_id = nk.match_create("match_handler", {
-        max_players = max_players,
-        mode = mode
+        max_players = max_players, mode = mode
     })
     return nk.json_encode({ match_id = match_id })
 end

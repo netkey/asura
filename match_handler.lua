@@ -147,7 +147,8 @@ function M.match_init(context, params)
 	local label = {
         mode = mode,
         open = 1, -- 1表示开放，0表示关闭
-        max = max_players
+        max = max_players,
+        group_id = params.group_id or "",
     }
     return state, 1, nk.json_encode(label)
     --local label = nk.json_encode({ mode = params.mode, max = max_players })

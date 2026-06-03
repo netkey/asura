@@ -1273,14 +1273,18 @@ function M.handle_response(dispatcher, state, player_id, payload)
             end
         end
 
-        -- 推进到下一位
-        action.current_idx = action.current_idx + 1
+        -- 推进到下一位（跳过已死亡玩家，每人浪费 15s）
+        repeat
+            action.current_idx = action.current_idx + 1
+        until action.current_idx > #action.remaining_order
+            or (state.players[action.remaining_order[action.current_idx]]
+                and state.players[action.remaining_order[action.current_idx]].health > 0)
         if action.current_idx <= #action.remaining_order then
             action.current_target = action.remaining_order[action.current_idx]
             action.deadline = os.time() + 15
             M.notify_counter_target(dispatcher, state)
         else
-            -- 窗口结束
+            -- 窗口结束或无存活目标
             state.pending_action = nil
             if action.counter_depth % 2 == 1 then
                 -- 奇数 → 被无懈可击抵消
