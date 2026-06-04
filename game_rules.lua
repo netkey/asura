@@ -786,13 +786,13 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
 
     -- ========== 前置校验 ==========
 
-    -- 苏莱曼【御风】：检查封锁
-    if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == player_id
-        and card.type == state.suleiman_yu_feng.blocked_type then
+    -- 苏莱曼【敕令】：检查封锁
+    if state.suleiman_chi_ling and state.suleiman_chi_ling.target_id == player_id
+        and card.type == state.suleiman_chi_ling.blocked_type then
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 被【御风】封锁，无法使用【%s】！",
+            content = string.format("%s 被【敕令】禁止，无法使用【%s】！",
                 player.username, card.name),
-            hero = "suleiman", skill = "yu_feng"
+            hero = "suleiman", skill = "chi_ling"
         }))
         return false
     end
@@ -965,9 +965,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                         card_idx = i; break
                     end
                 end
-                if card_idx and not (state.suleiman_yu_feng
-                    and state.suleiman_yu_feng.target_id == player_id
-                    and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
+                if card_idx then
                     table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
                     state.pending_action = nil
                     dispatcher.broadcast_message(11, nk.json_encode({
@@ -975,12 +973,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     }))
                     M.handle_defense_success(dispatcher, state, action.attacker_id, player_id, action.damage)
                 else
-                    if card_idx then
-                        dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s 被【御风】封锁，无法使用【防御】！", defender.username),
-                            hero = "suleiman", skill = "yu_feng"
-                        }))
-                    end
                     state.pending_action = nil
                     M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
                     M.broadcast_update(dispatcher, state)
@@ -995,15 +987,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     card_idx = i; break
                 end
             end
-            if not card_idx or (state.suleiman_yu_feng
-                and state.suleiman_yu_feng.target_id == player_id
-                and state.suleiman_yu_feng.blocked_type == "DEFENSE") then
-                if card_idx and state.suleiman_yu_feng then
-                    dispatcher.broadcast_message(11, nk.json_encode({
-                        content = string.format("%s 被【御风】封锁，无法使用【防御】！", state.players[player_id].username),
-                        hero = "suleiman", skill = "yu_feng"
-                    }))
-                end
+            if not card_idx then
                 state.attack_bonus = nil
                 M.apply_damage(dispatcher, state, player_id, action.damage or 1, action.attacker_id, action.damage_type)
                 if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
@@ -1058,17 +1042,6 @@ function M.handle_response(dispatcher, state, player_id, payload)
             local defender = state.players[player_id]
             for i, card in ipairs(defender.hand) do
                 if card.id == payload.card_id and card.type == action.required_response then
-                    -- 御风封锁
-                    if state.suleiman_yu_feng
-                        and state.suleiman_yu_feng.target_id == player_id
-                        and state.suleiman_yu_feng.blocked_type == action.required_response then
-                        dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s 被【御风】封锁，无法使用【%s】！",
-                                defender.username, action.required_response),
-                            hero = "suleiman", skill = "yu_feng"
-                        }))
-                        break
-                    end
                     table.insert(state.discard_pile, table.remove(defender.hand, i))
                     defended = true
                     break

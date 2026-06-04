@@ -53,7 +53,7 @@
 | ATTACK（杀/大马士革弯刀）| 30 | 需在武器射程内，每回合限1次（连弩机除外） |
 | DEFENSE（闪/蜃景）| 15 | 抵消一次攻击 |
 | HEAL（桃/椰枣）| 8 | 回复 1 点血量 |
-| WINE（酒/阿拉伯烈酒）| 3 | 增伤：出牌阶段使用，下次杀伤害+1；濒死自救 |
+| WINE（沙漠之心）| 3 | 增伤：出牌阶段使用，下次杀伤害+1；濒死自救 |
 | INSTANT_TRICK（即时锦囊）| 36 | 见下方子类型表 |
 | DELAYED_TRICK（延时锦囊）| 7 | 乐不思蜀×3/兵粮寸断×2/闪电×2 |
 | WEAPON（武器）| 9 | 连弩机/贯石斧/青龙偃月刀/丈八蛇矛/方天画戟/古锭刀/双刃剑/朱雀羽扇/麒麟弓 |
@@ -107,7 +107,7 @@
 | 借刀杀人选攻击目标 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 借刀杀人出杀或交武器 | `WAITING_FOR_BORROW_WEAPON` | `{"confirm":true,"card_id":"c_02"}`（出杀）或 `{"confirm":false}`（交武器） |
 | 火攻猜花色 | `WAITING_FOR_FIRE_GUESS` | `{"confirm":true,"guess":"HEART"}`（HEART/SPADE/CLUB/DIAMOND）|
-| 英雄技能确认+选目标 | `SULEIMAN_YU_FENG` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
+| 英雄技能确认+选目标 | `SULEIMAN_CHI_LING` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 哈基姆【星象】重排牌堆 | `HAKIM_XING_XIANG` | `{"confirm":true,"sorted_ids":["c_01","c_02"]}` 或 `{"confirm":false}` |
 | 阿拉丁【神灯】弃牌 | `ALADDIN_LAMP` | `{"confirm":true,"card_ids":["c_03","c_04"]}` 或 `{"confirm":false}` |
 | 弃牌阶段选牌 | `WAITING_FOR_DISCARD` | `{"confirm":true,"card_ids":["c_01","c_03"]}` 或 `{"confirm":false}`（服务端自动从末尾弃） |
@@ -132,7 +132,7 @@
 
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
-| `101` | 技能使用者或目标玩家 | 英雄技能询问，如阿拉丁【神灯】、苏莱曼【御风】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"yu_feng","description":"是否发动【御风】？","targets":[...]}` |
+| `101` | 技能使用者或目标玩家 | 英雄技能询问，如阿拉丁【神灯】、苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","description":"是否发动【敕令】？","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
 | `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART"}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"msg":"需要弃置 2 张牌"}` |
 
 > **接收 101 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。

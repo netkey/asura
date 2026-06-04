@@ -102,9 +102,9 @@ add_card("HEAL", "HEART", 12, "椰枣")
 -- ==========================================
 -- WINE — 酒 × 3（仅增伤，不可救人）
 -- ==========================================
-add_card("WINE", "SPADE", 3,   "椰枣酒", "damage_plus1")
-add_card("WINE", "CLUB", 9,    "阿拉伯烈酒", "damage_plus1")
-add_card("WINE", "DIAMOND", 9, "阿拉伯烈酒", "damage_plus1")
+add_card("WINE", "SPADE", 3,   "沙漠之心", "damage_plus1")
+add_card("WINE", "CLUB", 9,    "沙漠之心", "damage_plus1")
+add_card("WINE", "DIAMOND", 9, "沙漠之心", "damage_plus1")
 
 -- ==========================================
 -- INSTANT_TRICK — 即时锦囊

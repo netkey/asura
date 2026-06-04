@@ -1,12 +1,11 @@
 local nk = require("nakama")
 local M = {}
 
--- 苏莱曼（Suleiman）- 以色列传奇国王，智慧与自然力量的掌控者
--- 技能：【御风】 - 出牌阶段开始时，宣告一名玩家+一种牌型，该玩家本回合不能使用该类型牌
+-- 苏莱曼（Suleiman）- 奥斯曼帝国苏丹，"立法者"（Kanuni），以法律改革闻名
+-- 技能：【敕令】 - 出牌阶段开始时，选择一名玩家+一种牌型（攻击或治疗），该玩家本回合不能使用该类型牌
 
 local BLOCKABLE_TYPES = {
     ATTACK  = "攻击",
-    DEFENSE = "防御",
     HEAL    = "治疗",
 }
 
@@ -28,7 +27,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     end
 
     state.pending_action = {
-        type        = "SULEIMAN_YU_FENG",
+        type        = "SULEIMAN_CHI_LING",
         player_id   = player_id,
         hero_id     = "suleiman",
         targets     = targets,
@@ -38,8 +37,8 @@ function M.on_play_phase_start(dispatcher, state, player_id)
 
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
-        skill       = "yu_feng",
-        description = "是否发动【御风】？选择一名玩家并封锁一种牌型",
+        skill       = "chi_ling",
+        description = "是否发动【敕令】？选择一名玩家并禁止一种牌型",
         targets     = targets,
         block_types = block_types,
     }), { state.presences[player_id] })
@@ -49,7 +48,7 @@ end
 
 function M.on_response(dispatcher, state, player_id, payload)
     local action = state.pending_action
-    if not action or action.type ~= "SULEIMAN_YU_FENG" then return end
+    if not action or action.type ~= "SULEIMAN_CHI_LING" then return end
     if action.player_id ~= player_id then return end
 
     state.pending_action = nil
@@ -73,19 +72,19 @@ function M.on_response(dispatcher, state, player_id, payload)
         return
     end
 
-    state.suleiman_yu_feng = {
+    state.suleiman_chi_ling = {
         target_id    = payload.target_id,
         blocked_type = payload.block_type,
     }
 
     local player = state.players[player_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【御风】，%s 本回合不能使用【%s】！",
+        content = string.format("%s 发动【敕令】，%s 本回合禁止使用【%s】！",
             player.username, target.username,
             BLOCKABLE_TYPES[payload.block_type] or payload.block_type),
         event     = "skill_used",
         hero      = "suleiman",
-        skill     = "yu_feng",
+        skill     = "chi_ling",
         target_id = payload.target_id,
         block_type = payload.block_type,
     }))

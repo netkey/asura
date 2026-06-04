@@ -387,7 +387,7 @@ local function auto_resolve_pending(dispatcher, state)
         else
             hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
         end
-    elseif act.type == "SULEIMAN_YU_FENG" then
+    elseif act.type == "SULEIMAN_CHI_LING" then
         if act.targets and #act.targets > 0 then
             hero_mgr.handle_response(dispatcher, state, act.player_id,
                 { confirm = true, target_id = act.targets[1].id, block_type = "ATTACK" })
@@ -759,9 +759,13 @@ function M.next_turn(dispatcher, state)
             state.pending_action = nil
         end
     end
-    -- 清除苏莱曼【御风】：目标回合结束时清除封锁
-    if state.suleiman_yu_feng and state.suleiman_yu_feng.target_id == ending_uid then
-        state.suleiman_yu_feng = nil
+    -- 清除苏莱曼【敕令】：目标回合结束时清除，或目标死亡时清除
+    if state.suleiman_chi_ling then
+        local target = state.players[state.suleiman_chi_ling.target_id]
+        if state.suleiman_chi_ling.target_id == ending_uid
+            or not target or target.health <= 0 then
+            state.suleiman_chi_ling = nil
+        end
     end
     -- 清除杜尼亚扎德【续篇】免疫（仅持续当前回合）
     state.dunyazad_immune = nil
