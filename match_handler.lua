@@ -452,6 +452,9 @@ local function auto_resolve_pending(dispatcher, state)
         -- 从已揭示牌中读取真实花色，使托管行为与手动一致
         local guess = act.revealed_card and act.revealed_card.suit or "HEART"
         rules.handle_response(dispatcher, state, act.caster_id, { confirm = true, guess = guess })
+    elseif act.type == "WEAPON_CHUANGSHI_FU" or act.type == "WEAPON_QINGLONG_DAO" then
+        -- 武器技能超时：放弃使用
+        rules.handle_response(dispatcher, state, act.player_id, { confirm = false })
     elseif act.type == "WAITING_FOR_DISCARD" then
         -- 超时自动弃牌：从末尾弃
         auto_discard_from_end(dispatcher, state, act.player_id, act.discard_count)

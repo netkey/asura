@@ -42,8 +42,11 @@ local CARD_EFFECTS = {
             return
         end
 
+        -- 双刃剑：无视防具
+        local has_ignore_armor = p and p.equipment.weapon and p.equipment.weapon.subtype == "ignore_armor"
+
         -- 仁王盾：黑色攻击被封锁
-        if target.equipment.armor and target.equipment.armor.subtype == "block_black_attack" then
+        if not has_ignore_armor and target.equipment.armor and target.equipment.armor.subtype == "block_black_attack" then
             if card.suit == "SPADE" or card.suit == "CLUB" then
                 dispatcher.broadcast_message(11, nk.json_encode({
                     content = target.username .. " 的【仁王盾】挡住了黑色攻击！"
@@ -65,16 +68,7 @@ local CARD_EFFECTS = {
             state.attack_bonus = nil
         end
 
-        -- 古锭刀：目标无手牌时伤害+1
-        if p and p.equipment.weapon and p.equipment.weapon.subtype == "blade_pierce" then
-            if #target.hand == 0 then dmg = dmg + 1 end
-        end
-
-        -- 火攻：攻击标记为火焰伤害
         local dmg_type = "normal"
-        if p and p.equipment.weapon and p.equipment.weapon.subtype == "fire_weapon" then
-            dmg_type = "fire"
-        end
 
         -- 八卦阵：先判定
         if target.equipment.armor and target.equipment.armor.subtype == "dodge_judgment" then
@@ -449,26 +443,6 @@ local CARD_EFFECTS = {
                 }), {state.presences[source_id]})
             end
 
-        elseif card.subtype == "iron_chain" then
-            -- 铁索连环：重铸（无目标时弃牌摸1）或连环目标
-            if not target_id then
-                -- 重铸
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = p.username .. " 重铸了【铁索连环】"
-                }))
-                M.draw_cards(state, source_id, 1)
-                M.broadcast_update(dispatcher, state)
-            else
-                -- 连环目标（切换目标的连环状态）
-                local target = state.players[target_id]
-                if not target then return end
-                target.iron_chained = not target.iron_chained
-                local status = target.iron_chained and "被连环" or "解除连环"
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. status
-                }))
-                M.broadcast_update(dispatcher, state)
-            end
         end
     end,
 
@@ -538,14 +512,11 @@ function M.weapon_range(state, player_id)
     if not p or not p.equipment.weapon then return 1 end
     local ranges = {
         unlimited_attack  = 1,
-        reattempt_discard2= 3,
-        reattempt_attack  = 3,
-        spear_discard2    = 3,
-        halberd_triple    = 4,
-        blade_pierce      = 2,
-        twin_discard      = 2,
-        fire_weapon       = 1,
-        bow_strip_horse   = 5,
+        reattempt_discard2= 2,
+        reattempt_attack  = 2,
+        spear_discard2    = 2,
+        ignore_armor      = 2,
+        bow_strip_horse   = 3,
     }
     local range = ranges[p.equipment.weapon.subtype]
     if not range then
@@ -553,6 +524,61 @@ function M.weapon_range(state, player_id)
         return 1
     end
     return range
+end
+
+-- 丈八蛇矛：将2张手牌当【杀】使用
+function M._handle_spear_skill(dispatcher, state, player_id, payload)
+    local player = state.players[player_id]
+    if not player or player.health <= 0 then return false end
+    if not player.equipment.weapon or player.equipment.weapon.subtype ~= "spear_discard2" then
+        return false
+    end
+    if type(payload.card_ids) ~= "table" or #payload.card_ids ~= 2 then
+        return false
+    end
+    if type(payload.target_id) ~= "string" then return false end
+    local target = state.players[payload.target_id]
+    if not target or target.health <= 0 then return false end
+    if not M.can_attack(state, player_id, payload.target_id) then
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = player.username .. " 攻击距离不足"
+        }))
+        return false
+    end
+
+    -- 从手牌中移除2张指定牌
+    local card_ids = payload.card_ids
+    local seen = {}
+    local removed = 0
+    for _, cid in ipairs(card_ids) do
+        if seen[cid] then return false end
+        seen[cid] = true
+        for i, c in ipairs(player.hand) do
+            if c.id == cid then
+                table.insert(state.discard_pile, table.remove(player.hand, i))
+                removed = removed + 1
+                break
+            end
+        end
+    end
+    if removed < 2 then return false end
+
+    -- 攻击次数限制（连弩机无视）
+    local has_unlimited = player.equipment.weapon and player.equipment.weapon.subtype == "unlimited_attack"
+    if (player.attacks_this_turn or 0) >= 1 and not has_unlimited then
+        return false
+    end
+    player.attacks_this_turn = (player.attacks_this_turn or 0) + 1
+
+    dispatcher.broadcast_message(11, nk.json_encode({
+        content = string.format("%s 发动【丈八蛇矛】，将2张手牌当【杀】使用！", player.username)
+    }))
+
+    -- 构造一张虚拟的杀牌
+    local virtual_card = { id = "spear_attack", type = "ATTACK", suit = "SPADE", number = 1, name = "丈八杀" }
+    CARD_EFFECTS["ATTACK"](dispatcher, state, player_id, payload.target_id, virtual_card)
+    M.broadcast_update(dispatcher, state)
+    return true
 end
 
 -- 是否能攻击目标（距离+武器射程检查）
@@ -698,6 +724,11 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     if not player or player.health <= 0 then return false end
 
     if type(payload.card_id) ~= "string" then return false end
+
+    -- 丈八蛇矛：可将2张手牌当【杀】使用
+    if payload.weapon_skill == "spear_discard2" then
+        return M._handle_spear_skill(dispatcher, state, player_id, payload)
+    end
 
     -- 如果玩家有活跃的待响应操作，阻止自由出牌
     if state.pending_action then
@@ -942,7 +973,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     dispatcher.broadcast_message(11, nk.json_encode({
                         content = defender.username .. " 打出第2张【防御】，成功抵挡了贾法尔的【毒计】！",
                     }))
-                    M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
+                    M.handle_defense_success(dispatcher, state, action.attacker_id, player_id, action.damage)
                 else
                     if card_idx then
                         dispatcher.broadcast_message(11, nk.json_encode({
@@ -1005,7 +1036,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
             -- 正常防御成功
             state.pending_action = nil
-            M.handle_defense_success(dispatcher, state, action.attacker_id, player_id)
+            M.handle_defense_success(dispatcher, state, action.attacker_id, player_id, action.damage)
         else
             -- 放弃防御：直接受伤害
             state.attack_bonus = nil
@@ -1113,11 +1144,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
         local rescued = false
         if payload.confirm == true and type(payload.card_id) == "string" then
             local rescuer = state.players[player_id]
-            local is_self = (player_id == dying_id)
             for i, card in ipairs(rescuer.hand) do
-                -- 自救可用桃/酒；救他人只能用桃
-                local can_rescue = (is_self and card.type == "WINE")
-                    or card.type == "HEAL"
+                -- 仅【桃】可以救人（酒只增伤不可救人）
+                local can_rescue = card.type == "HEAL"
                     or (card.suit == "HEART" and rescuer.hero == "avicenna")
                 if card.id == payload.card_id and can_rescue then
                     table.remove(rescuer.hand, i)
@@ -1385,20 +1414,150 @@ function M.handle_response(dispatcher, state, player_id, payload)
             }))
         end
         M.broadcast_update(dispatcher, state)
+
+    -- ==================== 贯石斧：弃2张牌强制命中 ====================
+    elseif action.type == "WEAPON_CHUANGSHI_FU" then
+        if player_id ~= action.player_id then return end
+        state.pending_action = nil
+
+        if payload.confirm ~= true then
+            dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+            M.broadcast_update(dispatcher, state)
+            local hero_mgr = require("hero_manager")
+            hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
+            return
+        end
+
+        local attacker = state.players[action.attacker_id]
+        if not attacker or attacker.health <= 0 then
+            dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+            M.broadcast_update(dispatcher, state)
+            return
+        end
+
+        -- 弃2张牌
+        local discarded = 0
+        for i = #attacker.hand, 1, -1 do
+            if discarded >= 2 then break end
+            table.insert(state.discard_pile, table.remove(attacker.hand, i))
+            discarded = discarded + 1
+        end
+        if discarded < 2 then
+            dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+            M.broadcast_update(dispatcher, state)
+            return
+        end
+
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = string.format("%s 发动【贯石斧】，弃2张牌强制命中%s！",
+                attacker.username, state.players[action.target_id].username)
+        }))
+        M.apply_damage(dispatcher, state, action.target_id, action.damage or 1, action.attacker_id, "normal")
+        if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
+            M.broadcast_update(dispatcher, state)
+            local hero_mgr = require("hero_manager")
+            hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
+        end
+
+    -- ==================== 青龙偃月刀：追击同一目标 ====================
+    elseif action.type == "WEAPON_QINGLONG_DAO" then
+        if player_id ~= action.player_id then return end
+        state.pending_action = nil
+
+        if payload.confirm ~= true or type(payload.card_id) ~= "string" then
+            dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+            M.broadcast_update(dispatcher, state)
+            local hero_mgr = require("hero_manager")
+            hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
+            return
+        end
+
+        local attacker = state.players[action.attacker_id]
+        if not attacker or attacker.health <= 0 then
+            dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+            M.broadcast_update(dispatcher, state)
+            return
+        end
+
+        -- 找一张杀追击
+        local attack_card
+        for i, c in ipairs(attacker.hand) do
+            if c.id == payload.card_id and c.type == "ATTACK" then
+                attack_card = table.remove(attacker.hand, i)
+                break
+            end
+        end
+        if not attack_card then
+            M.broadcast_update(dispatcher, state)
+            return
+        end
+
+        table.insert(state.discard_pile, attack_card)
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = string.format("%s 发动【青龙偃月刀】，对%s再次出【杀】追击！",
+                attacker.username, state.players[action.target_id].username)
+        }))
+        -- 重新触发攻击效果（会自动设置 WAITING_FOR_DEFENSE）
+        CARD_EFFECTS["ATTACK"](dispatcher, state, action.attacker_id, action.target_id, attack_card)
     end
 end
 
 -- 防御成功后续逻辑
-function M.handle_defense_success(dispatcher, state, attacker_id, defender_id)
+function M.handle_defense_success(dispatcher, state, attacker_id, defender_id, damage)
     log_info(state, "防御成功，正在检查攻击者是否有追击技能...")
     local hero_mgr = require("hero_manager")
     local suspended = hero_mgr.trigger("on_attack_defended", dispatcher, state, defender_id, attacker_id)
-    if not suspended then
-        dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
-        M.broadcast_update(dispatcher, state)
-        -- 攻击链完全结束，通知 hook（双角王【远疆-西行】额外目标）
-        hero_mgr.trigger("on_attack_resolved", dispatcher, state, attacker_id)
+    if suspended then return end
+
+    local attacker = state.players[attacker_id]
+
+    -- 贯石斧：杀被闪后可弃2张牌强制命中
+    if attacker and attacker.health > 0 and attacker.equipment.weapon
+        and attacker.equipment.weapon.subtype == "reattempt_discard2"
+        and #attacker.hand >= 2 then
+        state.pending_action = {
+            type        = "WEAPON_CHUANGSHI_FU",
+            player_id   = attacker_id,
+            attacker_id = attacker_id,
+            target_id   = defender_id,
+            damage      = damage or 1,
+            deadline    = os.time() + 15,
+        }
+        dispatcher.broadcast_message(101, nk.json_encode({
+            type = "weapon_skill",
+            skill = "chuangshi_fu",
+            description = "是否弃2张牌，强制命中？"
+        }), {state.presences[attacker_id]})
+        return
     end
+
+    -- 青龙偃月刀：杀被闪后可立即追击
+    if attacker and attacker.health > 0 and attacker.equipment.weapon
+        and attacker.equipment.weapon.subtype == "reattempt_attack" then
+        local can_pursue = false
+        for _, c in ipairs(attacker.hand) do
+            if c.type == "ATTACK" then can_pursue = true; break end
+        end
+        if can_pursue then
+            state.pending_action = {
+                type        = "WEAPON_QINGLONG_DAO",
+                player_id   = attacker_id,
+                attacker_id = attacker_id,
+                target_id   = defender_id,
+                deadline    = os.time() + 15,
+            }
+            dispatcher.broadcast_message(101, nk.json_encode({
+                type = "weapon_skill",
+                skill = "qinglong_dao",
+                description = "是否对同一目标再次出【杀】追击？"
+            }), {state.presences[attacker_id]})
+            return
+        end
+    end
+
+    dispatcher.broadcast_message(11, nk.json_encode({content = "防御成功！"}))
+    M.broadcast_update(dispatcher, state)
+    hero_mgr.trigger("on_attack_resolved", dispatcher, state, attacker_id)
 end
 
 function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_type)
@@ -1417,18 +1576,6 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
         if source.weapon_buff and not is_special then
             amount = amount + (state.config and state.config.combat.wine_damage_bonus or 1)
             source.weapon_buff = nil
-        end
-    end
-
-    -- 藤甲：火焰伤害+1，普通伤害-1
-    if target.equipment.armor and target.equipment.armor.subtype == "fire_weakness" then
-        if dmg_type == "fire" then
-            amount = amount + 1
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = target.username .. " 的【藤甲】被火焰灼烧，伤害+1！"
-            }))
-        else
-            amount = math.max(0, amount - 1)
         end
     end
 
@@ -1456,24 +1603,17 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
         event = "damage", target = target_id, source = source_id, amount = amount, dmg_type = dmg_type
     }))
 
-    -- 铁索连环：属性伤害传导（传导前先解除所有连环，防无限递归）
-    if amount > 0 and dmg_type ~= "normal" and target.iron_chained then
-        local chained = {}
-        for uid, p in pairs(state.players) do
-            if uid ~= target_id and p.health > 0 and p.iron_chained then
-                table.insert(chained, uid)
-                p.iron_chained = nil
-            end
-        end
-        if #chained > 0 then
-            target.iron_chained = nil
-            for _, uid in ipairs(chained) do
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "【铁索连环】传导，" .. state.players[uid].username .. " 受到等量伤害！"
-                }))
-                M.apply_damage(dispatcher, state, uid, amount, source_id, dmg_type)
-            end
-        end
+    -- 麒麟弓：杀中后可弃目标马牌
+    if amount > 0 and source_id and source and source.equipment.weapon
+        and source.equipment.weapon.subtype == "bow_strip_horse"
+        and target.equipment.horse then
+        local horse = target.equipment.horse
+        target.equipment.horse = nil
+        table.insert(state.discard_pile, horse)
+        dispatcher.broadcast_message(11, nk.json_encode({
+            content = string.format("%s 发动【麒麟弓】，射落了%s的【%s】！",
+                source.username, target.username, horse.name)
+        }))
     end
 
     if target.health <= 0 then

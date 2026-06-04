@@ -1,4 +1,5 @@
--- card_deck.lua — 固定122张标准牌堆，中东主题命名
+-- card_deck.lua — 固定108张标准牌堆，中东主题命名
+-- 基于三国杀标准版框架，保留火攻和酒作为变体牌
 -- 每张卡牌固定花色/点数，确保判定系统正确运行
 -- 洗牌只改变顺序，ID/花色/点数永不改变
 
@@ -99,7 +100,7 @@ add_card("HEAL", "HEART", 9,  "椰枣")
 add_card("HEAL", "HEART", 12, "椰枣")
 
 -- ==========================================
--- WINE — 酒 × 3
+-- WINE — 酒 × 3（仅增伤，不可救人）
 -- ==========================================
 add_card("WINE", "SPADE", 3,   "椰枣酒", "damage_plus1")
 add_card("WINE", "CLUB", 9,    "阿拉伯烈酒", "damage_plus1")
@@ -114,9 +115,7 @@ add_card("INSTANT_TRICK", "SPADE",   7,  "沙漠侵袭", "aoe_attack")
 add_card("INSTANT_TRICK", "CLUB",    7,  "沙漠侵袭", "aoe_attack")
 add_card("INSTANT_TRICK", "HEART",   7,  "沙漠侵袭", "aoe_attack")
 
--- 万箭齐发 × 3 (aoe_defense — 响应者出 DEFENSE)
-add_card("INSTANT_TRICK", "SPADE",   1,  "万箭齐发", "aoe_defense")
-add_card("INSTANT_TRICK", "HEART",   1,  "万箭齐发", "aoe_defense")
+-- 万箭齐发 × 1 (aoe_defense — 响应者出 DEFENSE)
 add_card("INSTANT_TRICK", "DIAMOND", 1,  "万箭齐发", "aoe_defense")
 
 -- 决斗 × 3
@@ -124,17 +123,20 @@ add_card("INSTANT_TRICK", "SPADE",   1,  "决斗", "duel")
 add_card("INSTANT_TRICK", "CLUB",    1,  "决斗", "duel")
 add_card("INSTANT_TRICK", "DIAMOND", 1,  "决斗", "duel")
 
--- 过河拆桥 × 4
+-- 过河拆桥 × 6
 add_card("INSTANT_TRICK", "CLUB",    3,  "过河拆桥", "discard_one")
 add_card("INSTANT_TRICK", "SPADE",   3,  "过河拆桥", "discard_one")
 add_card("INSTANT_TRICK", "SPADE",   4,  "过河拆桥", "discard_one")
 add_card("INSTANT_TRICK", "HEART",   3,  "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "DIAMOND", 3,  "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   12, "过河拆桥", "discard_one")
 
--- 顺手牵羊 × 4
+-- 顺手牵羊 × 5
 add_card("INSTANT_TRICK", "SPADE",   3,  "顺手牵羊", "steal_one")
 add_card("INSTANT_TRICK", "SPADE",   4,  "顺手牵羊", "steal_one")
 add_card("INSTANT_TRICK", "CLUB",    3,  "顺手牵羊", "steal_one")
 add_card("INSTANT_TRICK", "HEART",   3,  "顺手牵羊", "steal_one")
+add_card("INSTANT_TRICK", "DIAMOND", 3,  "顺手牵羊", "steal_one")
 
 -- 无中生有 × 4
 add_card("INSTANT_TRICK", "HEART",   7,  "无中生有", "draw_two")
@@ -142,20 +144,19 @@ add_card("INSTANT_TRICK", "HEART",   8,  "无中生有", "draw_two")
 add_card("INSTANT_TRICK", "DIAMOND", 7,  "无中生有", "draw_two")
 add_card("INSTANT_TRICK", "DIAMOND", 8,  "无中生有", "draw_two")
 
--- 桃园结义 × 2
+-- 桃园结义 × 1
 add_card("INSTANT_TRICK", "HEART",   1,  "桃园结义", "mass_heal")
-add_card("INSTANT_TRICK", "DIAMOND", 1,  "桃园结义", "mass_heal")
 
 -- 五谷丰登 × 2
 add_card("INSTANT_TRICK", "HEART",   3,  "五谷丰登", "mass_draw")
 add_card("INSTANT_TRICK", "DIAMOND", 3,  "五谷丰登", "mass_draw")
 
--- 无懈可击 × 3（抵消一张锦囊牌）
+-- 无懈可击 × 3
 add_card("INSTANT_TRICK", "SPADE",   13, "无懈可击", "counterspell")
 add_card("INSTANT_TRICK", "CLUB",    13, "无懈可击", "counterspell")
 add_card("INSTANT_TRICK", "DIAMOND", 11, "无懈可击", "counterspell")
 
--- 借刀杀人 × 2（借目标武器对另一玩家出杀，否则武器归你）
+-- 借刀杀人 × 2
 add_card("INSTANT_TRICK", "SPADE",   12, "借刀杀人", "borrow_weapon")
 add_card("INSTANT_TRICK", "CLUB",    10, "借刀杀人", "borrow_weapon")
 
@@ -164,69 +165,51 @@ add_card("INSTANT_TRICK", "HEART",   12, "火攻", "fire_attack")
 add_card("INSTANT_TRICK", "HEART",   13, "火攻", "fire_attack")
 add_card("INSTANT_TRICK", "DIAMOND", 13, "火攻", "fire_attack")
 
--- 铁索连环 × 6（连环两名角色，属性伤害传导；可重铸弃牌摸1）
-add_card("INSTANT_TRICK", "SPADE",   10, "铁索连环", "iron_chain")
-add_card("INSTANT_TRICK", "SPADE",   11, "铁索连环", "iron_chain")
-add_card("INSTANT_TRICK", "CLUB",    11, "铁索连环", "iron_chain")
-add_card("INSTANT_TRICK", "CLUB",    12, "铁索连环", "iron_chain")
-add_card("INSTANT_TRICK", "HEART",   11, "铁索连环", "iron_chain")
-add_card("INSTANT_TRICK", "HEART",    9, "铁索连环", "iron_chain")
-
 -- ==========================================
 -- DELAYED_TRICK — 延时锦囊
 -- ==========================================
 
--- 乐不思蜀 × 3 (判定: 非HEART → 跳过出牌阶段)
+-- 乐不思蜀 × 3 (判定非HEART → 跳过出牌阶段)
 add_card("DELAYED_TRICK", "SPADE",   6,  "乐不思蜀", "skip_play")
 add_card("DELAYED_TRICK", "CLUB",    6,  "乐不思蜀", "skip_play")
 add_card("DELAYED_TRICK", "HEART",   6,  "乐不思蜀", "skip_play")
 
--- 兵粮寸断 × 2 (判定: 非CLUB → 跳过摸牌阶段)
-add_card("DELAYED_TRICK", "SPADE",   1,  "兵粮寸断", "skip_draw")
-add_card("DELAYED_TRICK", "CLUB",    1,  "兵粮寸断", "skip_draw")
-
--- 闪电 × 2 (判定: SPADE 2-9 → 3点雷电伤害)
+-- 闪电 × 2 (判定SPADE 2-9 → 3点雷电伤害)
 add_card("DELAYED_TRICK", "SPADE",   1,  "闪电", "lightning")
 add_card("DELAYED_TRICK", "CLUB",    1,  "闪电", "lightning")
 
 -- ==========================================
--- WEAPON — 武器 × 9
+-- WEAPON — 武器 × 6
 -- ==========================================
-add_card("WEAPON", "SPADE",   5,  "连弩机",  "unlimited_attack")
-add_card("WEAPON", "CLUB",    5,  "贯石斧", "reattempt_discard2")
-add_card("WEAPON", "CLUB",    6,  "青龙偃月刀","reattempt_attack")
-add_card("WEAPON", "CLUB",    8,  "丈八蛇矛", "spear_discard2")
-add_card("WEAPON", "HEART",   5,  "方天画戟", "halberd_triple")
-add_card("WEAPON", "DIAMOND", 5,  "古锭刀",   "blade_pierce")
-add_card("WEAPON", "DIAMOND", 6,  "双刃剑",   "twin_discard")
-add_card("WEAPON", "DIAMOND", 1,  "朱雀羽扇",   "fire_weapon")
-add_card("WEAPON", "SPADE",   6,  "麒麟弓",   "bow_strip_horse")
+add_card("WEAPON", "SPADE",   5,  "连弩机",   "unlimited_attack")
+add_card("WEAPON", "CLUB",    5,  "贯石斧",   "reattempt_discard2")
+add_card("WEAPON", "CLUB",    6,  "青龙偃月刀", "reattempt_attack")
+add_card("WEAPON", "CLUB",    8,  "丈八蛇矛",  "spear_discard2")
+add_card("WEAPON", "DIAMOND", 6,  "双刃剑",    "ignore_armor")
+add_card("WEAPON", "SPADE",   6,  "麒麟弓",    "bow_strip_horse")
 
 -- ==========================================
--- ARMOR — 防具 × 3
+-- ARMOR — 防具 × 2
 -- ==========================================
 add_card("ARMOR", "SPADE",   2,  "八卦阵",  "dodge_judgment")
 add_card("ARMOR", "CLUB",    2,  "仁王盾",  "block_black_attack")
-add_card("ARMOR", "HEART",   2,  "藤甲",    "fire_weakness")
 
 -- ==========================================
--- HORSE — 马牌 × 8
+-- HORSE — 马牌 × 6
 -- ==========================================
 -- offense = -1马（进攻马，攻击距离减少1）
-add_card("HORSE", "SPADE",   13, "阿拉伯战马", "offense")
-add_card("HORSE", "CLUB",    13, "阿拉伯战马", "offense")
-add_card("HORSE", "HEART",   13, "阿拉伯战马", "offense")
-add_card("HORSE", "DIAMOND", 13, "阿拉伯战马", "offense")
+add_card("HORSE", "SPADE",   13, "沙马尔", "offense")
+add_card("HORSE", "CLUB",    13, "赛义德", "offense")
+add_card("HORSE", "HEART",   13, "拉吉",   "offense")
 -- defense = +1马（防守马，被攻击距离增加1）
-add_card("HORSE", "SPADE",   12, "骆驼", "defense")
-add_card("HORSE", "CLUB",    12, "骆驼", "defense")
-add_card("HORSE", "HEART",   12, "骆驼", "defense")
-add_card("HORSE", "DIAMOND", 12, "骆驼", "defense")
+add_card("HORSE", "SPADE",   12, "纳吉",   "defense")
+add_card("HORSE", "CLUB",    12, "拉希勒", "defense")
+add_card("HORSE", "HEART",   12, "萨利姆", "defense")
 
 -- ==========================================
 -- 验证
 -- ==========================================
-assert(#DECK == 122, "牌堆必须是122张，当前 " .. #DECK)
+assert(#DECK == 108, "牌堆必须是108张，当前 " .. #DECK)
 
 -- ==========================================
 -- API
