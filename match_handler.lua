@@ -403,14 +403,6 @@ local function auto_resolve_pending(dispatcher, state)
         end
     elseif act.type == "HARUN_CHOOSE" then
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, choose_discard = false })
-    elseif act.type == "ALADDIN_LAMP" then
-        local p = state.players[act.player_id]
-        if p and #p.hand >= 2 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id,
-                { confirm = true, card_ids = { p.hand[1].id, p.hand[2].id } })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
     elseif act.type == "ALIBABA_COUNTER" then
         hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
     elseif act.type == "IBN_BATTUTA_YUAN_XING" then
@@ -482,7 +474,7 @@ function M.perform_auto_play(dispatcher, state)
             auto_discard_from_end(dispatcher, state, uid, state.pending_action.discard_count)
             state.pending_action = nil
         else
-            -- 技能选择超时（如 ALADDIN_LAMP/HARUN_SELECT_TARGET），
+            -- 技能选择超时（如 HARUN_SELECT_TARGET），
             -- 交由 auto_resolve_pending 按技能规则处理，而非 draw_cards 武断清空
             auto_resolve_pending(dispatcher, state)
         end
@@ -752,7 +744,7 @@ function M.next_turn(dispatcher, state)
 
     local ending_uid = state.current_turn_id
     -- 若轮到的死者有挂起的技能 pending_action，清除之——否则下一玩家的 broadcast_update
-    -- 会发出死者的 pending_action.type（如 ALADDIN_LAMP 出现在非 Aladdin 玩家）
+    -- 会发出死者的 pending_action.type（如 HARUN_CHOOSE 出现在非哈伦玩家）
     if state.pending_action and state.pending_action.player_id == ending_uid then
         local ep = state.players[ending_uid]
         if not ep or ep.health <= 0 then

@@ -934,6 +934,28 @@ local function execute_death(dispatcher, state, target_id, source_id)
         role      = target.role,
     }))
     M.handle_role_reward(dispatcher, state, source_id, target_id)
+
+    -- 清理 pending_action 中对死亡玩家的引用（防止死锁）
+    if state.pending_action then
+        local pa = state.pending_action
+        if (pa.type == "WAITING_FOR_DEFENSE" and pa.target_id == target_id)
+            or (pa.type == "WAITING_FOR_AOE" and pa.current_target == target_id)
+            or (pa.type == "WAITING_FOR_COUNTER" and pa.current_target == target_id) then
+            -- 死者无法响应，自动推进（handle_response 内会跳过死者跳到下一个）
+            M.handle_response(dispatcher, state, target_id, {confirm = false})
+        elseif pa.type == "WAITING_FOR_RESCUE" and pa.rescuers then
+            -- 从救援链中移除死者
+            local new_rescuers = {}
+            for _, uid in ipairs(pa.rescuers) do
+                if uid ~= target_id then table.insert(new_rescuers, uid) end
+            end
+            pa.rescuers = new_rescuers
+            if #new_rescuers == 0 then
+                state.pending_action = nil
+                M.broadcast_update(dispatcher, state)
+            end
+        end
+    end
 end
 
 function M.handle_response(dispatcher, state, player_id, payload)

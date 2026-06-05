@@ -153,19 +153,6 @@ local function ai_handle_pending(state)
             rules.handle_response(state._dispatcher, state, action.source_id, {confirm=false})
 
         -- ---- 英雄技能响应 ----
-        elseif action.type == "ALADDIN_LAMP" then
-            local p = state.players[action.player_id]
-            if #p.hand >= 2 then
-                local scored = {}
-                for _, c in ipairs(p.hand) do
-                    table.insert(scored, {id = c.id, score = DISCARD_PRIORITY[c.type] or 0})
-                end
-                table.sort(scored, function(a, b) return a.score > b.score end)
-                hero_mgr.handle_response(state._dispatcher, state, action.player_id,
-                    {confirm=true, card_ids={scored[1].id, scored[2].id}})
-            else
-                hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=false})
-            end
 
         elseif action.type == "ALIBABA_COUNTER" then
             hero_mgr.handle_response(state._dispatcher, state, action.player_id, {confirm=true})

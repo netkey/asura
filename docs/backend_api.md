@@ -109,7 +109,6 @@
 | 火攻猜花色 | `WAITING_FOR_FIRE_GUESS` | `{"confirm":true,"guess":"HEART"}`（HEART/SPADE/CLUB/DIAMOND）|
 | 英雄技能确认+选目标 | `SULEIMAN_CHI_LING` / `HARUN_CHOOSE` / `ALIBABA_COUNTER` 等 | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 哈基姆【星象】重排牌堆 | `HAKIM_XING_XIANG` | `{"confirm":true,"sorted_ids":["c_01","c_02"]}` 或 `{"confirm":false}` |
-| 阿拉丁【神灯】弃牌 | `ALADDIN_LAMP` | `{"confirm":true,"card_ids":["c_03","c_04"]}` 或 `{"confirm":false}` |
 | 弃牌阶段选牌 | `WAITING_FOR_DISCARD` | `{"confirm":true,"card_ids":["c_01","c_03"]}` 或 `{"confirm":false}`（服务端自动从末尾弃） |
 
 > **超时自动处理**：各等待阶段均有 deadline（DEFENSE/AOE 15s，RESCUE 10s，DISCARD 等同回合超时 30s），超时后服务端自动以 `confirm=false` 推进。弃牌阶段若玩家在线且非托管模式，服务端先发 OpCode 106 `discard_required` 事件等待玩家选择；离线或托管模式直接从手牌末尾自动弃牌。
@@ -132,7 +131,7 @@
 
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
-| `101` | 技能使用者或目标玩家 | 英雄技能询问，如阿拉丁【神灯】、苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","description":"是否发动【敕令】？","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
+| `101` | 技能使用者或目标玩家 | 英雄技能询问，如苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","description":"是否发动【敕令】？","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
 | `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART"}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"msg":"需要弃置 2 张牌"}` |
 
 > **接收 101 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
