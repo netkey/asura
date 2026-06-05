@@ -318,6 +318,19 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 end
 
+-- 死亡时清理全局状态标志（防止在他人回合内死亡时标志残留）
+function M.on_death(dispatcher, state, player_id)
+    local p = state.players[player_id]
+    if p.hero ~= "dhul_qarnayn" then return false end
+    state.dhul_westward = nil
+    state.dhul_eastward = nil
+    state._dhul_last_attack_card = nil
+    state._dhul_last_trick_card = nil
+    p.dhul_west_used = false
+    p.dhul_east_used = false
+    return false
+end
+
 -- 回合结束时重置每回合计数
 function M.on_turn_end(dispatcher, state, player_id)
     local p = state.players[player_id]

@@ -924,6 +924,7 @@ local function execute_death(dispatcher, state, target_id, source_id)
         if card then table.insert(state.discard_pile, card) end
     end
     target.equipment = {weapon = nil, armor = nil, horse = nil}
+    hero_mgr.trigger("on_death", dispatcher, state, target_id)
     log_info(state, target.username .. " 已阵亡，身份是: " .. target.role)
     local ROLE_CN = { MONARCH="主公", MINISTER="忠臣", REBEL="反贼", TRAITOR="内奸" }
     local role_tag = ROLE_CN[target.role]
@@ -947,7 +948,8 @@ local function execute_death(dispatcher, state, target_id, source_id)
             or (pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == target_id)
             or (pa.type == "WAITING_FOR_TRICK_SELECT" and pa.source_id == target_id)
             or (pa.type == "WAITING_FOR_FIRE_GUESS" and pa.caster_id == target_id)
-            or (pa.type == "WEAPON_QINGLONG_DAO" and pa.attacker_id == target_id) then
+            or (pa.type == "WEAPON_QINGLONG_DAO" and pa.attacker_id == target_id)
+            or (pa.type == "WEAPON_CHUANGSHI_FU" and pa.attacker_id == target_id) then
             M.handle_response(dispatcher, state, target_id, {confirm = false})
         -- 类型 2：死者是链中的一员 → 从链中移除
         elseif pa.type == "WAITING_FOR_RESCUE" and pa.rescuers then
@@ -984,6 +986,16 @@ local function execute_death(dispatcher, state, target_id, source_id)
                     M.broadcast_update(dispatcher, state)
                 end
             end
+        -- 类型 4：死者是 pending_action 发起者（hero-specific 技能如 HAKIM_XING_XIANG/SCHEHERAZADE_QIANYE 等）
+        -- 类型 1-3 已覆盖所有「链式推进」场景，此处处理发起者死亡后无人可响应的残留
+        elseif pa.player_id == target_id then
+            state.pending_action = nil
+            local pt = state.pending_trick
+            state.pending_trick = nil
+            if pt and pt.card then
+                table.insert(state.discard_pile, pt.card)
+            end
+            M.broadcast_update(dispatcher, state)
         end
     end
 end
