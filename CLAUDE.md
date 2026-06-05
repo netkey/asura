@@ -26,7 +26,7 @@ Asura 是一个基于 Nakama 服务器的多人在线卡牌游戏，灵感来源
 
 ```
 asura/
-├── api.lua                      # RPC API 接口（34 个，均 safe_rpc 包裹）
+├── api.lua                      # RPC API 接口（37 个，均 safe_rpc 包裹）
 ├── match_handler.lua           # 匹配/对局生命周期
 ├── game_rules.lua              # 游戏规则核心逻辑
 ├── hero_manager.lua            # 英雄技能触发器
@@ -85,12 +85,20 @@ asura/
 - **内奸 (TRAITOR)**: 1 人，最后存活获胜
 
 ### 卡牌类型
-- **攻击 (ATTACK)**: 基础攻击牌
-- **防御 (DEFENSE)**: 防御攻击
-- **治疗 (HEAL)**: 恢复生命值
-- **AOE_SANDSTORM**: 范围攻击
-- **DRAW_TWO**: 摸两张牌
-- **JUDGE_STORM**: 延时判定牌
+
+| 牌型 | 张数 | 说明 |
+|------|------|------|
+| ATTACK（大马士革弯刀）| 30 | 基础攻击，每回合限 1 次（连弩机除外） |
+| DEFENSE（蜃景）| 15 | 抵消一次攻击 |
+| HEAL（椰枣）| 8 | 回复 1 点血量 |
+| WINE（沙漠之心）| 3 | 增伤 +1；不能用于濒死救人 |
+| INSTANT_TRICK | 33 | 即时锦囊：aoe_attack/duel/discard_one/steal_one/draw_two/mass_heal/mass_draw/counterspell/borrow_weapon/fire_attack/aoe_defense |
+| DELAYED_TRICK | 5 | 延时锦囊：skip_play（乐不思蜀）/ lightning（闪电） |
+| WEAPON | 6 | 连弩机/贯石斧/青龙偃月刀/丈八蛇矛/双刃剑/麒麟弓 |
+| ARMOR | 2 | 八卦阵/仁王盾 |
+| HORSE | 6 | 进攻马(×3)+防守马(×3)，影响攻击距离 |
+
+> 内部 type 不变，`card.name` 为大中东主题名（如 WINE→沙漠之心）。卡牌名中东本土化待办见 `project_backlog.md`。
 
 ## 英雄列表
 
@@ -208,6 +216,21 @@ Nakama Lua 无 Prometheus HTTP 接口，使用 `ops/matches` 存储记录指标�
 ### 5. 服务器排空 — match_terminate
 `match_terminate` 不直接结束对局，而是设置 `pending_shutdown` 时间戳，由 `match_loop` 到期后自动清理。兼容多节点协调器（如 konsul）的 draining 流程。
 
+### 6. 客户端状态同步 — broadcast_update
+`on_response` **所有分支**（含失败/校验不通过/超时）必须调用 `broadcast_update`，否则客户端卡死在假死循环。不要在每个成功分支里单独调用，放在块外统一调用。
+
+### 7. pending_action 与死亡玩家
+`pending_action` 涉及已死亡玩家时必须清理并推进链。`auto_defend` 对 dead target 不能静默 return，必须 `handle_response` 推进链。`WAITING_FOR_COUNTER` 遍历时跳过 `health<=0` 的玩家，避免每死者空耗 15s。
+
+### 8. 并发安全 — OCC 存储
+`find_or_create_match` 等竞态场景用 `nk.storage_write` 的 OCC 版本控制替代 `match_list` 二次查询（TOCTOU）。
+
+### 9. 输入校验
+所有 payload 字段（`card_id`/`target_id`/`block_type` 等）使用前必须做类型、范围、归属校验，不允许信任客户端输入。
+
+### 10. Lua 循环控制
+Lua 5.4 中循环跳过用 `goto continue` + `::continue::`，`break` 会截断后续合法元素。
+
 ## 相关文档
 
 - [产品设计文档](./docs/product_design.md)
@@ -217,5 +240,5 @@ Nakama Lua 无 Prometheus HTTP 接口，使用 `ops/matches` 存储记录指标�
 
 ---
 
-**最后更新**: 2026-05-22
-**版本**: 0.5.0
+**最后更新**: 2026-06-05
+**版本**: 0.6.0
