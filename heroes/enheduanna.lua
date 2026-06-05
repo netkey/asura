@@ -129,4 +129,18 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 end
 
+function M.on_timeout(dispatcher, state, act)
+    local hero_mgr = require("hero_manager")
+    if act.type == "ENHEDUANNA_SONG_CI_GIVE" then
+        if act.hand_cards and #act.hand_cards > 0 and act.targets and #act.targets > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, card_id = act.hand_cards[1].id, target_id = act.targets[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+        end
+    else
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+    end
+end
+
 return M

@@ -938,13 +938,19 @@ local function execute_death(dispatcher, state, target_id, source_id)
     -- 清理 pending_action 中对死亡玩家的引用（防止死锁）
     if state.pending_action then
         local pa = state.pending_action
+        -- 类型 1：死者是当前响应者 → 自动确认失败，推进链
         if (pa.type == "WAITING_FOR_DEFENSE" and pa.target_id == target_id)
             or (pa.type == "WAITING_FOR_AOE" and pa.current_target == target_id)
-            or (pa.type == "WAITING_FOR_COUNTER" and pa.current_target == target_id) then
-            -- 死者无法响应，自动推进（handle_response 内会跳过死者跳到下一个）
+            or (pa.type == "WAITING_FOR_COUNTER" and pa.current_target == target_id)
+            or (pa.type == "WAITING_FOR_DUEL"
+                and (pa.attacker_id == target_id or pa.target_id == target_id))
+            or (pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == target_id)
+            or (pa.type == "WAITING_FOR_TRICK_SELECT" and pa.source_id == target_id)
+            or (pa.type == "WAITING_FOR_FIRE_GUESS" and pa.caster_id == target_id)
+            or (pa.type == "WEAPON_QINGLONG_DAO" and pa.attacker_id == target_id) then
             M.handle_response(dispatcher, state, target_id, {confirm = false})
+        -- 类型 2：死者是链中的一员 → 从链中移除
         elseif pa.type == "WAITING_FOR_RESCUE" and pa.rescuers then
-            -- 从救援链中移除死者
             local new_rescuers = {}
             for _, uid in ipairs(pa.rescuers) do
                 if uid ~= target_id then table.insert(new_rescuers, uid) end
@@ -953,6 +959,30 @@ local function execute_death(dispatcher, state, target_id, source_id)
             if #new_rescuers == 0 then
                 state.pending_action = nil
                 M.broadcast_update(dispatcher, state)
+            end
+        -- 类型 3：死者在 COUNTER 链中但不是当前节点 → 从链中移除
+        elseif pa.type == "WAITING_FOR_COUNTER" and pa.remaining_order then
+            local removed = false
+            local new_order = {}
+            for i, uid in ipairs(pa.remaining_order) do
+                if uid == target_id then
+                    removed = true
+                else
+                    table.insert(new_order, uid)
+                end
+            end
+            if removed then
+                pa.remaining_order = new_order
+                if #new_order == 0 then
+                    -- 链中已无存活玩家，结束窗口
+                    state.pending_action = nil
+                    local pt = state.pending_trick
+                    state.pending_trick = nil
+                    if pt and pt.card then
+                        table.insert(state.discard_pile, pt.card)
+                    end
+                    M.broadcast_update(dispatcher, state)
+                end
             end
         end
     end
@@ -1141,8 +1171,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
             local rescuer = state.players[player_id]
             for i, card in ipairs(rescuer.hand) do
                 -- 仅【桃】可以救人（酒只增伤不可救人）
+                local hero_mgr = require("hero_manager")
                 local can_rescue = card.type == "HEAL"
-                    or (card.suit == "HEART" and rescuer.hero == "avicenna")
+                    or hero_mgr.can_rescue_with(rescuer.hero, card)
                 if card.id == payload.card_id and can_rescue then
                     table.remove(rescuer.hand, i)
                     table.insert(state.discard_pile, card)

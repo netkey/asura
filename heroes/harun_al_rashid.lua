@@ -114,4 +114,19 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 end
 
+function M.on_timeout(dispatcher, state, act)
+    local hero_mgr = require("hero_manager")
+    if act.type == "HARUN_SELECT_TARGET" then
+        if act.targets and #act.targets > 0 then
+            hero_mgr.handle_response(dispatcher, state, act.player_id,
+                { confirm = true, target_id = act.targets[1].id })
+        else
+            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        end
+    elseif act.type == "HARUN_CHOOSE" then
+        hero_mgr.handle_response(dispatcher, state, act.player_id,
+            { confirm = true, choose_discard = false })
+    end
+end
+
 return M

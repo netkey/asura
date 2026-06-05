@@ -93,4 +93,14 @@ function M.on_response(dispatcher, state, player_id, payload)
     rules.broadcast_update(dispatcher, state)
 end
 
+function M.on_timeout(dispatcher, state, act)
+    local hero_mgr = require("hero_manager")
+    if act.targets and #act.targets > 0 then
+        hero_mgr.handle_response(dispatcher, state, act.player_id,
+            { confirm = true, target_id = act.targets[1].id, block_type = "ATTACK" })
+    else
+        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+    end
+end
+
 return M

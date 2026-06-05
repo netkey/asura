@@ -103,4 +103,9 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 end
 
+function M.on_timeout(dispatcher, state, act)
+    local hero_mgr = require("hero_manager")
+    hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
+end
+
 return M

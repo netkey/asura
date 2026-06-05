@@ -359,7 +359,7 @@ local function auto_resolve_pending(dispatcher, state)
             local found
             for _, c in ipairs(rescuer.hand) do
                 if c.type == "HEAL" or (is_self and c.type == "WINE")
-                    or (c.suit == "HEART" and rescuer.hero == "avicenna") then
+                    or hero_mgr.can_rescue_with(rescuer.hero, c) then
                     rules.handle_response(dispatcher, state, rescuer_id, { confirm = true, card_id = c.id })
                     found = true
                     break
@@ -376,72 +376,11 @@ local function auto_resolve_pending(dispatcher, state)
     elseif act.type == "WAITING_FOR_DUEL" then
         local duel_id = act.is_attackers_turn and act.attacker_id or act.target_id
         rules.handle_response(dispatcher, state, duel_id, { confirm = false })
-    elseif act.type == "ENHEDUANNA_SONG_CI" then
-        -- 颂词：总是发动（净收益 +3）
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
-    elseif act.type == "ENHEDUANNA_SONG_CI_GIVE" then
-        -- 给第一张牌、第一个目标
-        if act.hand_cards and #act.hand_cards > 0 and act.targets and #act.targets > 0 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id,
-                { confirm = true, card_id = act.hand_cards[1].id, target_id = act.targets[1].id })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
-        end
-    elseif act.type == "SULEIMAN_CHI_LING" then
-        if act.targets and #act.targets > 0 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id,
-                { confirm = true, target_id = act.targets[1].id, block_type = "ATTACK" })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
-    elseif act.type == "HARUN_SELECT_TARGET" then
-        if act.targets and #act.targets > 0 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id,
-                { confirm = true, target_id = act.targets[1].id })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
-    elseif act.type == "HARUN_CHOOSE" then
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, choose_discard = false })
-    elseif act.type == "ALIBABA_COUNTER" then
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
-    elseif act.type == "IBN_BATTUTA_YUAN_XING" then
-        local p = state.players[act.player_id]
-        if p and #p.hand >= 1 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_ids = { p.hand[1].id } })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
-    elseif act.type == "RUMI_XUANHUI" then
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true })
-    elseif act.type == "HAKIM_XING_XIANG" or act.type == "AL_KHWARIZMI_SUANFA" or act.type == "AL_BIRUNI_CELIANG" then
-        -- 观星/算法/测量：保持原顺序 confirm=false（等于恢复原状）
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-    elseif act.type == "GILGAMESH_BU_XIU" then
-        if act.cards and #act.cards > 0 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_id = act.cards[1].id })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
-    elseif act.type == "SCHEHERAZADE_QIANYE" then
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-    elseif act.type == "AVICENNA_ZHEN" then
-        if act.heart_cards and #act.heart_cards > 0 then
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = true, card_id = act.heart_cards[1].id })
-        else
-            hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-        end
-    elseif act.type == "BASIRA_DONG_CHA" then
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
-    elseif act.type == "DHUL_SKILL_CHOICE" or act.type == "DHUL_WESTWARD_TARGET" or act.type == "DHUL_EASTWARD_TARGET" or act.type == "DHUL_WEST_EXTRA" or act.type == "DHUL_EAST_EXTRA" then
-        -- 双角王技能超时：跳过
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
     elseif act.type == "WAITING_FOR_COUNTER" then
         rules.handle_response(dispatcher, state, act.current_target, { confirm = false })
     elseif act.type == "WAITING_FOR_BORROW_WEAPON" then
         rules.handle_response(dispatcher, state, act.target_id, { confirm = false })
     elseif act.type == "WAITING_FOR_FIRE_GUESS" then
-        -- 从已揭示牌中读取真实花色，使托管行为与手动一致
         local guess = act.revealed_card and act.revealed_card.suit or "HEART"
         rules.handle_response(dispatcher, state, act.caster_id, { confirm = true, guess = guess })
     elseif act.type == "WEAPON_CHUANGSHI_FU" or act.type == "WEAPON_QINGLONG_DAO" then
@@ -453,9 +392,8 @@ local function auto_resolve_pending(dispatcher, state)
         state.pending_action = nil
         state.pending_discard_continuation = {uid = act.player_id}
     else
-        -- 兜底：未知 pending_action 清除并记录
-        log_warn(state, "auto_resolve_pending: 未知类型 " .. tostring(act.type) .. "，强制清除")
-        state.pending_action = nil
+        -- 英雄技能超时：交由英雄模块自己处理
+        hero_mgr.handle_timeout(dispatcher, state)
     end
 end
 
