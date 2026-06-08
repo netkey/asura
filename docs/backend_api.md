@@ -145,18 +145,22 @@
   "me": {
     "hand": [{"id":"c_001","type":"ATTACK","suit":"SPADE","number":7,"name":"攻击"}],
     "hp": 4,
+    "max_health": 4,
     "role": "REBEL",
     "equipment": {"weapon": null, "armor": null, "horse": null},
     "delayed_effects": [],
     "weapon_buff": false,
     "skin_id": "aladdin_golden",
-    "seat_idx": 1
+    "seat_idx": 1,
+    "attacks_this_turn": 1,
+    "wine_used_this_turn": false
   },
   "others": [
     {
       "id": "user-uuid-2",
       "username": "Player2",
       "hp": 3,
+      "max_health": 3,
       "hand_count": 5,
       "hero": "hakim",
       "role": "UNKNOWN",
@@ -170,11 +174,135 @@
 
 > **身份迷雾**：`others[].role` 除主公（MONARCH）、已阵亡玩家、对局结束外，均显示为 `"UNKNOWN"`。  
 > **皮肤字段**：`skin_id = null` 表示使用默认皮肤，客户端加载 `skins/{hero_id}/default/`。  
-> **座次字段**：`seat_idx` 为玩家在环上的位置索引（1-based），结合全场玩家的 `seat_idx` 和 `equipment` 可在本地计算出攻击距离（见下方 [攻击距离预检](#攻击距离预检)）。
+> **座次字段**：`seat_idx` 为玩家在环上的位置索引（1-based），结合全场玩家的 `seat_idx` 和 `equipment` 可在本地计算攻击距离。  
+> **新增字段**（v0.6.0）：`max_health`、`attacks_this_turn`、`wine_used_this_turn` 用于客户端出牌预判，详见 [客户端预检](#客户端预检)。
 
-#### 攻击距离预检
+#### 客户端预检
 
-客户端可在发出攻击前通过本地计算判断目标是否在射程内，避免无效网络请求（尤其在残局短兵器够不到远处目标时）。所有必要数据（`seat_idx`、`equipment.weapon.subtype`、`equipment.horse.subtype`）均在 OpCode 10 中下发。
+客户端应尽量在本地完成出牌合法性判断，减少无效网络往返，加速游戏节奏。所有预检依赖的数据均通过 OpCode 10 下发，**服务端始终以自身计算为准**（客户端预检错误仅导致请求被拒，不影响公平性）。
+
+---
+
+##### 1. 攻击距离
+
+见 [攻击距离预检](#攻击距离预检) 小节，核心公式：
+
+```
+seat_distance = min(|seat_A - seat_B|, n - |seat_A - seat_B|)
+effective_distance = seat_distance - (进攻马 ? 1 : 0) + (防御马 ? 1 : 0)
+可以攻击 ⇔ effective_distance ≤ weapon_range
+```
+
+---
+
+##### 2. 顺手牵羊距离
+
+`seat_distance ≤ 1`（不受武器射程、马匹影响，等同于武器射程 1 且无马匹修正）。
+
+---
+
+##### 3. 攻击次数限制
+
+| 条件 | 能否出杀 |
+|------|---------|
+| `attacks_this_turn == 0` | ✅ |
+| `attacks_this_turn ≥ 1` 且武器为连弩机（subtype=`unlimited_attack`） | ✅ |
+| `attacks_this_turn ≥ 1` 且无连弩机 | ❌ |
+
+> 数据来源：`me.attacks_this_turn`、`me.equipment.weapon.subtype`
+
+---
+
+##### 4. 酒牌使用限制
+
+| 条件 | 能否出酒 |
+|------|---------|
+| `wine_used_this_turn == false` 且是自己回合 | ✅ |
+| `wine_used_this_turn == true` | ❌ "本回合已用过酒" |
+
+> 数据来源：`me.wine_used_this_turn`
+
+---
+
+##### 5. 桃（HEAL）有效性
+
+| 场景 | 条件 | 能否出桃 |
+|------|------|---------|
+| 出牌阶段自救 | `hp < max_health` | ✅ |
+| 出牌阶段自用 | `hp == max_health` | ❌（满血无意义） |
+| 濒死救人 | `target.hp ≤ 0`（在 RESCUE 窗口中） | ✅（不论自身血量） |
+
+> 数据来源：`me.hp`、`me.max_health`、`others[].hp`
+
+---
+
+##### 6. 目标合法性
+
+| 检查项 | 条件 | 说明 |
+|--------|------|------|
+| 目标存活 | `target.hp > 0` | 不能对已阵亡玩家出牌 |
+| 不能自指 | `target_id ≠ me` | 除非是延时锦囊（挂自己） |
+| 延时锦囊自挂 | card.type == `DELAYED_TRICK` | 唯一允许自指的牌 |
+
+> 数据来源：`others[].hp`、手牌 `card.type`
+
+---
+
+##### 7. Pending 阻塞
+
+当 `pending ≠ null` 且自己是当前响应者时，**不能主动出牌**，只能响应该 pending：
+
+| pending.type | 被阻塞的玩家 |
+|-------------|-------------|
+| `WAITING_FOR_DEFENSE` | `pending` 中的 `target_id`（如有暴露） |
+| `WAITING_FOR_AOE` | `pending` 中的 `current_target`（如有暴露） |
+| `WAITING_FOR_DUEL` | 当前出杀方 |
+| `WAITING_FOR_TRICK_SELECT` | `pending` 中的操作者 |
+| `WAITING_FOR_COUNTER` | `current_target` 和 `caster_id` |
+| `WAITING_FOR_BORROW_WEAPON` | `target_id` |
+| `WAITING_FOR_FIRE_GUESS` | `caster_id` |
+| `WAITING_FOR_RESCUE` | 当前 `rescuer_id` |
+| 英雄技能 pending（player_id） | 对应玩家 |
+
+> **当前 OpCode 10 只下发 `pending.type` 和 `deadline`**，不暴露 target_id/current_target 等内部字段。客户端保守策略：**pending 非 null 就只响应 OpCode 101/105 事件，不主动出牌**。
+
+---
+
+##### 8. 无懈可击
+
+**不可在出牌阶段主动使用**，只能在 `WAITING_FOR_COUNTER` 窗口中作为响应打出。客户端在出牌阶段应禁选手中无懈可击牌。
+
+---
+
+##### 9. 装备栏
+
+| 装备类型 | slot | 替换行为 |
+|---------|------|---------|
+| WEAPON | `equipment.weapon` | 旧武器 → 弃牌堆 |
+| ARMOR | `equipment.armor` | 旧防具 → 弃牌堆 |
+| HORSE | `equipment.horse` | 旧马 → 弃牌堆 |
+
+客户端可直接在 UI 上展示替换效果（旧装备回弃牌堆），无需额外网络查询。
+
+---
+
+##### 预检清单速查
+
+| # | 操作 | 客户端预检 | 服务端校验行 | 所需数据 |
+|---|------|-----------|-------------|---------|
+| 1 | 出杀 | 攻击距离 + 次数限制 | 820-827 + 809-817 | `seat_idx`、装备、`attacks_this_turn` |
+| 2 | 顺手牵羊 | 距离 ≤ 1 | 831-839 | `seat_idx` |
+| 3 | 酒 | 本回合未用过 | 801-805 | `wine_used_this_turn` |
+| 4 | 桃 | 血量不满 或 濒死救人 | 120 | `hp`、`max_health` |
+| 5 | 目标存活 | `target.hp > 0` | 768 | `others[].hp` |
+| 6 | 自指目标 | 仅延时锦囊 | 769-777 | 手牌 `card.type` |
+| 7 | 有 pending | 不主动出牌 | 734-761 | `pending` |
+| 8 | 无懈可击 | 不可主动用 | 849-853 | 手牌 `card.subtype` |
+| 9 | 装备 | 替换旧装备 | 139-177 | `equipment` |
+
+##### 攻击距离预检（详细）
+
+以下内容与 v0.5.0 版相同，保留供参考。
 
 **步骤 1：环上最短距离（seat_distance）**
 
@@ -217,8 +345,8 @@ effective_distance = seat_distance
 
 **特殊情况**
 
-- **双角王【远疆-西行】**：激活时（`state.dhul_westward[attacker_id]` 为 true），本回合攻击**无视距离限制**（等同于 `weapon_range = ∞`）。客户端需自行跟踪该 flag（可通过英雄技能广播推断状态）。
-- **【顺手牵羊】**：要求 `effective_distance ≤ 1`（武器射程不适用），即距离 1 内（不含自身）。
+- **双角王【远疆-西行】**：激活时（服务端 state 中 `dhul_westward[attacker_id]` 为 true），本回合攻击**无视距离限制**（等同于 `weapon_range = ∞`）。客户端需自行跟踪该 flag（可通过英雄技能广播推断状态）。
+- **【顺手牵羊】**：要求 `seat_distance ≤ 1`（武器射程不适用），即距离 1 内（不含自身），马匹不参与修正。
 
 **示例代码（Lua 伪码）：**
 
