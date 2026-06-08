@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.5.0 · 最后更新：2026-05-26  
+> 版本：v0.6.0 · 最后更新：2026-06-08  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -149,7 +149,8 @@
     "equipment": {"weapon": null, "armor": null, "horse": null},
     "delayed_effects": [],
     "weapon_buff": false,
-    "skin_id": "aladdin_golden"
+    "skin_id": "aladdin_golden",
+    "seat_idx": 1
   },
   "others": [
     {
@@ -160,14 +161,94 @@
       "hero": "hakim",
       "role": "UNKNOWN",
       "equipment": {"weapon": null, "armor": null, "horse": null},
-      "skin_id": null
+      "skin_id": null,
+      "seat_idx": 2
     }
   ]
 }
 ```
 
 > **身份迷雾**：`others[].role` 除主公（MONARCH）、已阵亡玩家、对局结束外，均显示为 `"UNKNOWN"`。  
-> **皮肤字段**：`skin_id = null` 表示使用默认皮肤，客户端加载 `skins/{hero_id}/default/`。
+> **皮肤字段**：`skin_id = null` 表示使用默认皮肤，客户端加载 `skins/{hero_id}/default/`。  
+> **座次字段**：`seat_idx` 为玩家在环上的位置索引（1-based），结合全场玩家的 `seat_idx` 和 `equipment` 可在本地计算出攻击距离（见下方 [攻击距离预检](#攻击距离预检)）。
+
+#### 攻击距离预检
+
+客户端可在发出攻击前通过本地计算判断目标是否在射程内，避免无效网络请求（尤其在残局短兵器够不到远处目标时）。所有必要数据（`seat_idx`、`equipment.weapon.subtype`、`equipment.horse.subtype`）均在 OpCode 10 中下发。
+
+**步骤 1：环上最短距离（seat_distance）**
+
+将全场存活玩家（`me` + `others`）按 `seat_idx` 升序排列成环：
+
+```
+n = 存活玩家总数
+diff = |attacker.seat_idx - target.seat_idx|
+seat_distance = min(diff, n - diff)
+```
+
+**步骤 2：有效距离（effective_distance）**
+
+```
+effective_distance = seat_distance
+                   - (攻击方有进攻马 ? 1 : 0)    // horse.subtype == "offense"
+                   + (防御方有防御马 ? 1 : 0)    // horse.subtype == "defense"
+```
+
+**步骤 3：武器射程（weapon_range）**
+
+取攻击方 `equipment.weapon.subtype`，查下表（无武器时取 1）：
+
+| weapon.subtype | 射程 | 对应武器 |
+|----------------|------|---------|
+| `null`（无武器） | 1 | — |
+| `unlimited_attack` | 1 | 连弩机（诸葛连弩） |
+| `reattempt_discard2` | 2 | 贯石斧 |
+| `reattempt_attack` | 2 | 青龙偃月刀 |
+| `spear_discard2` | 2 | 丈八蛇矛 |
+| `ignore_armor` | 2 | 双刃剑（双股剑） |
+| `bow_strip_horse` | 3 | 麒麟弓 |
+| 未知 subtype | 1 | 安全回退 |
+
+**步骤 4：判定**
+
+```
+可以攻击 ⇔ effective_distance ≤ weapon_range
+```
+
+**特殊情况**
+
+- **双角王【远疆-西行】**：激活时（`state.dhul_westward[attacker_id]` 为 true），本回合攻击**无视距离限制**（等同于 `weapon_range = ∞`）。客户端需自行跟踪该 flag（可通过英雄技能广播推断状态）。
+- **【顺手牵羊】**：要求 `effective_distance ≤ 1`（武器射程不适用），即距离 1 内（不含自身）。
+
+**示例代码（Lua 伪码）：**
+
+```lua
+local WEAPON_RANGES = {
+    unlimited_attack = 1, reattempt_discard2 = 2, reattempt_attack = 2,
+    spear_discard2 = 2, ignore_armor = 2, bow_strip_horse = 3,
+}
+
+local function can_attack_client(me, target, all_players)
+    -- 环距离
+    local n = #all_players
+    local diff = math.abs(me.seat_idx - target.seat_idx)
+    local dist = math.min(diff, n - diff)
+
+    -- 马匹修正
+    if me.equipment.horse and me.equipment.horse.subtype == "offense" then
+        dist = math.max(0, dist - 1)
+    end
+    if target.equipment.horse and target.equipment.horse.subtype == "defense" then
+        dist = dist + 1
+    end
+
+    -- 武器射程
+    local subtype = me.equipment.weapon and me.equipment.weapon.subtype
+    local range = WEAPON_RANGES[subtype] or 1
+
+    return dist <= range
+end
+```
 
 #### 旁观者 / 重连附加字段
 
