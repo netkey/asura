@@ -901,29 +901,33 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 
 ### 并行测试脚本配置
 
-bot 并行测试时，新账户默认只有阿拉丁解锁。要让 bot 使用指定英雄，需在测试开始前通过管理员 API 设置全英雄限时免费活动：
+bot 并行测试时，新账户默认只有阿拉丁解锁。要让 bot 使用指定英雄，有两种方式：
+
+**方式一：脚本自动设置（推荐）**
 
 ```bash
-# 1. 获取 Nakama HTTP Key
-# 2. 调用 admin_set_free_event 设置全英雄 24 小时免费窗口
-curl -X POST "http://localhost:7350/v2/rpc/admin_set_free_event" \
-  -H "Authorization: Bearer <admin-http-key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "heroes": ["aladdin","alibaba","saladin","hakim","scheherazade","jafar",
-               "ibn_battuta","al_khwarizmi","avicenna","sinbad","hulagu","rumi",
-               "zubaydah","al_biruni","tamerlane","dunyazad","antar","nefertiti",
-               "harun_al_rashid","suleiman","khayyam","zenobia","muawiyah","nizamulmulk",
-               "enheduanna","al_mansur","gilgamesh","imru_al_qais","basira","dhul_qarnayn"],
-    "start_time": <当前时间戳>,
-    "end_time": <当前时间戳 + 86400>
-  }'
-
-# 3. 运行 bot 测试
+# nakama_bot_test.py 启动时自动调用 admin_set_free_event 设 24h 限免窗口
 python3 nakama_bot_test.py --rounds 30
 ```
 
-> 限免活动在 match_join 阶段判定，与商城 `is_hero_accessible` 逻辑一致。活动过期后新账户恢复只有阿拉丁。
+脚本使用 `NAKAMA_SERVER_KEY` 环境变量（默认 `defaultkey`）认证管理员接口。
+
+**方式二：手动 curl 设置**
+
+```bash
+# HTTP Key 即 docker-compose.yml 中的 NAKAMA_SERVER_KEY（默认 defaultkey）
+# Auth 方式: Basic base64("key:") → Basic ZGVmYXVsdGtleTo=
+curl -X POST "http://localhost:7350/v2/rpc/admin_set_free_event" \
+  -H "Authorization: Basic ZGVmYXVsdGtleTo=" \
+  -H "Content-Type: application/json" \
+  -d "{\"heroes\":[\"aladdin\",\"alibaba\",\"saladin\",\"hakim\",\"scheherazade\",\"jafar\",\"ibn_battuta\",\"al_khwarizmi\",\"avicenna\",\"sinbad\",\"hulagu\",\"rumi\",\"zubaydah\",\"al_biruni\",\"tamerlane\",\"dunyazad\",\"antar\",\"nefertiti\",\"harun_al_rashid\",\"suleiman\",\"khayyam\",\"zenobia\",\"muawiyah\",\"nizamulmulk\",\"enheduanna\",\"al_mansur\",\"gilgamesh\",\"imru_al_qais\",\"basira\",\"dhul_qarnayn\"],\"start_time\":$(date +%s),\"end_time\":$(($(date +%s)+86400))}"
+
+# 然后运行测试
+python3 nakama_bot_test.py --skip-admin-setup --rounds 30
+```
+
+> **HTTP Key 值**：`docker-compose.yml` 第 44-45 行 `--runtime.http_key ${NAKAMA_SERVER_KEY:-defaultkey}`，默认就是 `defaultkey`。生产环境通过 VPS 环境变量注入。  
+> **限免判定**：`match_join` 阶段检查 `events/free_heroes` 全局存储，与商城 `is_hero_accessible` 逻辑一致。活动过期后新账户恢复只有阿拉丁。
 
 ---
 
