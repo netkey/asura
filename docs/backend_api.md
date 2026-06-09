@@ -899,17 +899,31 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `admin_end_season` | 结束当前赛季 | `{}` |
 | `admin_refresh_google_token` | 强制刷新 Google OAuth token 缓存 | `{}` |
 
-#### `test_unlock_all`
+### 并行测试脚本配置
 
-开发者/测试用 RPC，新账户调用一次即可解锁全部英雄 + 获得 99999 金币，无需走购买流程。
+bot 并行测试时，新账户默认只有阿拉丁解锁。要让 bot 使用指定英雄，需在测试开始前通过管理员 API 设置全英雄限时免费活动：
 
-```json
-// 无需入参
-// 出参
-{"success":true,"heroes_unlocked":30}
+```bash
+# 1. 获取 Nakama HTTP Key
+# 2. 调用 admin_set_free_event 设置全英雄 24 小时免费窗口
+curl -X POST "http://localhost:7350/v2/rpc/admin_set_free_event" \
+  -H "Authorization: Bearer <admin-http-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "heroes": ["aladdin","alibaba","saladin","hakim","scheherazade","jafar",
+               "ibn_battuta","al_khwarizmi","avicenna","sinbad","hulagu","rumi",
+               "zubaydah","al_biruni","tamerlane","dunyazad","antar","nefertiti",
+               "harun_al_rashid","suleiman","khayyam","zenobia","muawiyah","nizamulmulk",
+               "enheduanna","al_mansur","gilgamesh","imru_al_qais","basira","dhul_qarnayn"],
+    "start_time": <当前时间戳>,
+    "end_time": <当前时间戳 + 86400>
+  }'
+
+# 3. 运行 bot 测试
+python3 nakama_bot_test.py --rounds 30
 ```
 
-> **调用时机**：bot 认证后、匹配前调用。仅限全新账户（无英雄解锁记录）调用，已解锁英雄的账户会被拒绝，防止误覆盖正式数据。
+> 限免活动在 match_join 阶段判定，与商城 `is_hero_accessible` 逻辑一致。活动过期后新账户恢复只有阿拉丁。
 
 ---
 

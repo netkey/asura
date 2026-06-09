@@ -184,26 +184,41 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
 
-            -- 批量读取英雄库存 + 皮肤装备（单次 RTT）
+            -- 批量读取英雄库存 + 皮肤装备 + 限时免费活动（单次 RTT）
             local unlocked_heroes = { aladdin = true }
             local equipped_skins  = {}
+            local free_events     = {}
             local inv_objects = nk.storage_read({
                 { collection = "hero_inventory", key = "unlocked_heroes", user_id = p.user_id },
                 { collection = "skin_inventory", key = "equipped_skins",  user_id = p.user_id },
+                { collection = "events",          key = "free_heroes",    user_id = nil },
             })
             for _, obj in ipairs(inv_objects) do
                 if obj.key == "unlocked_heroes" then unlocked_heroes = obj.value end
                 if obj.key == "equipped_skins"  then equipped_skins  = obj.value end
+                if obj.key == "free_heroes"     then free_events     = obj.value end
             end
 
             -- 从 join 时的 metadata 读取英雄选择，未携带则默认阿拉丁
             local requested = state.pending_heroes[p.user_id]
             state.pending_heroes[p.user_id] = nil
             local want_hero = "aladdin"
-            if type(requested) == "string" and catalog.HEROES[requested] and unlocked_heroes[requested] then
-                want_hero = requested
-            elseif requested then
-                log_warn(state, "玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
+            if type(requested) == "string" and catalog.HEROES[requested] then
+                if unlocked_heroes[requested] then
+                    want_hero = requested
+                else
+                    -- 限时免费活动期间无需购买也可使用
+                    local ev = free_events[requested]
+                    if ev then
+                        local now = os.time()
+                        if now >= ev.start_time and now <= ev.end_time then
+                            want_hero = requested
+                        end
+                    end
+                end
+                if want_hero ~= requested then
+                    log_warn(state, "玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
+                end
             end
 
             local ph = state.config.match.player_health
