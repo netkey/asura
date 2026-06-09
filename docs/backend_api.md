@@ -146,6 +146,7 @@
     "hand": [{"id":"c_001","type":"ATTACK","suit":"SPADE","number":7,"name":"攻击"}],
     "hp": 4,
     "max_health": 4,
+    "hero": "aladdin",
     "role": "REBEL",
     "equipment": {"weapon": null, "armor": null, "horse": null},
     "delayed_effects": [],

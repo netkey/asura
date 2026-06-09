@@ -39,7 +39,7 @@ MATCH_CONFIGS = [
     {"players": [{"id":"r1","hero":"hulagu"},{"id":"r2","hero":"rumi"},{"id":"r3","hero":"tamerlane"},{"id":"r4","hero":"zubaydah"},{"id":"r5","hero":"sinbad"}]},
 ]
 
-def ai_choose(hand, state, uid_map):
+def ai_choose(hand, state):
     tid = None
     for p in state.get("others", []):
         if p.get("hp", 0) > 0 and (not tid or p["hp"] < tid["hp"]): tid = p
@@ -51,16 +51,26 @@ def ai_choose(hand, state, uid_map):
     if my_hp <= 2:
         for c in hand:
             if c["type"] == "HEAL": return {"card_id": c["id"]}
+    # AOE 攻击优先（全场压力）
+    for c in hand:
+        if c["type"] == "INSTANT_TRICK" and c.get("subtype") == "aoe_attack":
+            return {"card_id": c["id"]}
     if target_id:
         for c in hand:
             if c["type"] == "ATTACK": return {"card_id": c["id"], "target_id": target_id}
-    for c in hand:
-        if c["type"] == "AOE_SANDSTORM": return {"card_id": c["id"]}
+    # 延时锦囊（乐不思蜀/闪电）
     if target_id:
         for c in hand:
-            if c["type"] in ("DELAYED_TRICK", "JUDGE_STORM"): return {"card_id": c["id"], "target_id": target_id}
+            if c["type"] == "DELAYED_TRICK": return {"card_id": c["id"], "target_id": target_id}
     for c in hand:
-        if c["type"] in ("DRAW_TWO", "WINE", "INSTANT_TRICK"): return {"card_id": c["id"]}
+        if c["type"] == "WINE": return {"card_id": c["id"]}
+    # 无中生有
+    for c in hand:
+        if c["type"] == "INSTANT_TRICK" and c.get("subtype") == "draw_two":
+            return {"card_id": c["id"]}
+    # 其余即时锦囊（过河拆桥/顺手牵羊/决斗/火攻等）
+    for c in hand:
+        if c["type"] == "INSTANT_TRICK": return {"card_id": c["id"]}
     return None
 
 class BotRunner:
@@ -97,20 +107,28 @@ class BotRunner:
         ah = base64.b64encode(f"{NAKAMA_KEY}:".encode()).decode()
         async with aiohttp.ClientSession() as sess:
             for pid in self.pids:
-                r = await sess.post(
-                    f"http://{NAKAMA_HOST}:{NAKAMA_PORT}/v2/account/authenticate/device?create=true",
-                    headers={"Content-Type": "application/json", "Authorization": f"Basic {ah}"},
-                    json={"id": f"bot-{pid}-{ts}"})
-                self.tokens[pid] = (await r.json())["token"]
+                try:
+                    r = await sess.post(
+                        f"http://{NAKAMA_HOST}:{NAKAMA_PORT}/v2/account/authenticate/device?create=true",
+                        headers={"Content-Type": "application/json", "Authorization": f"Basic {ah}"},
+                        json={"id": f"bot-{pid}-{ts}"})
+                    r.raise_for_status()
+                    self.tokens[pid] = (await r.json())["token"]
+                except Exception as e:
+                    raise RuntimeError(f"auth failed for {pid}: {e}")
 
     async def _create_match(self):
         mode = "identity" if len(self.pids) == 5 else "pvp"
         async with aiohttp.ClientSession() as sess:
-            r = await sess.post(
-                f"http://{NAKAMA_HOST}:{NAKAMA_PORT}/v2/rpc/find_or_create_match",
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.tokens[self.pids[0]]}"},
-                data=json.dumps(json.dumps({"mode": mode, "max_players": len(self.pids)})))
-            self.match_id = json.loads((await r.json())["payload"])["match_id"]
+            try:
+                r = await sess.post(
+                    f"http://{NAKAMA_HOST}:{NAKAMA_PORT}/v2/rpc/find_or_create_match",
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.tokens[self.pids[0]]}"},
+                    data=json.dumps({"mode": mode, "max_players": len(self.pids)}))
+                r.raise_for_status()
+                self.match_id = json.loads((await r.json())["payload"])["match_id"]
+            except Exception as e:
+                raise RuntimeError(f"create_match failed: {e}")
 
     async def _play(self):
         conns = {}
@@ -205,7 +223,6 @@ class BotRunner:
                 pending = state.get("pending")
                 hand = state.get("me", {}).get("hand", [])
                 my_hp = state.get("me", {}).get("hp", 0)
-                my_hero = state.get("me", {}).get("hero", "?")
 
                 # Skip dead players
                 if my_hp <= 0:
@@ -226,7 +243,7 @@ class BotRunner:
 
                 # Play card or end turn (only if it's my turn)
                 if is_turn:
-                    a = ai_choose(hand, state, self.uid_map)
+                    a = ai_choose(hand, state)
                     if a:
                         await ws.send(json.dumps({"match_data_send":{"match_id":self.match_id,"op_code":3,
                             "data":base64.b64encode(json.dumps(a).encode()).decode()}}))

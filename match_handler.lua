@@ -184,20 +184,24 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
 
-            -- 批量读取英雄库存 + 皮肤装备 + 限时免费活动（单次 RTT）
+            -- 读取英雄库存 + 皮肤装备
             local unlocked_heroes = { aladdin = true }
             local equipped_skins  = {}
-            local free_events     = {}
             local inv_objects = nk.storage_read({
                 { collection = "hero_inventory", key = "unlocked_heroes", user_id = p.user_id },
                 { collection = "skin_inventory", key = "equipped_skins",  user_id = p.user_id },
-                { collection = "events",          key = "free_heroes",    user_id = nil },
             })
             for _, obj in ipairs(inv_objects) do
                 if obj.key == "unlocked_heroes" then unlocked_heroes = obj.value end
                 if obj.key == "equipped_skins"  then equipped_skins  = obj.value end
-                if obj.key == "free_heroes"     then free_events     = obj.value end
             end
+
+            -- 读取全局限时免费活动（user_id=nil，独立调用）
+            local free_events = {}
+            local fe_objects = nk.storage_read({
+                { collection = "events", key = "free_heroes", user_id = nil },
+            })
+            if #fe_objects > 0 then free_events = fe_objects[1].value or {} end
 
             -- 从 join 时的 metadata 读取英雄选择，未携带则默认阿拉丁
             local requested = state.pending_heroes[p.user_id]
