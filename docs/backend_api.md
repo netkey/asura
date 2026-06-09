@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.6.0 · 最后更新：2026-06-08  
+> 版本：v0.6.1 · 最后更新：2026-06-09  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -898,6 +898,18 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `admin_start_season` | 开启新赛季（按 start_time 自动生成季度 ID） | `{"name":"2026年第二赛季","start_time":1746057600,"end_time":1753833600}` |
 | `admin_end_season` | 结束当前赛季 | `{}` |
 | `admin_refresh_google_token` | 强制刷新 Google OAuth token 缓存 | `{}` |
+
+#### `test_unlock_all`
+
+开发者/测试用 RPC，新账户调用一次即可解锁全部英雄 + 获得 99999 金币，无需走购买流程。
+
+```json
+// 无需入参
+// 出参
+{"success":true,"heroes_unlocked":30}
+```
+
+> **调用时机**：bot 认证后、匹配前调用。仅限全新账户（无英雄解锁记录）调用，已解锁英雄的账户会被拒绝，防止误覆盖正式数据。
 
 ---
 

@@ -414,6 +414,57 @@ end
 nk.register_rpc(safe_rpc(admin_grant_gold), "admin_grant_gold")
 
 -- ==========================================
+-- 开发者一键解锁全部英雄（仅限新账户首次调用）
+-- bot 认证后调用一次即可使用任意英雄参与对局
+-- ==========================================
+local function dev_unlock_all_heroes(context, payload)
+    local user_id = context.user_id
+    if not user_id or user_id == "" then
+        return nk.json_encode({ success = false, error = "需要登录" })
+    end
+
+    -- 安全门：仅当账户无英雄解锁记录时才允许（防止意外覆盖正式账户数据）
+    local inv_objects = nk.storage_read({{
+        collection = "hero_inventory",
+        key        = "unlocked_heroes",
+        user_id    = user_id,
+    }})
+    if #inv_objects > 0 then
+        local existing = inv_objects[1].value or {}
+        -- 已有解锁记录则拒绝（避免覆盖正式用户数据）
+        if next(existing) ~= nil then
+            return nk.json_encode({ success = false, error = "已有英雄解锁记录，拒绝覆盖" })
+        end
+    end
+
+    -- 构建全英雄解锁表
+    local inventory = {}
+    local count = 0
+    for hero_id, _ in pairs(catalog.HEROES) do
+        inventory[hero_id] = true
+        count = count + 1
+    end
+
+    -- 一次写入全部解锁（不涉及金币，不走购买流程）
+    local inv_version = (#inv_objects > 0) and inv_objects[1].version or "*"
+    pcall(nk.storage_write, {{
+        collection       = "hero_inventory",
+        key              = "unlocked_heroes",
+        user_id          = user_id,
+        value            = inventory,
+        version          = inv_version,
+        permission_read  = 0,
+        permission_write = 0,
+    }})
+
+    -- 同时发放 99999 金币供后续购买皮肤等
+    pcall(nk.wallet_update, user_id, { gold = 99999 }, { reason = "dev_setup" }, true)
+
+    return nk.json_encode({ success = true, heroes_unlocked = count })
+end
+nk.register_rpc(safe_rpc(dev_unlock_all_heroes), "test_unlock_all")
+
+-- ==========================================
 -- 管理员设置限时免费活动（仅限服务端调用）
 -- payload: { "heroes": ["hakim","hulagu"], "start_time": 1746000000, "end_time": 1746604800 }
 -- ==========================================
