@@ -1715,6 +1715,7 @@ function M.broadcast_update(dispatcher, state)
                 hand              = p_data.hand,
                 hp                = p_data.health,
                 max_health        = p_data.max_health,
+                hero              = p_data.hero,
                 role              = p_data.role,
                 equipment         = p_data.equipment,
                 delayed_effects   = p_data.delayed_effects,

@@ -136,6 +136,15 @@ class BotRunner:
                             if op == 10:
                                 self.states[pid] = pl
                                 self._state_gen += 1
+                                # 首次收到 state 时对比服务端实际分配的 hero 与请求值
+                                actual = pl.get("me", {}).get("hero")
+                                if actual and pid not in getattr(self, "_hero_checked", set()):
+                                    if not hasattr(self, "_hero_checked"): self._hero_checked = set()
+                                    self._hero_checked.add(pid)
+                                    requested = self.heroes.get(pid)
+                                    if actual != requested:
+                                        print(f"  [{self.idx}] bot {pid[:6]} hero: 请求={requested} → 实际={actual} ⚠️",
+                                              flush=True)
                             elif op == 30:
                                 self.ended.add(pid)
                 except asyncio.TimeoutError: pass
@@ -181,7 +190,7 @@ class BotRunner:
                 break
 
             if outer % 50 == 0:
-                hp_str = ",".join(f"{self.heroes.get(p,p)}:{self.states.get(p,{}).get('me',{}).get('hp','?')}" for p in self.pids)
+                hp_str = ",".join(f"{self.states.get(p,{}).get('me',{}).get('hero','?' )}:{self.states.get(p,{}).get('me',{}).get('hp','?')}" for p in self.pids)
                 print(f"  [{self.idx}] iter={outer} hp=[{hp_str}] ended={len(self.ended)}/{len(self.pids)}", flush=True)
 
             acted = False
@@ -196,7 +205,7 @@ class BotRunner:
                 pending = state.get("pending")
                 hand = state.get("me", {}).get("hand", [])
                 my_hp = state.get("me", {}).get("hp", 0)
-                turn_name = self.heroes.get(pid, pid)
+                my_hero = state.get("me", {}).get("hero", "?")
 
                 # Skip dead players
                 if my_hp <= 0:
