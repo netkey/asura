@@ -37,10 +37,11 @@ asura/
 ├── skin_catalog.lua            # 皮肤注册表
 ├── achievement_manager.lua     # 成就系统
 ├── demo_concurrent.lua         # 本地并发测试（mock Nakama，10局随机英雄）。⚠️ 部署时被排除
-├── demo.lua                    # ⚠️ 开发/测试辅助文件。部署时会被删除（Nakama 加载此文件会导致崩溃）
+├── demo.lua                    # ⚠️ 开发/测试辅助文件。CI 部署时自动清理（Nakama 加载此文件会导致崩溃）
 ├── heroes/                     # 英雄技能定义 (30 个英雄)
 │   ├── *.lua + *.md            # 每个英雄一个 lua（技能逻辑）+ md（设计说明）
 ├── docs/                       # 文档目录
+│   ├── plugin_refactoring.md   # 插件化架构重构说明
 │   ├── product_design.md       # 产品设计文档
 │   ├── architecture.md         # 架构设计文档
 │   ├── backend_api.md          # 服务端 API 文档（客户端对接用）
@@ -52,7 +53,7 @@ asura/
 │   ├── deploy.yml              # 推送到 VPS 自动部署（self-hosted runner）
 │   └── scheduled-test.yml      # 每日 10 局随机测试（UTC 2:00/14:00）
 ├── .luacheckrc                 # luacheck 配置（忽略 Nakama 回调模式误报）
-├── docker-compose.yml          # 生产配置（Postgres 15 + Nakama 3.22.0）
+├── docker-compose.yml          # 生产配置（Postgres 15 + Nakama，自定义镜像 ghcr.io/netkey/asura）
 ├── CLAUDE.md                   # 项目配置（本文件）
 └── README.md                   # 项目说明
 ```
@@ -148,7 +149,7 @@ asura/
 - [ ] 实现排位赛 + 赛季系统（season_manager 已有 match_history 记录，基础结构已完成）
 
 ### 中优先级
-- [x] 添加更多英雄 (目标: 20+ 英雄) — 已完成 30 个
+- [x] 添加更多英雄 — 已完成 30 个（超出原定 20+ 目标）
 - [x] 完善身份局胜负判定逻辑（含阵亡身份广播）
 - [x] 添加游戏配置系统（game_config.lua）
 - [x] 添加好友/社交系统（好友状态实时推送 + 直接加入/观战）
@@ -202,13 +203,13 @@ luac -p *.lua heroes/*.lua
 `api.lua` 中所有 `nk.register_rpc` 必须使用 `safe_rpc(fn)` 包裹，防止未捕获异常导致 Nakama RPC 端点崩溃。
 
 ### 2. 第三方 API 降级 — pcall
-Nakama 3.22.0 已移除 `nk.status_update` 等函数。所有不常用 `nk.*` 调用必须 `pcall` 包裹：
+Nakama 部分 API（如 `nk.status_update`）在版本迭代中可能被移除。所有不常用 `nk.*` 调用必须 `pcall` 包裹：
 ```lua
 pcall(nk.status_update, uid, data)
 ```
 
 ### 3. 编码前查文档
-调用任何 `nk.*` 函数前，先用 Context7 查 Nakama 3.22.0 文档确认函数存在与签名。参考 `feedback_nakama_docs_lookup`。
+调用任何 `nk.*` 函数前，先用 Context7 查 Nakama 文档确认函数存在与签名（当前生产镜像 `ghcr.io/netkey/asura:latest`）。参考 `feedback_nakama_docs_lookup`。
 
 ### 4. 存储型计数器
 Nakama Lua 无 Prometheus HTTP 接口，使用 `ops/matches` 存储记录指标（`metric_inc` 模式），通过 `nk.storage_read` + OCC 版本控制写入。
@@ -240,5 +241,5 @@ Lua 5.4 中循环跳过用 `goto continue` + `::continue::`，`break` 会截断�
 
 ---
 
-**最后更新**: 2026-06-05
+**最后更新**: 2026-06-10
 **版本**: 0.6.0

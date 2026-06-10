@@ -40,7 +40,17 @@
       "Bash(luac *)",
       "Bash(lua5.4 *)",
       "Bash(ruby *)",
-      "Bash(grep -nA1 \"WAITING_FOR_AOE\" /Users/yalla/work/mycode/asura/game_rules.lua)"
+      "Bash(grep -nA1 \"WAITING_FOR_AOE\" /Users/yalla/work/mycode/asura/game_rules.lua)",
+      "Bash(luacheck --no-color /Users/yalla/work/mycode/asura/game_rules.lua /Users/yalla/work/mycode/asura/match_handler.lua /Users/yalla/work/mycode/asura/card_deck.lua /Users/yalla/work/mycode/asura/demo_concurrent.lua)",
+      "Bash(luacheck *)",
+      "Read(//Users/yalla/.luarocks/bin/**)",
+      "Bash(luarocks list *)",
+      "Bash(luac5.4 -p /Users/yalla/work/mycode/asura/api.lua /Users/yalla/work/mycode/asura/match_handler.lua)",
+      "Bash(gh issue *)",
+      "mcp__context7__query-docs",
+      "Bash(luac5.4 -p /Users/yalla/work/mycode/asura/api.lua /Users/yalla/work/mycode/asura/game_rules.lua /Users/yalla/work/mycode/asura/match_handler.lua)",
+      "Bash(cp /Users/yalla/work/mycode/asura/.mcp.json /Users/yalla/work/mycode/asura/.mcp.json.bak)",
+      "Bash(rm /Users/yalla/work/mycode/asura/.mcp.json)"
     ]
   },
   "hooks": {
@@ -51,6 +61,10 @@
           {
             "type": "command",
             "command": "echo \"${CLAUDE_TOOL_INPUT}\" | grep -q '\\.lua$' && luac -p \"${CLAUDE_TOOL_INPUT}\" 2>&1 && echo '[OK] Lua syntax check passed' || true"
+          },
+          {
+            "type": "command",
+            "command": "echo \"${CLAUDE_TOOL_INPUT}\" | grep -q '\\.lua$' && (luacheck --no-color \"${CLAUDE_TOOL_INPUT}\" 2>&1 || true)"
           }
         ]
       }
