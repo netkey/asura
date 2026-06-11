@@ -4,6 +4,7 @@ local catalog   = require("hero_catalog")
 local rules     = require("game_rules")
 local config    = require("game_config")
 local season_mgr = require("season_manager")
+local skin_catalog = require("skin_catalog")
 
 local M = {}
 
@@ -135,6 +136,7 @@ function M.match_init(context, params)
         spectators         = {},    -- user_id → presence
         pending_spectators = {},    -- 跨 join_attempt→join 传递旁观者标记
         pending_heroes     = {},    -- 跨 join_attempt→join 传递客户端英雄选择
+        pending_skins     = {},    -- 跨 join_attempt→join 传递客户端皮肤选择
 
 		-- 高并发与托管系统配置
         current_turn_elapsed = 0,   -- 当前玩家已思考的时间
@@ -184,17 +186,20 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
 
-            -- 读取英雄库存 + 皮肤装备
+            -- 读取英雄库存 + 已购皮肤
             local unlocked_heroes = { aladdin = true }
-            local equipped_skins  = {}
+            local owned_skins     = {}
             local inv_objects = nk.storage_read({
                 { collection = "hero_inventory", key = "unlocked_heroes", user_id = p.user_id },
-                { collection = "skin_inventory", key = "equipped_skins",  user_id = p.user_id },
+                { collection = "skin_inventory", key = "owned_skins",     user_id = p.user_id },
             })
             for _, obj in ipairs(inv_objects) do
                 if obj.key == "unlocked_heroes" then unlocked_heroes = obj.value end
-                if obj.key == "equipped_skins"  then equipped_skins  = obj.value end
+                if obj.key == "owned_skins"     then owned_skins     = obj.value end
             end
+            -- owned_skins 是数组，转为 set 方便 O(1) 查询
+            local owned_skin_set = {}
+            for _, sid in ipairs(owned_skins) do owned_skin_set[sid] = true end
 
             -- 读取全局限时免费活动（user_id=nil，独立调用）
             local free_events = {}
@@ -225,6 +230,25 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 end
             end
 
+            -- 从 join 时的 metadata 读取皮肤选择，校验归属和拥有权
+            local want_skin_id = state.pending_skins[p.user_id]
+            state.pending_skins[p.user_id] = nil
+            local skin_id = nil  -- nil = 默认皮肤
+            if type(want_skin_id) == "string" and skin_catalog.exists(want_skin_id) then
+                local skin_info = skin_catalog.SKINS[want_skin_id]
+                -- 皮肤必须属于当前选择的英雄
+                if skin_info.hero_id == want_hero then
+                    -- 默认皮肤无需拥有权检查，付费皮肤需已购买
+                    if skin_info.is_default or owned_skin_set[want_skin_id] then
+                        skin_id = want_skin_id
+                    else
+                        log_warn(state, "玩家 " .. p.username .. " 未拥有皮肤 " .. want_skin_id .. "，回退默认皮肤")
+                    end
+                else
+                    log_warn(state, "皮肤 " .. want_skin_id .. " 不属于英雄 " .. want_hero .. "，回退默认皮肤")
+                end
+            end
+
             local ph = state.config.match.player_health
             state.players[p.user_id] = {
                 id = p.user_id,
@@ -234,8 +258,7 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 seat_idx = #state.presence_ids - 1,  -- 座位号（0-indexed），整局不变
                 hand = {},
                 hero = want_hero,
-                skin_id = equipped_skins[want_hero] or nil,   -- 装备的皮肤（nil=默认）
-                equipped_skins = equipped_skins,              -- 快照，供随机英雄后查表
+                skin_id = skin_id,                   -- 选择的皮肤（nil=默认）
                 role = "NONE",        -- pvp 模式为 "NONE"，identity 模式后续覆写
                 judgments = {},
                 equipment = {
@@ -286,8 +309,9 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 保留玩家在 join 时自选的英雄；未选择或选择无效则随机分配
             if not p.hero or not catalog.HEROES[p.hero] then
                 p.hero = hero_list[math.random(#hero_list)]
+                p.skin_id = nil  -- 英雄被重分配，重置为默认皮肤
             end
-            p.skin_id = (p.equipped_skins or {})[p.hero] or nil
+            -- 自选英雄不变时，skin_id 已在 match_join 中校验完毕，无需改动
         end
         -- 身份分配（pvp 模式跳过，identity 模式按角色分配）
         local roles = assign_roles(current_count, state.mode)
@@ -1072,9 +1096,12 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
         return state, false, "对局已开始，无法中途加入"
     end
 
-    -- 记录客户端期望的英雄（match_join 消费）
+    -- 记录客户端期望的英雄和皮肤（match_join 消费）
     if metadata and type(metadata.hero_id) == "string" then
         state.pending_heroes[presence.user_id] = metadata.hero_id
+    end
+    if metadata and type(metadata.skin_id) == "string" then
+        state.pending_skins[presence.user_id] = metadata.skin_id
     end
 
     return state, true
