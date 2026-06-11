@@ -531,14 +531,11 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 ```
 
 #### `get_my_skins`
-获取玩家已拥有及已装备的皮肤。
+获取玩家已拥有的皮肤列表。
 
 ```json
 // 出参
-{
-  "owned": ["aladdin_golden"],
-  "equipped": {"aladdin": "aladdin_golden"}
-}
+{"owned": ["aladdin_golden"]}
 ```
 
 #### `purchase_skin`
@@ -555,21 +552,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"success": false, "error": "insufficient_gold | already_owned | skin_not_found | default_skin | conflict_retry | too_many_requests"}
 ```
 
-#### `equip_skin`
-为英雄装备/卸下皮肤。
-
-```json
-// 入参（skin_id=null 表示卸下，恢复默认）
-{"hero_id": "aladdin", "skin_id": "aladdin_golden"}
-
-// 出参（成功）
-{"success": true}
-
-// 出参（失败）
-{"success": false, "error": "bad_request | skin_not_found | wrong_hero | not_owned | conflict_retry"}
-```
-
-> `conflict_retry`：并发写冲突（OCC），客户端重试即可。
+> **皮肤选择时机**：皮肤在 `match_join` 时选择（见 [匹配系统](#31-匹配系统)），不通过独立 RPC 装备。客户端从 `get_my_skins` 获取已拥有皮肤列表，选择英雄时一并传入 `skin_id`。
 
 ---
 
@@ -849,7 +832,10 @@ JoinMatch(match_id, metadata={"is_spectator": true, "target_player_id": "user-uu
 **加入对局时选择英雄（通过 Nakama 客户端 SDK）：**
 
 ```
-// metadata 中携带英雄 ID，服务端校验已解锁后生效；未携带或不合法则默认使用阿拉丁
+// metadata 中携带英雄 ID + 皮肤 ID，服务端校验已解锁后生效
+// hero_id 不合法则默认使用阿拉丁，skin_id 不合法则使用该英雄默认皮肤
+JoinMatch(match_id, metadata={"hero_id": "hakim", "skin_id": "hakim_celestial"})
+// skin_id 可省略（使用默认皮肤）
 JoinMatch(match_id, metadata={"hero_id": "hakim"})
 ```
 
@@ -938,7 +924,6 @@ python3 nakama_bot_test.py --skip-admin-setup --rounds 30
 |-----------|-----|---------|------|
 | `hero_inventory` | `unlocked_heroes` | uid | 已解锁英雄集合 `{hero_id: true}` |
 | `skin_inventory` | `owned_skins` | uid | 已购皮肤列表 `[skin_id, ...]` |
-| `skin_inventory` | `equipped_skins` | uid | 各英雄装备皮肤 `{hero_id: skin_id}` |
 | `achievements` | `unlocked` | uid | 已解锁成就 `{ach_id: {unlocked_at}}` |
 | `season_stats` | `{season_id}` | uid | 赛季积分/胜负/连胜等统计 |
 | `match_history` | `{season_id}_{ts}` | uid | 单场对局记录（最多保留 50 条）|
