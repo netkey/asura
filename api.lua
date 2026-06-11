@@ -283,14 +283,16 @@ local function get_shop(context, payload)
     for skin_id, info in pairs(skin_catalog.SKINS) do
         if not info.is_default then
             table.insert(skin_items, {
-                category  = "skin",
-                id        = skin_id,
-                hero_id   = info.hero_id,
-                name      = info.name_cn,
-                price     = info.price,
-                asset_url = info.asset_url,
-                owned     = owned_skin_set[skin_id] == true,
-                buy_rpc   = "purchase_skin",  -- 客户端购买时调用的 RPC 名
+                category    = "skin",
+                id          = skin_id,
+                hero_id     = info.hero_id,
+                name        = info.name_cn,
+                price       = info.price,
+                asset_url   = info.asset_url,
+                owned       = owned_skin_set[skin_id] == true,
+                buy_rpc     = "purchase_skin",
+                effect_tags = info.effect_tags or {},
+                preview     = info.preview or "",
             })
         end
     end
@@ -1445,22 +1447,17 @@ end
 nk.register_rpc(safe_rpc(get_skin_catalog), "get_skin_catalog")
 
 -- RPC：get_my_skins
--- 出参：{ owned:[skin_id,...], equipped:{hero_id:skin_id,...} }
+-- 出参：{ owned:[skin_id,...] }
 local function get_my_skins(context, payload)
     local uid = context.user_id
     if not rate_limiter.check(nk, uid, "get_my_skins", 60, 60) then
         return nk.json_encode({ success = false, error = "too_many_requests" })
     end
-    local objects = nk.storage_read({
-        { collection = "skin_inventory", key = "owned_skins",    user_id = uid },
-        { collection = "skin_inventory", key = "equipped_skins", user_id = uid },
-    })
-    local owned, equipped = {}, {}
-    for _, obj in ipairs(objects) do
-        if obj.key == "owned_skins"    then owned    = obj.value end
-        if obj.key == "equipped_skins" then equipped = obj.value end
-    end
-    return nk.json_encode({ owned = owned, equipped = equipped })
+    local objects = nk.storage_read({{
+        collection = "skin_inventory", key = "owned_skins", user_id = uid,
+    }})
+    local owned = (#objects > 0) and objects[1].value or {}
+    return nk.json_encode({ owned = owned })
 end
 nk.register_rpc(safe_rpc(get_my_skins), "get_my_skins")
 
@@ -1530,74 +1527,9 @@ local function purchase_skin(context, payload)
 end
 nk.register_rpc(safe_rpc(purchase_skin), "purchase_skin")
 
--- RPC：equip_skin
--- 入参：{ hero_id, skin_id }（skin_id=nil 表示卸下皮肤，恢复默认）
--- 出参：{ success } 或 { success=false, error }
-local function equip_skin(context, payload)
-    if not rate_limiter.check(nk, context.user_id, "equip_skin", 30, 60) then
-        return nk.json_encode({ success = false, error = "too_many_requests" })
-    end
-    local req = nk.json_decode(payload)
-    if type(req) ~= "table" or not req.hero_id then
-        return nk.json_encode({ success = false, error = "bad_request" })
-    end
-
-    local hero_id = req.hero_id
-    local skin_id = req.skin_id  -- nil 表示卸下
-    local uid     = context.user_id
-
-    if skin_id then
-        if not skin_catalog.exists(skin_id) then
-            return nk.json_encode({ success = false, error = "skin_not_found" })
-        end
-        local info = skin_catalog.SKINS[skin_id]
-        if info.hero_id ~= hero_id then
-            return nk.json_encode({ success = false, error = "wrong_hero" })
-        end
-        -- 默认皮肤无需拥有检查，其余皮肤须已购买
-        if not info.is_default then
-            local objects = nk.storage_read({{
-                collection = "skin_inventory", key = "owned_skins", user_id = uid
-            }})
-            local owned = (#objects > 0) and objects[1].value or {}
-            local has = false
-            for _, s in ipairs(owned) do if s == skin_id then has = true; break end end
-            if not has then
-                return nk.json_encode({ success = false, error = "not_owned" })
-            end
-        end
-    end
-
-    -- 读取并更新装备表（OCC：携带 version 防并发写覆盖）
-    local objects = nk.storage_read({{
-        collection = "skin_inventory", key = "equipped_skins", user_id = uid
-    }})
-    local eq_rec  = (#objects > 0) and objects[1] or nil
-    local equipped = eq_rec and eq_rec.value or {}
-    local eq_ver   = eq_rec and eq_rec.version or nil
-
-    if skin_id then
-        equipped[hero_id] = skin_id
-    else
-        equipped[hero_id] = nil
-    end
-
-    local ok = pcall(nk.storage_write, {{
-        collection       = "skin_inventory",
-        key              = "equipped_skins",
-        user_id          = uid,
-        value            = equipped,
-        version          = eq_ver,
-        permission_read  = 1,
-        permission_write = 0,
-    }})
-    if not ok then
-        return nk.json_encode({ success = false, error = "conflict_retry" })
-    end
-
-    return nk.json_encode({ success = true })
-end
-nk.register_rpc(safe_rpc(equip_skin), "equip_skin")
+-- RPC：equip_skin 已移除（v0.7.0）
+-- 皮肤不再跨对局持久化装备，改为 match_join 时选择
+-- 详见 plans/skin-equip-and-display.md
 
 -- ==========================================
 -- RPC：get_iap_history
@@ -1634,7 +1566,6 @@ local function delete_account(context, _payload)
     local fixed_keys = {
         { collection = "hero_inventory",  key = "unlocked_heroes" },
         { collection = "skin_inventory",  key = "owned_skins"     },
-        { collection = "skin_inventory",  key = "equipped_skins"  },
         { collection = "achievements",    key = "unlocked"        },
         { collection = "user_status",     key = "current_match"   },
     }
