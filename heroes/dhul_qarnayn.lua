@@ -319,6 +319,11 @@ function M.on_response(dispatcher, state, player_id, payload)
 end
 
 -- 死亡时清理全局状态标志（防止在他人回合内死亡时标志残留）
+function M.on_timeout(dispatcher, state, act)
+    state.pending_action = nil
+    require("game_rules").broadcast_update(dispatcher, state)
+end
+
 function M.on_death(dispatcher, state, player_id)
     local p = state.players[player_id]
     if p.hero ~= "dhul_qarnayn" then return false end

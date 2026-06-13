@@ -435,7 +435,12 @@ local function auto_resolve_pending(dispatcher, state)
         state.pending_action = nil
         state.pending_discard_continuation = {uid = act.player_id}
     else
-        -- 英雄技能超时：交由英雄模块自己处理
+        -- 英雄技能超时：如果响应者已死亡，直接清除 pending_action 防止死锁
+        if act.player_id and state.players[act.player_id] and state.players[act.player_id].health <= 0 then
+            state.pending_action = nil
+            rules.broadcast_update(dispatcher, state)
+            return
+        end
         hero_mgr.handle_timeout(dispatcher, state)
     end
 end
@@ -574,6 +579,22 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         -- 检查 pending_action 超时（防止防御/AOE/求救/弃牌等待永久卡死）
         if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
             auto_resolve_pending(dispatcher, state)
+            -- 连续 auto_resolve 检测：5 次无 turn 变化 → 强制 next_turn 防止死锁
+            if state.current_turn_id then
+                if state._auto_resolve_turn == state.current_turn_id then
+                    state._auto_resolve_count = (state._auto_resolve_count or 0) + 1
+                    if state._auto_resolve_count >= 5 then
+                        log_warn(state, "auto_resolve stuck after 5 attempts on turn " ..
+                            state.current_turn_id .. ", force next_turn")
+                        state._auto_resolve_count = 0
+                        state.pending_action = nil
+                        M.next_turn(dispatcher, state)
+                    end
+                else
+                    state._auto_resolve_count = 0
+                end
+                state._auto_resolve_turn = state.current_turn_id
+            end
             return state
         end
 

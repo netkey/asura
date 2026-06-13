@@ -97,4 +97,9 @@ function M.on_response(dispatcher, state, player_id, payload)
     rules.broadcast_update(dispatcher, state)
 end
 
+function M.on_timeout(dispatcher, state, act)
+    state.pending_action = nil
+    require("game_rules").broadcast_update(dispatcher, state)
+end
+
 return M

@@ -80,4 +80,13 @@ function M.on_response(dispatcher, state, player_id, payload)
     rules.broadcast_update(dispatcher, state)
 end
 
+function M.on_timeout(dispatcher, state, act)
+    state.pending_action = nil
+    local player = state.players[act.player_id]
+    if not player then return end
+    local rules = require("game_rules")
+    rules.draw_cards(state, act.player_id, 2)
+    rules.broadcast_update(dispatcher, state)
+end
+
 return M
