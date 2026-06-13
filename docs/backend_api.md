@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.6.1 · 最后更新：2026-06-09  
+> 版本：v0.7.0 · 最后更新：2026-06-12  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -690,7 +690,8 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
     "season_id": "2026_Q2",
     "games": 42, "wins": 28, "losses": 14,
     "pvp_wins": 18, "identity_wins": 10,
-    "rating": 1350, "best_streak": 7, "current_streak": 3,
+    "rating": 1350, "rank_id": "gold",
+    "best_streak": 7, "current_streak": 3,
     "hero_stats": {"aladdin": {"games": 15, "wins": 10}},
     "role_stats": {"MONARCH": {"games": 5, "wins": 4}}
   }
@@ -722,8 +723,22 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"limit": 20}
 
 // 出参
-{"season_id": "2026_Q2", "leaderboard": [{"rank": 1, "user_id": "xxx", "username": "PlayerA", "rating": 1800}]}
+{"season_id": "2026_Q2", "leaderboard": [{"rank": 1, "user_id": "xxx", "username": "PlayerA", "rating": 1800, "rank_id": "grandmaster"}]}
 ```
+
+**`rank_id` 枚举值**
+
+| rank_id | 积分区间 |
+|---------|---------|
+| `bronze` | 0 – 299 |
+| `silver` | 300 – 599 |
+| `gold` | 600 – 999 |
+| `platinum` | 1000 – 1299 |
+| `diamond` | 1300 – 1699 |
+| `master` | 1700 – 2199 |
+| `grandmaster` | 2200+ |
+
+> 新玩家初始积分 `rating = 0`（青铜段位）。每场胜负变动见 `season_manager.lua` 的 `DELTA_TABLE`（身份局 ±5~15）和 `calc_rating`（PVP ±10/-5）。
 
 ---
 
@@ -958,8 +973,8 @@ python3 nakama_bot_test.py --skip-admin-setup --rounds 30
 | `hero_mastery_10_{hero_id}` | {英雄}专精 | 该英雄赢 10 场（每英雄独立一枚）| 150 |
 | `hero_mastery_25_{hero_id}` | {英雄}大师 | 该英雄赢 25 场（每英雄独立一枚）| 400 |
 | `damage_single_20` | 破阵斩将 | 单场造成伤害 ≥ 20 | 100 |
-| `rating_1200` | 崭露头角 | 赛季积分达到 1200 | 150 |
-| `rating_1500` | 声名大噪 | 赛季积分达到 1500 | 300 |
+| `rating_200` | 崭露头角 | 赛季积分达到 200 | 150 |
+| `rating_500` | 声名大噪 | 赛季积分达到 500 | 300 |
 
 ---
 

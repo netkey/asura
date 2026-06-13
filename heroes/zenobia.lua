@@ -23,7 +23,7 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     if target_id == top_target then
         state.attack_forced = true
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【铁甲女王】，%s 手牌最多，攻击强制命中！",
+            content = string.format("%s activated [Iron Queen], %s has most cards, attack guaranteed hit!",
                 player.username,
                 state.players[target_id] and state.players[target_id].username or target_id),
             hero = "zenobia", skill = "tie_jia_nv_wang"

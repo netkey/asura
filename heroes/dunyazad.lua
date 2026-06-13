@@ -14,7 +14,7 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
 
     local attacker = state.players[attacker_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【续篇】，%s 本回合不能再攻击 %s！",
+        content = string.format("%s activates [Sequel], %s cannot attack %s this round!",
             player.username,
             attacker and attacker.username or attacker_id,
             player.username),

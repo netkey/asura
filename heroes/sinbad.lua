@@ -18,7 +18,7 @@ function M.on_turn_end(dispatcher, state, player_id)
     player.sinbad_voyages = player.sinbad_voyages + 1
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【七航】，取回1张牌（第%d次/共7次）",
+        content = string.format("%s activated [Seven Voyages], retrieves 1 card (%d/7)",
             player.username, player.sinbad_voyages),
         hero = "sinbad", skill = "qi_hang"
     }))

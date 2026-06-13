@@ -15,12 +15,12 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         player_id = player_id,
         hero_id = "ibn_battuta",
         deadline = os.time() + 15,
-        description = "是否弃1张牌发动【远行】，取弃牌堆顶1张牌入手？"
+        description = "Discard 1 card to activate [Journey] and retrieve the top card from the discard pile?"
     }
     dispatcher.broadcast_message(101, nk.json_encode({
         type = "skill_choice",
         skill = "yuan_xing",
-        description = "是否弃1张牌发动【远行】，从弃牌堆顶取1张牌？",
+        description = "Discard 1 card to activate [Journey] and draw the top card from the discard pile?",
         min_cards = 1, max_cards = 1
     }), {state.presences[player_id]})
     return true
@@ -61,7 +61,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         local taken = table.remove(state.discard_pile, #state.discard_pile - 1)
         table.insert(player.hand, taken)
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " 发动【远行】，以牌换牌！",
+            content = player.username .. " activates [Journey], trading card for card!",
             hero = "ibn_battuta", skill = "yuan_xing"
         }))
     end

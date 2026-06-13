@@ -16,7 +16,7 @@ function M.on_damage_dealt(dispatcher, state, player_id, amount, target_id)
     local rules = require("game_rules")
     rules.draw_cards(state, player_id, 1)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【万骑】，造成伤害后摸1张牌！",
+        content = string.format("%s activates [Ten Thousand Horsemen], draws 1 card after dealing damage!",
             player.username),
         hero = "tamerlane", skill = "wan_qi"
     }))
@@ -30,7 +30,7 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
     local rules = require("game_rules")
     rules.draw_cards(state, player_id, 3)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【万骑】，击杀后摸3张牌！",
+        content = string.format("%s activates [Ten Thousand Horsemen], draws 3 cards after killing!",
             player.username),
         hero = "tamerlane", skill = "wan_qi"
     }))

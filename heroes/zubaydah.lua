@@ -25,7 +25,7 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
 
     target.health = target.health + 1
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【仁济】，令 %s 回复1点血量！",
+        content = string.format("%s triggers [Benevolence], causing %s to recover 1 HP!",
             player.username, target.username),
         hero = "zubaydah", skill = "ren_ji"
     }))

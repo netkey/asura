@@ -35,7 +35,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "suan_fa",
-        description = "请排列牌堆顶4张牌的顺序，并选择其中2张入手",
+        description = "Arrange the top 4 cards in any order, then choose 2 to take into hand",
         cards       = top_cards,
     }), {state.presences[player_id]})
 
@@ -90,7 +90,7 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     if keep_count > 0 then
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【算法】，查看牌堆顶 %d 张牌并入手 %d 张！",
+            content = string.format("%s activated [Algorithm], viewed the top %d cards, took %d into hand!",
                 player.username, #action.cards, keep_count),
             hero = "al_khwarizmi", skill = "suan_fa"
         }))

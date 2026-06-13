@@ -24,7 +24,7 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     rules.draw_cards(state, player_id, draw_count)
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【坚守】，受到 %d 点伤害，摸 %d 张牌！",
+        content = string.format("%s activated [Hold Fast], suffered %d damage, drew %d cards!",
             player.username, draw_count, draw_count),
         hero = "saladin",
         skill = "jian_shou"

@@ -33,7 +33,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "xing_xiang",
-        description = string.format("【星象】：查看牌堆顶%d张牌，任意排序后放回，再摸2张", #cards),
+        description = string.format("[Xing Xiang]: Peek at top %d card(s) of deck, reorder and put back, then draw 2", #cards),
         cards       = cards,
     }), {state.presences[player_id]})
 
@@ -76,7 +76,7 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【星象】，调整了牌堆顶%d张牌的顺序！",
+        content = string.format("%s activated [Xing Xiang], reordered the top %d card(s) of the deck!",
             player.username, #action.cards),
         hero = "hakim", skill = "xing_xiang"
     }))

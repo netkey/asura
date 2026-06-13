@@ -635,9 +635,10 @@ local function get_my_stats(context, payload)
     }})
     local stats = (#objects > 0) and objects[1].value or {
         season_id = season.season_id, games = 0, wins = 0, losses = 0,
-        rating = 1000, best_streak = 0, current_streak = 0,
+        rating = 0, best_streak = 0, current_streak = 0,
         hero_stats = {}, role_stats = {},
     }
+    stats.rank_id = season_mgr.rating_to_rank(stats.rating or 0)
     return nk.json_encode({ stats = stats })
 end
 nk.register_rpc(safe_rpc(get_my_stats), "get_my_stats")
@@ -712,10 +713,11 @@ local function get_leaderboard(context, payload)
     if records then
         for i, r in ipairs(records) do
             table.insert(board, {
-                rank     = i,
-                user_id  = r.owner_id,
-                username = r.username,
-                rating   = r.score,
+                rank      = i,
+                user_id   = r.owner_id,
+                username  = r.username,
+                rating    = r.score,
+                rank_id   = season_mgr.rating_to_rank(r.score or 0),
             })
         end
     end

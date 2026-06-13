@@ -5,8 +5,8 @@ local M = {}
 -- 技能：【敕令】 - 出牌阶段开始时，选择一名玩家+一种牌型（攻击或治疗），该玩家本回合不能使用该类型牌
 
 local BLOCKABLE_TYPES = {
-    ATTACK  = "攻击",
-    HEAL    = "治疗",
+    ATTACK  = "Attack",
+    HEAL    = "Heal",
 }
 
 function M.on_play_phase_start(dispatcher, state, player_id)
@@ -38,7 +38,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "chi_ling",
-        description = "是否发动【敕令】？选择一名玩家并禁止一种牌型",
+        description = "Activate [Decree]? Choose a target and block a card type",
         targets     = targets,
         block_types = block_types,
     }), { state.presences[player_id] })
@@ -79,7 +79,7 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     local player = state.players[player_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【敕令】，%s 本回合禁止使用【%s】！",
+        content = string.format("%s activated [Decree], %s cannot use [%s] this turn!",
             player.username, target.username,
             BLOCKABLE_TYPES[payload.block_type] or payload.block_type),
         event     = "skill_used",

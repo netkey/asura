@@ -9,6 +9,28 @@ local M = {}
 local HISTORY_LIMIT = 50  -- 每位玩家每赛季最多保留对局数
 
 -- ==========================================
+-- 段位定义（积分 → 段位名，升序排列）
+-- ==========================================
+local RANK_TIERS = {
+    { min = 0,    id = "bronze",      name = "青铜" },
+    { min = 300,  id = "silver",      name = "白银" },
+    { min = 600,  id = "gold",        name = "黄金" },
+    { min = 1000, id = "platinum",    name = "铂金" },
+    { min = 1300, id = "diamond",     name = "钻石" },
+    { min = 1700, id = "master",      name = "星耀" },
+    { min = 2200, id = "grandmaster", name = "王者" },
+}
+
+-- 返回英文 ID，供 API 响应传给客户端
+function M.rating_to_rank(rating)
+    local result = RANK_TIERS[1].id
+    for _, tier in ipairs(RANK_TIERS) do
+        if rating >= tier.min then result = tier.id end
+    end
+    return result
+end
+
+-- ==========================================
 -- 积分增减表
 -- ==========================================
 local DELTA_TABLE = {
@@ -65,7 +87,7 @@ local function load_season_stats(nk, uid, season_id)
         losses          = 0,
         pvp_wins        = 0,
         identity_wins   = 0,
-        rating          = 1000,
+        rating          = 0,
         best_streak     = 0,
         current_streak  = 0,
         hero_stats      = {},

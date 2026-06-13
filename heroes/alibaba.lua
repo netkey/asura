@@ -32,13 +32,13 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
         hero_id = "alibaba",
         attacker_id = attacker_id,
         deadline = os.time() + 15,
-        description = "是否对攻击者使用一张【攻击】进行反击？"
+        description = "Use an ATTACK card to counter the attacker?"
     }
 
     dispatcher.broadcast_message(101, nk.json_encode({
         type = "skill_choice",
         skill = "an_hao",
-        description = "防御成功！是否发动【暗号】对攻击者反击？",
+        description = "Defense successful! Activate [Secret Signal] to counter the attacker?",
         attacker_id = attacker_id
     }), {state.presences[defender_id]})
 
@@ -71,12 +71,12 @@ function M.on_response(dispatcher, state, player_id, payload)
             table.insert(state.discard_pile, card)
 
             -- 对攻击者使用攻击
-            local attacker_name = "已阵亡玩家"
+            local attacker_name = "Defeated player"
             if state.players[attacker_id] then
                 attacker_name = state.players[attacker_id].username
             end
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = defender.username .. " 发动【暗号】，对 " .. attacker_name .. " 进行反击！",
+                content = defender.username .. " activates [Secret Signal] to counter " .. attacker_name .. "!",
                 hero = "alibaba",
                 skill = "an_hao"
             }))

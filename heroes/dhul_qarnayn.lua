@@ -27,7 +27,7 @@ local function _offer_skills(dispatcher, state, player_id, p)
     dispatcher.broadcast_message(101, nk.json_encode({
         type = "skill_choice",
         skill = "zhu_bi_yuan_jiang",
-        description = "选择技能或跳过",
+        description = "Choose a skill or skip",
         can_wall   = can_wall,
         can_west   = can_west,
         can_east   = can_east,
@@ -47,7 +47,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
 
     p.dhul_wall_count = p.dhul_wall_count + 1
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【筑壁】，从弃牌堆回收1张牌补为壁垒（%d/%d）",
+        content = string.format("%s activates [Wall-Build], recovers 1 card from discard as wall (%d/%d)",
             p.username, p.dhul_wall_count, MAX_WALLS),
         hero    = "dhul_qarnayn", skill = "zhu_bi"
     }))
@@ -118,7 +118,7 @@ function M.on_attack_resolved(dispatcher, state, attacker_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "yuan_jiang_west",
-        description = "【远疆-西行】选择额外攻击目标",
+        description = "[Far-Reach West] Choose an extra attack target",
         targets     = targets,
     }), {state.presences[attacker_id]})
     return true
@@ -159,7 +159,7 @@ function M.on_trick_resolved(dispatcher, state, player_id, subtype)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "yuan_jiang_east",
-        description = "【远疆-东行】选择额外锦囊目标",
+        description = "[Far-Reach East] Choose an extra trick target",
         targets     = targets,
     }), {state.presences[player_id]})
     return true
@@ -177,7 +177,7 @@ function M.on_before_damage(dispatcher, state, target_id, amount, source_id)
                 rules.draw_cards(state, p.id, 1)
                 local tname = (state.players[target_id] and state.players[target_id].username) or "?"
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = string.format("%s 消耗1枚壁垒，为%s减免1点伤害并摸1张牌（剩余%d）",
+                    content = string.format("%s consumes 1 wall, reduces 1 damage to %s and draws 1 card (%d remaining)",
                         p.username, tname, p.dhul_wall_count),
                     hero = "dhul_qarnayn", skill = "zhu_bi"
                 }))
@@ -223,7 +223,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         if payload.skill == "wall" then
             p.dhul_wall_count = (p.dhul_wall_count or 0) + 1
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s 发动【筑壁】，铸1张手牌为壁垒（%d/%d）",
+                content = string.format("%s activates [Wall-Build], forges 1 hand card into wall (%d/%d)",
                     p.username, p.dhul_wall_count, MAX_WALLS),
                 hero = "dhul_qarnayn", skill = "zhu_bi"
             }))
@@ -232,7 +232,7 @@ function M.on_response(dispatcher, state, player_id, payload)
             state.dhul_westward = state.dhul_westward or {}
             state.dhul_westward[player_id] = true
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s 发动【远疆-西行】，本回合【杀】无距离限制且可额外指定1个目标",
+                content = string.format("%s activates [Far-Reach West]: this turn [ATTACK] has no range limit and can target 1 extra target",
                     p.username),
                 hero = "dhul_qarnayn", skill = "yuan_jiang"
             }))
@@ -241,7 +241,7 @@ function M.on_response(dispatcher, state, player_id, payload)
             state.dhul_eastward = state.dhul_eastward or {}
             state.dhul_eastward[player_id] = true
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s 发动【远疆-东行】，本回合非延时锦囊可额外选择1个目标",
+                content = string.format("%s activates [Far-Reach East]: this turn non-delayed tricks can target 1 extra target",
                     p.username),
                 hero = "dhul_qarnayn", skill = "yuan_jiang"
             }))
@@ -271,7 +271,7 @@ function M.on_response(dispatcher, state, player_id, payload)
 
         -- 复用攻击效果（用记录的卡牌对额外目标发起攻击）
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【远疆-西行】，对 %s 发起额外攻击！",
+            content = string.format("%s activates [Far-Reach West], launches extra attack on %s!",
                 p.username, target.username),
             hero = "dhul_qarnayn", skill = "yuan_jiang"
         }))
@@ -303,7 +303,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         end
 
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【远疆-东行】，对 %s 使用额外锦囊！",
+            content = string.format("%s activates [Far-Reach East], uses extra trick on %s!",
                 p.username, target.username),
             hero = "dhul_qarnayn", skill = "yuan_jiang"
         }))

@@ -32,7 +32,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "ha_li_fa_ling",
-        description = "是否发动【哈里发令】？选择一名玩家令其弃1张牌或受1点伤害",
+        description = "Activate Caliph's Decree? Choose a player: discard 1 card or take 1 damage",
         targets     = target_list,
     }), { state.presences[player_id] })
 
@@ -62,7 +62,7 @@ function M.on_response(dispatcher, state, player_id, payload)
 
         local player = state.players[player_id]
         dispatcher.broadcast_message(11, nk.json_encode({
-            content   = string.format("%s 发动【哈里发令】，指定 %s：弃1张牌或受1点伤害",
+            content   = string.format("%s activated Caliph's Decree, targeting %s: discard 1 card or take 1 damage",
                             player.username, target.username),
             event     = "skill_used",
             hero      = "harun_al_rashid",
@@ -81,7 +81,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         dispatcher.broadcast_message(101, nk.json_encode({
             type        = "skill_choice",
             skill       = "ha_li_fa_ling",
-            description = string.format("%s 对你发动【哈里发令】，请选择：弃1张牌或受1点伤害",
+            description = string.format("%s activated Caliph's Decree on you, choose: discard 1 card or take 1 damage",
                               player.username),
             caster_id   = player_id,
         }), { state.presences[payload.target_id] })
@@ -100,7 +100,7 @@ function M.on_response(dispatcher, state, player_id, payload)
                 local card = table.remove(target.hand, math.random(#target.hand))
                 table.insert(state.discard_pile, card)
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. " 服从【哈里发令】，弃置了1张牌",
+                    content = target.username .. " obeyed Caliph's Decree and discarded 1 card",
                 }))
             else
                 rules.apply_damage(dispatcher, state, action.target_id, 1, caster_id)

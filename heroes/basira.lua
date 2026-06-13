@@ -33,13 +33,17 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         rules.draw_cards(state, player_id, 1)
     end
 
+    local card_name = top_card.name or "none"
+    local color_str = is_red and "red" or "black"
+    local extra_str = is_red and "draw 1 extra card!" or "no extra draw"
+    local msg = string.format("%s activated [Insight], top card: %s %s (%s) %s",
+        player.username,
+        top_card.suit or "?",
+        card_name,
+        color_str,
+        extra_str)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【洞察】，牌堆顶是 %s %s（%s），%s！",
-            player.username,
-            top_card.suit or "?",
-            top_card.name or "无牌",
-            is_red and "红色" or "黑色",
-            is_red and "额外摸1张！" or "无额外摸牌"),
+        content = msg,
         hero = "basira", skill = "dong_cha"
     }))
     rules.broadcast_update(dispatcher, state)

@@ -18,7 +18,7 @@ function M.on_turn_end(dispatcher, state, player_id)
     state.discard_pile = {}
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【诗魂】，将 %d 张弃牌洗回牌堆！",
+        content = string.format("%s activates [Poetic Soul], shuffling %d discarded cards back into the deck!",
             player.username, count),
         hero = "khayyam", skill = "shi_hun"
     }))

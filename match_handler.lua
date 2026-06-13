@@ -379,8 +379,8 @@ local function auto_discard_from_end(dispatcher, state, uid, discard_count)
         table.insert(discarded, card.name or card.type)
     end
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = ep.username .. " 弃牌阶段弃置 " .. #discarded ..
-                  " 张：" .. table.concat(discarded, "/")
+        content = ep.username .. " discard phase: " .. #discarded ..
+                  " cards: " .. table.concat(discarded, "/")
     }))
 end
 
@@ -795,7 +795,7 @@ function M.do_discard_phase(dispatcher, state, ending_uid)
             event = "discard_required",
             player_id = ending_uid,
             discard_count = discard_count,
-            msg = ep.username .. " 需要弃置 " .. discard_count .. " 张牌",
+            msg = ep.username .. " must discard " .. discard_count .. " card(s)",
         }), {state.presences[ending_uid]})
         state.pending_discard_continuation = {uid = ending_uid}
         return true
@@ -846,8 +846,8 @@ function M.handle_discard_response(dispatcher, state, uid, payload)
                 end
             end
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = ep.username .. " 弃牌阶段弃置 " .. act.discard_count ..
-                          " 张：" .. table.concat(discarded, "/")
+                content = ep.username .. " discard phase: " .. act.discard_count ..
+                          " cards: " .. table.concat(discarded, "/")
             }))
         end
     end

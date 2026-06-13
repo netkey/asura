@@ -14,7 +14,7 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     state.attack_forced = true
     local target = state.players[target_id]
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【骑士之誓】，本次攻击强制命中，%s 无法防御！",
+        content = string.format("%s activates [Knight's Oath], this attack is forced to hit, %s cannot defend!",
             player.username,
             target and target.username or target_id),
         hero = "antar", skill = "qi_shi_zhi_shi"

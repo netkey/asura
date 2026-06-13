@@ -1,4 +1,5 @@
 local nk = require("nakama")
+
 local M = {}
 
 -- 贾法尔 - 大维齐尔，《一千零一夜》中的权术家
@@ -11,9 +12,10 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     state.jafar_du_ji = true
 
     local target = state.players[target_id]
+    local msg = string.format("%s activated [Poison Plot], %s needs 2 [Defense] to block!",
+        player.username, target and target.username or target_id)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【毒计】，%s 需出2张【防御】才能抵挡！",
-            player.username, target and target.username or target_id),
+        content = msg,
         hero = "jafar", skill = "du_ji"
     }))
 

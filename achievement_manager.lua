@@ -61,10 +61,10 @@ local ACHIEVEMENTS = {
       check = function(_, m) return m.damage_dealt >= 20 end },
 
     -- 赛季积分
-    { id = "rating_1200", name = "崭露头角", gold = 150,
-      check = function(s, _) return s.rating >= 1200 end },
-    { id = "rating_1500", name = "声名大噪", gold = 300,
-      check = function(s, _) return s.rating >= 1500 end },
+    { id = "rating_200", name = "崭露头角", gold = 150,
+      check = function(s, _) return s.rating >= 200 end },
+    { id = "rating_500", name = "声名大噪", gold = 300,
+      check = function(s, _) return s.rating >= 500 end },
 }
 
 -- 英雄精通（动态生成，check 逻辑特殊，单独处理）

@@ -34,177 +34,177 @@ end
 -- ATTACK — 杀 × 30
 -- ==========================================
 -- SPADE × 7 (7,8,9,10,J,Q,K)
-add_card("ATTACK", "SPADE", 7,  "大马士革弯刀")
-add_card("ATTACK", "SPADE", 8,  "大马士革弯刀")
-add_card("ATTACK", "SPADE", 9,  "大马士革弯刀")
-add_card("ATTACK", "SPADE", 10, "大马士革弯刀")
-add_card("ATTACK", "SPADE", 11, "大马士革弯刀")
-add_card("ATTACK", "SPADE", 12, "大马士革弯刀")
-add_card("ATTACK", "SPADE", 13, "大马士革弯刀")
+add_card("ATTACK", "SPADE", 7,  "Damascus Blade")
+add_card("ATTACK", "SPADE", 8,  "Damascus Blade")
+add_card("ATTACK", "SPADE", 9,  "Damascus Blade")
+add_card("ATTACK", "SPADE", 10, "Damascus Blade")
+add_card("ATTACK", "SPADE", 11, "Damascus Blade")
+add_card("ATTACK", "SPADE", 12, "Damascus Blade")
+add_card("ATTACK", "SPADE", 13, "Damascus Blade")
 -- CLUB × 11 (2,3,4,5,6,7,8,9,10,J,Q)
-add_card("ATTACK", "CLUB", 2,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 3,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 4,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 5,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 6,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 7,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 8,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 9,  "大马士革弯刀")
-add_card("ATTACK", "CLUB", 10, "大马士革弯刀")
-add_card("ATTACK", "CLUB", 11, "大马士革弯刀")
-add_card("ATTACK", "CLUB", 12, "大马士革弯刀")
+add_card("ATTACK", "CLUB", 2,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 3,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 4,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 5,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 6,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 7,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 8,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 9,  "Damascus Blade")
+add_card("ATTACK", "CLUB", 10, "Damascus Blade")
+add_card("ATTACK", "CLUB", 11, "Damascus Blade")
+add_card("ATTACK", "CLUB", 12, "Damascus Blade")
 -- HEART × 1 (10)
-add_card("ATTACK", "HEART", 10, "大马士革弯刀")
+add_card("ATTACK", "HEART", 10, "Damascus Blade")
 -- DIAMOND × 11 (2,3,4,5,6,7,8,9,10,J,Q)
-add_card("ATTACK", "DIAMOND", 2,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 3,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 4,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 5,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 6,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 7,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 8,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 9,  "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 10, "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 11, "大马士革弯刀")
-add_card("ATTACK", "DIAMOND", 12, "大马士革弯刀")
+add_card("ATTACK", "DIAMOND", 2,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 3,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 4,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 5,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 6,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 7,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 8,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 9,  "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 10, "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 11, "Damascus Blade")
+add_card("ATTACK", "DIAMOND", 12, "Damascus Blade")
 
 -- ==========================================
 -- DEFENSE — 闪 × 15
 -- ==========================================
-add_card("DEFENSE", "HEART", 2,  "蜃景")
-add_card("DEFENSE", "HEART", 3,  "蜃景")
-add_card("DEFENSE", "HEART", 4,  "蜃景")
-add_card("DEFENSE", "HEART", 5,  "蜃景")
-add_card("DEFENSE", "HEART", 6,  "蜃景")
-add_card("DEFENSE", "HEART", 7,  "蜃景")
-add_card("DEFENSE", "HEART", 8,  "蜃景")
-add_card("DEFENSE", "HEART", 9,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 2,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 3,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 4,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 5,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 6,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 7,  "蜃景")
-add_card("DEFENSE", "DIAMOND", 8,  "蜃景")
+add_card("DEFENSE", "HEART", 2,  "Mirage")
+add_card("DEFENSE", "HEART", 3,  "Mirage")
+add_card("DEFENSE", "HEART", 4,  "Mirage")
+add_card("DEFENSE", "HEART", 5,  "Mirage")
+add_card("DEFENSE", "HEART", 6,  "Mirage")
+add_card("DEFENSE", "HEART", 7,  "Mirage")
+add_card("DEFENSE", "HEART", 8,  "Mirage")
+add_card("DEFENSE", "HEART", 9,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 2,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 3,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 4,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 5,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 6,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 7,  "Mirage")
+add_card("DEFENSE", "DIAMOND", 8,  "Mirage")
 
 -- ==========================================
 -- HEAL — 桃 × 8
 -- ==========================================
-add_card("HEAL", "HEART", 3,  "椰枣")
-add_card("HEAL", "HEART", 4,  "椰枣")
-add_card("HEAL", "HEART", 5,  "椰枣")
-add_card("HEAL", "HEART", 6,  "椰枣")
-add_card("HEAL", "HEART", 7,  "椰枣")
-add_card("HEAL", "HEART", 8,  "椰枣")
-add_card("HEAL", "HEART", 9,  "椰枣")
-add_card("HEAL", "HEART", 12, "椰枣")
+add_card("HEAL", "HEART", 3,  "Date")
+add_card("HEAL", "HEART", 4,  "Date")
+add_card("HEAL", "HEART", 5,  "Date")
+add_card("HEAL", "HEART", 6,  "Date")
+add_card("HEAL", "HEART", 7,  "Date")
+add_card("HEAL", "HEART", 8,  "Date")
+add_card("HEAL", "HEART", 9,  "Date")
+add_card("HEAL", "HEART", 12, "Date")
 
 -- ==========================================
 -- WINE — 酒 × 3（仅增伤，不可救人）
 -- ==========================================
-add_card("WINE", "SPADE", 3,   "沙漠之心", "damage_plus1")
-add_card("WINE", "CLUB", 9,    "沙漠之心", "damage_plus1")
-add_card("WINE", "DIAMOND", 9, "沙漠之心", "damage_plus1")
+add_card("WINE", "SPADE", 3,   "Desert Heart", "damage_plus1")
+add_card("WINE", "CLUB", 9,    "Desert Heart", "damage_plus1")
+add_card("WINE", "DIAMOND", 9, "Desert Heart", "damage_plus1")
 
 -- ==========================================
 -- INSTANT_TRICK — 即时锦囊
 -- ==========================================
 
 -- 南蛮入侵 × 3 (aoe_attack — 响应者出 ATTACK)
-add_card("INSTANT_TRICK", "SPADE",   7,  "沙漠侵袭", "aoe_attack")
-add_card("INSTANT_TRICK", "CLUB",    7,  "沙漠侵袭", "aoe_attack")
-add_card("INSTANT_TRICK", "HEART",   7,  "沙漠侵袭", "aoe_attack")
+add_card("INSTANT_TRICK", "SPADE",   7,  "Sandstorm", "aoe_attack")
+add_card("INSTANT_TRICK", "CLUB",    7,  "Sandstorm", "aoe_attack")
+add_card("INSTANT_TRICK", "HEART",   7,  "Sandstorm", "aoe_attack")
 
 -- 万箭齐发 × 1 (aoe_defense — 响应者出 DEFENSE)
-add_card("INSTANT_TRICK", "DIAMOND", 1,  "万箭齐发", "aoe_defense")
+add_card("INSTANT_TRICK", "DIAMOND", 1,  "Volley", "aoe_defense")
 
 -- 决斗 × 3
-add_card("INSTANT_TRICK", "SPADE",   1,  "决斗", "duel")
-add_card("INSTANT_TRICK", "CLUB",    1,  "决斗", "duel")
-add_card("INSTANT_TRICK", "DIAMOND", 1,  "决斗", "duel")
+add_card("INSTANT_TRICK", "SPADE",   1,  "Duel", "duel")
+add_card("INSTANT_TRICK", "CLUB",    1,  "Duel", "duel")
+add_card("INSTANT_TRICK", "DIAMOND", 1,  "Duel", "duel")
 
 -- 过河拆桥 × 6
-add_card("INSTANT_TRICK", "CLUB",    3,  "过河拆桥", "discard_one")
-add_card("INSTANT_TRICK", "SPADE",   3,  "过河拆桥", "discard_one")
-add_card("INSTANT_TRICK", "SPADE",   4,  "过河拆桥", "discard_one")
-add_card("INSTANT_TRICK", "HEART",   3,  "过河拆桥", "discard_one")
-add_card("INSTANT_TRICK", "DIAMOND", 3,  "过河拆桥", "discard_one")
-add_card("INSTANT_TRICK", "SPADE",   12, "过河拆桥", "discard_one")
+add_card("INSTANT_TRICK", "CLUB",    3,  "Dismantle", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   3,  "Dismantle", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   4,  "Dismantle", "discard_one")
+add_card("INSTANT_TRICK", "HEART",   3,  "Dismantle", "discard_one")
+add_card("INSTANT_TRICK", "DIAMOND", 3,  "Dismantle", "discard_one")
+add_card("INSTANT_TRICK", "SPADE",   12, "Dismantle", "discard_one")
 
 -- 顺手牵羊 × 5
-add_card("INSTANT_TRICK", "SPADE",   3,  "顺手牵羊", "steal_one")
-add_card("INSTANT_TRICK", "SPADE",   4,  "顺手牵羊", "steal_one")
-add_card("INSTANT_TRICK", "CLUB",    3,  "顺手牵羊", "steal_one")
-add_card("INSTANT_TRICK", "HEART",   3,  "顺手牵羊", "steal_one")
-add_card("INSTANT_TRICK", "DIAMOND", 3,  "顺手牵羊", "steal_one")
+add_card("INSTANT_TRICK", "SPADE",   3,  "Pilfer", "steal_one")
+add_card("INSTANT_TRICK", "SPADE",   4,  "Pilfer", "steal_one")
+add_card("INSTANT_TRICK", "CLUB",    3,  "Pilfer", "steal_one")
+add_card("INSTANT_TRICK", "HEART",   3,  "Pilfer", "steal_one")
+add_card("INSTANT_TRICK", "DIAMOND", 3,  "Pilfer", "steal_one")
 
 -- 无中生有 × 4
-add_card("INSTANT_TRICK", "HEART",   7,  "无中生有", "draw_two")
-add_card("INSTANT_TRICK", "HEART",   8,  "无中生有", "draw_two")
-add_card("INSTANT_TRICK", "DIAMOND", 7,  "无中生有", "draw_two")
-add_card("INSTANT_TRICK", "DIAMOND", 8,  "无中生有", "draw_two")
+add_card("INSTANT_TRICK", "HEART",   7,  "Draw Two", "draw_two")
+add_card("INSTANT_TRICK", "HEART",   8,  "Draw Two", "draw_two")
+add_card("INSTANT_TRICK", "DIAMOND", 7,  "Draw Two", "draw_two")
+add_card("INSTANT_TRICK", "DIAMOND", 8,  "Draw Two", "draw_two")
 
 -- 桃园结义 × 1
-add_card("INSTANT_TRICK", "HEART",   1,  "桃园结义", "mass_heal")
+add_card("INSTANT_TRICK", "HEART",   1,  "Mass Heal", "mass_heal")
 
 -- 五谷丰登 × 2
-add_card("INSTANT_TRICK", "HEART",   3,  "五谷丰登", "mass_draw")
-add_card("INSTANT_TRICK", "DIAMOND", 3,  "五谷丰登", "mass_draw")
+add_card("INSTANT_TRICK", "HEART",   3,  "Bounty", "mass_draw")
+add_card("INSTANT_TRICK", "DIAMOND", 3,  "Bounty", "mass_draw")
 
 -- 无懈可击 × 3
-add_card("INSTANT_TRICK", "SPADE",   13, "无懈可击", "counterspell")
-add_card("INSTANT_TRICK", "CLUB",    13, "无懈可击", "counterspell")
-add_card("INSTANT_TRICK", "DIAMOND", 11, "无懈可击", "counterspell")
+add_card("INSTANT_TRICK", "SPADE",   13, "Counterspell", "counterspell")
+add_card("INSTANT_TRICK", "CLUB",    13, "Counterspell", "counterspell")
+add_card("INSTANT_TRICK", "DIAMOND", 11, "Counterspell", "counterspell")
 
 -- 借刀杀人 × 2
-add_card("INSTANT_TRICK", "SPADE",   12, "借刀杀人", "borrow_weapon")
-add_card("INSTANT_TRICK", "CLUB",    10, "借刀杀人", "borrow_weapon")
+add_card("INSTANT_TRICK", "SPADE",   12, "Borrow Blade", "borrow_weapon")
+add_card("INSTANT_TRICK", "CLUB",    10, "Borrow Blade", "borrow_weapon")
 
 -- 火攻 × 3（目标展示一张手牌，猜中花色则1点火焰伤害）
-add_card("INSTANT_TRICK", "HEART",   12, "火攻", "fire_attack")
-add_card("INSTANT_TRICK", "HEART",   13, "火攻", "fire_attack")
-add_card("INSTANT_TRICK", "DIAMOND", 13, "火攻", "fire_attack")
+add_card("INSTANT_TRICK", "HEART",   12, "Fire Attack", "fire_attack")
+add_card("INSTANT_TRICK", "HEART",   13, "Fire Attack", "fire_attack")
+add_card("INSTANT_TRICK", "DIAMOND", 13, "Fire Attack", "fire_attack")
 
 -- ==========================================
 -- DELAYED_TRICK — 延时锦囊
 -- ==========================================
 
 -- 乐不思蜀 × 3 (判定非HEART → 跳过出牌阶段)
-add_card("DELAYED_TRICK", "SPADE",   6,  "乐不思蜀", "skip_play")
-add_card("DELAYED_TRICK", "CLUB",    6,  "乐不思蜀", "skip_play")
-add_card("DELAYED_TRICK", "HEART",   6,  "乐不思蜀", "skip_play")
+add_card("DELAYED_TRICK", "SPADE",   6,  "Skip Turn", "skip_play")
+add_card("DELAYED_TRICK", "CLUB",    6,  "Skip Turn", "skip_play")
+add_card("DELAYED_TRICK", "HEART",   6,  "Skip Turn", "skip_play")
 
 -- 闪电 × 2 (判定SPADE 2-9 → 3点雷电伤害)
-add_card("DELAYED_TRICK", "SPADE",   1,  "闪电", "lightning")
-add_card("DELAYED_TRICK", "CLUB",    1,  "闪电", "lightning")
+add_card("DELAYED_TRICK", "SPADE",   1,  "Lightning", "lightning")
+add_card("DELAYED_TRICK", "CLUB",    1,  "Lightning", "lightning")
 
 -- ==========================================
 -- WEAPON — 武器 × 6
 -- ==========================================
-add_card("WEAPON", "SPADE",   5,  "连弩机",   "unlimited_attack")
-add_card("WEAPON", "CLUB",    5,  "贯石斧",   "reattempt_discard2")
-add_card("WEAPON", "CLUB",    6,  "青龙偃月刀", "reattempt_attack")
-add_card("WEAPON", "CLUB",    8,  "丈八蛇矛",  "spear_discard2")
-add_card("WEAPON", "DIAMOND", 6,  "双刃剑",    "ignore_armor")
-add_card("WEAPON", "SPADE",   6,  "麒麟弓",    "bow_strip_horse")
+add_card("WEAPON", "SPADE",   5,  "Repeater Crossbow",   "unlimited_attack")
+add_card("WEAPON", "CLUB",    5,  "Splitting Axe",   "reattempt_discard2")
+add_card("WEAPON", "CLUB",    6,  "Green Dragon Blade", "reattempt_attack")
+add_card("WEAPON", "CLUB",    8,  "Serpent Lance",  "spear_discard2")
+add_card("WEAPON", "DIAMOND", 6,  "Double Blade",    "ignore_armor")
+add_card("WEAPON", "SPADE",   6,  "Qilin Bow",    "bow_strip_horse")
 
 -- ==========================================
 -- ARMOR — 防具 × 2
 -- ==========================================
-add_card("ARMOR", "SPADE",   2,  "八卦阵",  "dodge_judgment")
-add_card("ARMOR", "CLUB",    2,  "仁王盾",  "block_black_attack")
+add_card("ARMOR", "SPADE",   2,  "Eight Trigrams",  "dodge_judgment")
+add_card("ARMOR", "CLUB",    2,  "Benevolence Shield",  "block_black_attack")
 
 -- ==========================================
 -- HORSE — 马牌 × 6
 -- ==========================================
 -- offense = -1马（进攻马，攻击距离减少1）
-add_card("HORSE", "SPADE",   13, "沙马尔", "offense")
-add_card("HORSE", "CLUB",    13, "赛义德", "offense")
-add_card("HORSE", "HEART",   13, "拉吉",   "offense")
+add_card("HORSE", "SPADE",   13, "Shamal", "offense")
+add_card("HORSE", "CLUB",    13, "Saad", "offense")
+add_card("HORSE", "HEART",   13, "Raji",   "offense")
 -- defense = +1马（防守马，被攻击距离增加1）
-add_card("HORSE", "SPADE",   12, "纳吉",   "defense")
-add_card("HORSE", "CLUB",    12, "拉希勒", "defense")
-add_card("HORSE", "HEART",   12, "萨利姆", "defense")
+add_card("HORSE", "SPADE",   12, "Najd",   "defense")
+add_card("HORSE", "CLUB",    12, "Rahil", "defense")
+add_card("HORSE", "HEART",   12, "Salim", "defense")
 
 -- ==========================================
 -- 验证

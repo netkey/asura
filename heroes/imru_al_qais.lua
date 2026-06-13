@@ -18,7 +18,7 @@ function M.on_turn_end(dispatcher, state, player_id)
         local rules = require("game_rules")
         rules.draw_cards(state, player_id, 1)
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【悬诗】，手持%d张攻击牌，额外摸1张！",
+            content = string.format("%s activated [Ode], holding %d [Attack] cards, draws 1 extra!",
                 player.username, attack_count),
             hero = "imru_al_qais", skill = "xuan_shi"
         }))

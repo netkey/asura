@@ -28,7 +28,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "ce_liang",
-        description = string.format("【测量】：查看牌堆顶%d张，选2张入手，其余弃置", #cards),
+        description = string.format("[Measurement]: Look at top %d cards, pick 2 to hand, discard the rest", #cards),
         cards       = cards,
     }), {state.presences[player_id]})
 
@@ -71,8 +71,8 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     if kept > 0 then
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【测量】，从%d张牌中精选%d张入手！",
-                player.username, #action.cards, kept),
+            content = string.format("%s activates [Measurement], selects %d out of %d cards!",
+                player.username, kept, #action.cards),
             hero = "al_biruni", skill = "ce_liang"
         }))
     end

@@ -14,7 +14,7 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     if #target.hand > #player.hand then
         state.attack_bonus = 1  -- 伤害+1，总计2点
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " 发动【铁蹄】，目标手牌更多，攻击伤害+1！",
+            content = string.format("%s activates [Iron Hoof], target has more hand cards, attack damage +1!", player.username),
             hero = "hulagu", skill = "tie_ti"
         }))
     end

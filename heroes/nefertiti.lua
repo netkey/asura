@@ -15,7 +15,7 @@ function M.on_turn_end(dispatcher, state, player_id)
 
     player.health = player.health + 1
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = player.username .. " 发动【古仪】，未攻击他人，回复1点血量！",
+        content = player.username .. " activates Ancient Ritual, recovers 1 HP for not attacking!",
         hero = "nefertiti", skill = "gu_yi"
     }))
     return false

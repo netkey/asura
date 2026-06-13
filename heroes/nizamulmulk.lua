@@ -21,7 +21,7 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
         local card = table.remove(attacker.hand, ri)
         table.insert(state.discard_pile, card)
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 发动【权谋】，%s 被迫弃置了1张牌！",
+            content = string.format("%s activates Quan Mou, %s was forced to discard 1 card!",
                 player.username, attacker.username),
             hero = "nizamulmulk", skill = "quan_mou"
         }))

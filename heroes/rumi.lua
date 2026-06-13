@@ -15,12 +15,12 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         hero_id = "rumi",
         hand_count = #player.hand,
         deadline = os.time() + 15,
-        description = "是否发动【旋回】，弃置全部手牌并摸等量新牌？"
+        description = "Activate [Whirl], discard all to draw equal?",
     }
     dispatcher.broadcast_message(101, nk.json_encode({
         type = "skill_choice",
         skill = "xuan_hui",
-        description = string.format("是否发动【旋回】，弃置全部 %d 张手牌，摸 %d 张新牌？",
+        description = string.format("Activate [Whirl]: discard all %d cards, draw %d new cards?",
             #player.hand, #player.hand)
     }), {state.presences[player_id]})
     return true
@@ -49,7 +49,7 @@ function M.on_response(dispatcher, state, player_id, payload)
     -- 摸等量新牌
     rules.draw_cards(state, player_id, count)
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【旋回】，弃%d摸%d，手牌焕然一新！",
+        content = string.format("%s activated [Whirl], discards %d draws %d, fresh hand!",
             player.username, count, count),
         hero = "rumi", skill = "xuan_hui"
     }))

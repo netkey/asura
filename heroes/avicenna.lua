@@ -32,7 +32,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "yi_dian",
-        description = "是否弃1张红桃牌发动【医典·自诊】，回复1点血量？",
+        description = "Discard 1 heart card to activate [Canon of Medicine: Self-Diagnosis] and recover 1 HP?",
         heart_cards = heart_cards,
     }), {state.presences[player_id]})
 
@@ -57,7 +57,7 @@ function M.on_response(dispatcher, state, player_id, payload)
                 table.insert(state.discard_pile, table.remove(player.hand, i))
                 player.health = math.min(player.health + 1, player.max_health)
                 dispatcher.broadcast_message(11, nk.json_encode({
-                    content = string.format("%s 弃置红桃牌【%s】，发动【医典·自诊】回复1点血量！",
+                    content = string.format("%s discards heart card [%s], activating [Canon of Medicine: Self-Diagnosis] to recover 1 HP!",
                         player.username, c.name),
                     hero = "avicenna", skill = "yi_dian"
                 }))

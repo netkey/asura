@@ -20,7 +20,7 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
     table.insert(player.hand, stolen)
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【谋略】，从 %s 手中随机夺取了1张牌！",
+        content = string.format("%s activated [Mou Lue], taking 1 random card from %s!",
             player.username, attacker.username),
         hero = "muawiyah", skill = "mou_lue"
     }))

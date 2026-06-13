@@ -18,7 +18,7 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
     player.health = player.max_health
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【建城】，击杀后回满血量！（第%d次/共3次）",
+        content = string.format("%s activates [Jian Cheng], fully healed after kill! (Time %d/3)",
             player.username, player.mansur_full_heals),
         hero = "al_mansur", skill = "jian_cheng"
     }))
@@ -39,7 +39,7 @@ function M.on_turn_end(dispatcher, state, player_id)
     if damage_this_turn >= 2 and player.health < player.max_health then
         player.health = player.health + 1
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 本回合造成%d点伤害，发动【建城】回复1点血量！",
+            content = string.format("%s dealt %d damage this turn, activates [Jian Cheng] to recover 1 HP!",
                 player.username, damage_this_turn),
             hero = "al_mansur", skill = "jian_cheng"
         }))

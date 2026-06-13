@@ -28,7 +28,7 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "song_ci",
-        description = "是否发动【颂词】摸4张牌，然后交给其他角色1张手牌？",
+        description = "Activate [Song Ci] to draw 4 cards, then give 1 hand card to another character?",
     }), {state.presences[player_id]})
 
     return true
@@ -78,7 +78,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         dispatcher.broadcast_message(101, nk.json_encode({
             type        = "skill_choice",
             skill       = "song_ci_give",
-            description = "请选择1张手牌交给一名其他角色",
+            description = "Select 1 hand card to give to another character",
             hand_cards  = hand_cards,
             targets     = targets,
         }), {state.presences[player_id]})
@@ -113,7 +113,7 @@ function M.on_response(dispatcher, state, player_id, payload)
                     if target and target.health > 0 then
                         table.insert(target.hand, card)
                         dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s 发动【颂词】，交给 %s 1张【%s】",
+                            content = string.format("%s activates [Song Ci], gives %s 1 [%s]",
                                 player.username, target.username, c.name),
                             hero = "enheduanna", skill = "song_ci"
                         }))

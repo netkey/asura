@@ -22,9 +22,9 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     table.insert(state.discard_pile, judge_card)
 
     dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s 发动【神灯】，判定为 %s（%s）",
+        content = string.format("%s activates [Magic Lamp], judgement: %s (%s)",
             player.username,
-            judge_card.suit == "HEART" and "♥ 红桃" or judge_card.suit == "DIAMOND" and "♦ 方块" or "♠♣ 黑色",
+            judge_card.suit == "HEART" and "♥ Hearts" or judge_card.suit == "DIAMOND" and "♦ Diamonds" or "♠♣ Black",
             judge_card.name),
         hero = "aladdin", skill = "shen_deng"
     }))
@@ -33,7 +33,7 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     if judge_card.suit == "HEART" or judge_card.suit == "DIAMOND" then
         rules.draw_cards(state, player_id, 1)
         dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s 神灯显灵，摸 1 张牌！", player.username),
+            content = string.format("%s Magic Lamp awakens, draws 1 card!", player.username),
             hero = "aladdin", skill = "shen_deng"
         }))
     end

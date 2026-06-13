@@ -145,8 +145,9 @@ asura/
 > **说明**：本节为静态快照，仅记录优先级方向。活动任务列表见 memory `project_backlog.md`，以 memory 为准。
 
 ### 高优先级
-- [ ] 实现英雄解锁/购买系统（hero_inventory 存储结构已就绪）
-- [ ] 实现排位赛 + 赛季系统（season_manager 已有 match_history 记录，基础结构已完成）
+- [x] 实现英雄解锁/购买系统（buy_hero RPC + wallet扣款 + OCC写入）
+- [x] 实现排位赛 + 赛季系统（段位 bronze→grandmaster + leaderboard + match_history）
+- [x] 实现皮肤购买系统（purchase_skin RPC + get_shop 统一商城）
 
 ### 中优先级
 - [x] 添加更多英雄 — 已完成 30 个（超出原定 20+ 目标）
@@ -155,11 +156,12 @@ asura/
 - [x] 添加好友/社交系统（好友状态实时推送 + 直接加入/观战）
 - [x] 实现观战功能
 - [x] 成就系统（achievement_manager.lua）
-
-### 低优先级
 - [x] 游戏统计（storage 存储的 metric_inc 计数器）
-- [ ] 客户端皮肤系统（skin_catalog.lua 已注册，待客户端接入）
-- [ ] 实现回放系统
+
+### 待办
+- [ ] 卡牌名中东本土化（~40 张卡牌名仍为三国杀中文名）
+- [ ] 每日任务系统（驱动 DAU，奖励金币）
+- [ ] 英雄碎片系统（F2P 解锁英雄路径）
 - [ ] 多语言支持
 
 ## 部署说明
@@ -241,5 +243,5 @@ Lua 5.4 中循环跳过用 `goto continue` + `::continue::`，`break` 会截断�
 
 ---
 
-**最后更新**: 2026-06-10
-**版本**: 0.6.0
+**最后更新**: 2026-06-12
+**版本**: 0.7.0

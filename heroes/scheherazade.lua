@@ -40,7 +40,7 @@ function M.on_damaged(dispatcher, state, target_id, amount, source_id)
     dispatcher.broadcast_message(101, nk.json_encode({
         type        = "skill_choice",
         skill       = "qian_ye",
-        description = string.format("%s 对你造成 %d 点伤害！是否发动【千夜】，弃1张手牌并选择其1张手牌弃置？",
+        description = string.format("%s dealt %d damage to you! Activate [Thousand Nights]? Discard 1 card and choose 1 of their cards to discard.",
             attacker.username, amount),
         shown_cards = shown,
     }), {state.presences[target_id]})
@@ -86,7 +86,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         if c.id == payload.target_card_id then
             table.insert(state.discard_pile, table.remove(attacker.hand, i))
             dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s 发动【千夜】，弃1张手牌并令 %s 弃置【%s】！",
+                content = string.format("%s activated [Thousand Nights], discarded 1 card and forced %s to discard [%s]!",
                     player.username, attacker.username, c.name),
                 hero = "scheherazade", skill = "qian_ye"
             }))
