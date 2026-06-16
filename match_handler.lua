@@ -526,6 +526,7 @@ function M.perform_auto_play(dispatcher, state)
     end
 
     -- 6. 攻击：优先打血量最少的存活敌方
+    local attack_played = false
     local atk = find_card("ATTACK")
     if atk then
         local target_id, min_hp = nil, math.huge
@@ -539,8 +540,12 @@ function M.perform_auto_play(dispatcher, state)
         end
         if target_id then
             play_and_resolve({ card_id = atk.id, target_id = target_id })
+            attack_played = true
         end
     end
+
+    -- 追踪连续空过回合：成功出杀则归零，空过则递增（供 match_loop 全 stuck 检测用）
+    player._no_attack_count = attack_played and 0 or ((player._no_attack_count or 0) + 1)
 
     log_info(state, "托管结束，切换到下一位玩家")
     M.next_turn(dispatcher, state)
@@ -663,6 +668,21 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             effective_timeout = 3
         end
 
+        -- 全员空过加速：所有存活玩家连续 ≥2 轮无出杀（NO_REACHABLE_TARGET 或手中无杀），
+        -- 说明位置/距离已定局，直接跳过等待秒切回合
+        if effective_timeout > 0 then
+            local all_stuck = true
+            for pid, p in pairs(state.players) do
+                if p.health > 0 and (p._no_attack_count or 0) < 2 then
+                    all_stuck = false
+                    break
+                end
+            end
+            if all_stuck then
+                effective_timeout = 0
+            end
+        end
+
         -- 检查是否思考超时（跨玩家 pending_action 如防御/AOE/决斗由 deadline 处理，不在此超时）
         local has_cross_pending = state.pending_action
             and state.pending_action.player_id ~= state.current_turn_id
@@ -688,6 +708,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         if uid == state.current_turn_id then
             state.current_turn_elapsed = 0
             state.consecutive_autoplay = 0
+            state.players[uid]._no_attack_count = 0
         end
 
         -- 情况 A：处理挂起的技能响应（如哈基姆、阿拉丁）或弃牌选择
