@@ -71,9 +71,9 @@ function M.on_response(dispatcher, state, player_id, payload)
 end
 
 function M.on_timeout(dispatcher, state, act)
-    state.pending_action = nil
     -- 超时时玩家已死，直接跳过（防死锁）
     if not state.players[act.player_id] or state.players[act.player_id].health <= 0 then
+        state.pending_action = nil
         require("game_rules").broadcast_update(dispatcher, state)
         return
     end
@@ -83,6 +83,8 @@ function M.on_timeout(dispatcher, state, act)
     else
         require("hero_manager").handle_response(dispatcher, state, act.player_id, { confirm = false })
     end
+    state.pending_action = nil
+    require("game_rules").broadcast_update(dispatcher, state)
 end
 
 function M.can_rescue_with(card)

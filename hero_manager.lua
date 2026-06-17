@@ -81,8 +81,12 @@ function M.handle_timeout(dispatcher, state)
     if act.hero_id then
         local hero = heroes[act.hero_id]
         if hero and hero.on_timeout then
-            state.pending_action = nil
             hero.on_timeout(dispatcher, state, act)
+            -- on_timeout 返回后若 pending_action 仍是原对象（未清理），强制清掉防死锁
+            if state.pending_action == act then
+                state.pending_action = nil
+                require("game_rules").broadcast_update(dispatcher, state)
+            end
             state._timeout_depth = (state._timeout_depth or 1) - 1
             return
         end

@@ -20,8 +20,6 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
             player.username),
         hero = "dunyazad", skill = "xu_pian"
     }))
-    -- 清除 pending_action 并广播
-    state.pending_action = nil
     local rules = require("game_rules")
     rules.broadcast_update(dispatcher, state)
     return true  -- 挂起已在此处理完毕
