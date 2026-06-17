@@ -2,7 +2,8 @@
 -- 负责：积分计算、match_history 写入、season_stats 聚合、Nakama leaderboard 更新
 -- 赛季由管理员通过 admin_start_season / admin_end_season RPC 手动控制
 
-local ach_mgr = require("achievement_manager")
+local ach_mgr   = require("achievement_manager")
+local daily_mgr = require("daily_task_manager")
 
 local M = {}
 
@@ -231,6 +232,9 @@ function M.record_match(nk, state, winner)
 
         write_match_history(nk, uid, season.season_id, ts, p,
             state.mode, winner, is_win, turns, delta, updated.rating)
+
+        -- 每日任务：胜场计数
+        if is_win then daily_mgr.on_match_win(nk, uid, p.username) end
 
         -- 成就检查（每场结算后触发）
         ach_mgr.check_and_award(nk, uid, p.username, updated, {

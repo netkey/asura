@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.7.0 · 最后更新：2026-06-12  
+> 版本：v0.8.0 · 最后更新：2026-06-17  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -22,6 +22,8 @@
    - [观战系统](#39-观战系统)
    - [成就系统](#310-成就系统)
    - [管理员接口](#311-管理员接口)
+   - [每日任务系统](#312-每日任务系统)
+   - [英雄碎片系统](#313-英雄碎片系统)
 4. [存储结构（Storage Schema）](#4-存储结构storage-schema)
 5. [成就列表（19 枚）](#5-成就列表19-枚)
 6. [关键设计决策](#6-关键设计决策)
@@ -434,7 +436,7 @@ end
 ```
 
 #### `buy_hero`
-用金币购买英雄。
+用金币或英雄碎片兑换英雄。若持有 30 枚该英雄碎片（或通用碎片 1:1 抵扣），优先走碎片兑换路径，不消耗金币。
 
 ```json
 // 入参
@@ -901,6 +903,86 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 | `admin_end_season` | 结束当前赛季 | `{}` |
 | `admin_refresh_google_token` | 强制刷新 Google OAuth token 缓存 | `{}` |
 
+### 3.12 每日任务系统
+
+每日刷新时间：UTC+3 00:00。任务：赢得 1 局对战 → 1 随机英雄碎片。
+
+#### `get_daily_task`
+查询今日任务状态。
+
+```json
+// 无需入参
+
+// 出参
+{
+  "date": "2026-06-17",
+  "wins": 1,
+  "claimed": false,
+  "total_win_required": 1,
+  "reward": {"type": "fragment", "count": 1}
+}
+```
+
+#### `claim_daily_task`
+领取当日奖励。
+
+```json
+// 无需入参
+
+// 出参（成功）
+{"success": true, "fragment_hero": "hakim", "fragment_count": 1}
+
+// 出参（失败）
+{"success": false, "error": "today's task not available yet | already claimed today | need 1 win to claim"}
+```
+
+### 3.13 英雄碎片系统
+
+#### `get_fragments`
+查询玩家当前碎片库存。
+
+```json
+// 无需入参
+
+// 出参
+{"hakim": 5, "universal": 3}
+```
+
+> `universal` 为通用碎片，可 1:1 抵换任意英雄的专属碎片缺口。
+
+#### `convert_fragment`
+将某个英雄的所有专属碎片一次性转换为通用碎片。
+
+```json
+// 入参
+{"hero_id": "hakim"}
+
+// 出参（成功）
+{"success": true, "converted_count": 5, "universal_count": 8}
+
+// 出参（失败）
+{"success": false, "error": "need hero_id | no fragments for this hero"}
+```
+
+#### `send_fragment`
+赠送碎片给好友。满足以下条件：
+1. 好友关系 ≥ 7 天
+2. 发送方累计充值 ≥ 100 元人民币
+3. 发送方每周最多送出 5 枚，接收方每周最多收到 5 枚
+
+```json
+// 入参
+{"target_id": "user-uuid", "hero_id": "hakim", "count": 1}
+
+// 出参（成功）
+{"success": true}
+
+// 出参（失败）
+{"success": false, "error": "not friends | friendship less than 7 days | need cumulative recharge >= 100 RMB | weekly send limit | insufficient fragments"}
+```
+
+> `hero_id` 传 `"universal"` 即可赠送通用碎片。
+
 ### 并行测试脚本配置
 
 bot 并行测试时，新账户默认只有阿拉丁解锁。要让 bot 使用指定英雄，有两种方式：
@@ -949,6 +1031,9 @@ python3 nakama_bot_test.py --skip-admin-setup --rounds 30
 | `season_config` | `current` | nil | 当前赛季配置（管理员写入） |
 | `events` | `free_heroes` | nil | 限时免费英雄活动配置 |
 | `system_config` | `google_token` | nil | Google OAuth access_token 缓存（含 expires_at） |
+| `fragment_inventory` | `fragments` | uid | 碎片库存 `{hero_id: count, universal: count}` |
+| `fragment_gifting` | `gifting_{year_week}` | uid | 周赠送限额 `{sent: count, received: count}` (UTC+3) |
+| `daily_tasks` | `state` | uid | 每日任务状态 `{date, wins, claimed}` |
 
 ---
 
@@ -1009,7 +1094,7 @@ Apple IAP `transaction_id` 以 `user_id=nil` 全局存储，防止同一凭据�
 
 ### 6.7 货币体系
 单一金币体系（`wallet.gold`），来源：IAP 充值、成就奖励；消耗：购买英雄、购买皮肤。  
-*待规划*：每日任务奖励金币、英雄碎片兑换英雄。
+碎片系统（`fragment_inventory`）为 F2P 玩家提供非氪金解锁路径：每日任务 → 英雄碎片 → 30 碎片兑换 1 英雄。
 
 ---
 
@@ -1017,5 +1102,6 @@ Apple IAP `transaction_id` 以 `user_id=nil` 全局存储，防止同一凭据�
 
 | 功能 | 状态 | 备注 |
 |------|------|------|
-| 每日任务系统 | 规划中 | 奖励方案待确认，倾向单一金币体系 |
-| 英雄碎片系统 | 规划中 | F2P 解锁英雄路径，与碎片独立性待确认 |
+| 每日任务系统 | ✅ 已完成 | 每日胜场 → 1 随机英雄碎片，UTC+3 刷新 |
+| 英雄碎片系统 | ✅ 已完成 | 30 碎片换 1 英雄，支持转换通用碎片和好友赠送 |
+| 碎片赠送 | ✅ 已完成 | 好友≥7天 + 充值≥100元 + 每周各上限5枚 |

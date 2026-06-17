@@ -4,7 +4,9 @@ local gconfig     = require("game_config")
 local season_mgr  = require("season_manager")
 local ach_mgr     = require("achievement_manager")
 local skin_catalog = require("skin_catalog")
-local rate_limiter = require("rate_limiter")
+local rate_limiter  = require("rate_limiter")
+local daily_mgr     = require("daily_task_manager")
+local frag_mgr      = require("fragment_manager")
 
 -- pcall 包装器：防止 RPC 中未捕获异常导致客户端收到非 JSON 500
 local function safe_rpc(fn)
@@ -357,14 +359,21 @@ local function buy_hero(context, payload)
         return nk.json_encode({ success = false, error = "already_owned" })
     end
 
-    -- 原子扣款：金币不足时 wallet_update 抛出异常
-    local ok = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
-    if not ok then
-        return nk.json_encode({ success = false, error = "insufficient_gold" })
+    -- 先尝试碎片兑换（不消耗金币），跟踪是否已扣金币
+    local redeemed = frag_mgr.try_redeem(user_id, hero_id)
+    local gold_deducted = false
+
+    -- 碎片兑换失败 => 走金币购买
+    if not redeemed then
+        local ok = pcall(nk.wallet_update, user_id, { gold = -price }, {}, true)
+        if not ok then
+            return nk.json_encode({ success = false, error = "insufficient_gold" })
+        end
+        gold_deducted = true
     end
 
     inventory[hero_id] = true
-    -- OCC 写入：version 不匹配说明并发写入，回滚金币并返回冲突
+    -- OCC 写入：version 不匹配说明并发写入，回滚已扣金币并返回冲突
     local ok2 = pcall(nk.storage_write, {{
         collection       = "hero_inventory",
         key              = "unlocked_heroes",
@@ -375,7 +384,9 @@ local function buy_hero(context, payload)
         permission_write = 0,
     }})
     if not ok2 then
-        pcall(nk.wallet_update, user_id, { gold = price }, {}, true)
+        if gold_deducted then
+            pcall(nk.wallet_update, user_id, { gold = price }, {}, true)
+        end
         return nk.json_encode({ success = false, error = "conflict_retry" })
     end
 
@@ -1203,6 +1214,16 @@ local function verify_iap_receipt(context, payload)
         permission_write = 0,
     }})
 
+    -- 跟踪累计充值 RMB（供 send_fragment 100 元门槛校验）
+    local PRODUCT_RMB = { ["com.asura.gold_60"]=6, ["com.asura.gold_198"]=18, ["com.asura.gold_648"]=68, ["com.asura.gold_1998"]=198 }
+    local rmb_objects = nk.storage_read({{ collection = "iap_records", key = "total", user_id = context.user_id }})
+    local prev_rmb = #rmb_objects > 0 and rmb_objects[1].value.total_rmb or 0
+    pcall(nk.storage_write, {{
+        collection = "iap_records", key = "total", user_id = context.user_id,
+        value = { total_rmb = prev_rmb + (PRODUCT_RMB[product_id] or 0) },
+        version = #rmb_objects > 0 and rmb_objects[1].version or "*",
+    }})
+
     local account = nk.account_get_id(context.user_id)
     local balance = account and account.wallet and (account.wallet.gold or 0) or 0
     return nk.json_encode({ success = true, gold_granted = gold, new_balance = balance })
@@ -1394,6 +1415,16 @@ local function verify_google_iap_receipt(context, payload)
         },
         permission_read  = 1,
         permission_write = 0,
+    }})
+
+    -- 跟踪累计充值 RMB（供 send_fragment 100 元门槛校验）
+    local PRODUCT_RMB = { ["com.asura.gold_60"]=6, ["com.asura.gold_198"]=18, ["com.asura.gold_648"]=68, ["com.asura.gold_1998"]=198 }
+    local rmb_objects = nk.storage_read({{ collection = "iap_records", key = "total", user_id = context.user_id }})
+    local prev_rmb = #rmb_objects > 0 and rmb_objects[1].value.total_rmb or 0
+    pcall(nk.storage_write, {{
+        collection = "iap_records", key = "total", user_id = context.user_id,
+        value = { total_rmb = prev_rmb + (PRODUCT_RMB[product_id] or 0) },
+        version = #rmb_objects > 0 and rmb_objects[1].version or "*",
     }})
 
     local account = nk.account_get_id(context.user_id)
@@ -1608,3 +1639,16 @@ local function delete_account(context, _payload)
     return nk.json_encode({ success = true })
 end
 nk.register_rpc(safe_rpc(delete_account), "delete_account")
+
+-- ==========================================
+-- 每日任务 RPC
+-- ==========================================
+nk.register_rpc(safe_rpc(daily_mgr.get_task), "get_daily_task")
+nk.register_rpc(safe_rpc(daily_mgr.claim),     "claim_daily_task")
+
+-- ==========================================
+-- 碎片系统 RPC
+-- ==========================================
+nk.register_rpc(safe_rpc(frag_mgr.get_fragments),  "get_fragments")
+nk.register_rpc(safe_rpc(frag_mgr.convert),         "convert_fragment")
+nk.register_rpc(safe_rpc(frag_mgr.send_fragment),   "send_fragment")

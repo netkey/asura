@@ -32,9 +32,12 @@ asura/
 ├── hero_manager.lua            # 英雄技能触发器
 ├── hero_catalog.lua            # 英雄注册表（可从此处查所有英雄 ID）
 ├── game_config.lua             # 服务端游戏配置（从 storage 加载）
+├── card_deck.lua               # 牌堆定义（108 张）
 ├── season_manager.lua          # 赛季排位 + match_history 记录
 ├── rate_limiter.lua            # RPC 速率限制器
 ├── skin_catalog.lua            # 皮肤注册表
+├── daily_task_manager.lua      # 每日任务系统（UTC+3 刷新，胜场→碎片）
+├── fragment_manager.lua        # 英雄碎片系统（兑换/转换/赠送）
 ├── achievement_manager.lua     # 成就系统
 ├── demo_concurrent.lua         # 本地并发测试（mock Nakama，10局随机英雄）。⚠️ 部署时被排除
 ├── demo.lua                    # ⚠️ 开发/测试辅助文件。CI 部署时自动清理（Nakama 加载此文件会导致崩溃）
@@ -93,11 +96,11 @@ asura/
 | DEFENSE（蜃景）| 15 | 抵消一次攻击 |
 | HEAL（椰枣）| 8 | 回复 1 点血量 |
 | WINE（沙漠之心）| 3 | 增伤 +1；不能用于濒死救人 |
-| INSTANT_TRICK | 33 | 即时锦囊：aoe_attack/duel/discard_one/steal_one/draw_two/mass_heal/mass_draw/counterspell/borrow_weapon/fire_attack/aoe_defense |
-| DELAYED_TRICK | 5 | 延时锦囊：skip_play（乐不思蜀）/ lightning（闪电） |
-| WEAPON | 6 | 连弩机/贯石斧/青龙偃月刀/丈八蛇矛/双刃剑/麒麟弓 |
-| ARMOR | 2 | 八卦阵/仁王盾 |
-| HORSE | 6 | 进攻马(×3)+防守马(×3)，影响攻击距离 |
+| INSTANT_TRICK | 36 | 即时锦囊：aoe_attack/duel/discard_one/steal_one/draw_two/mass_heal/mass_draw/counterspell/borrow_weapon/fire_attack/aoe_defense/iron_chain |
+| DELAYED_TRICK | 7 | 延时锦囊：skip_play（乐不思蜀）/ lightning（闪电） |
+| WEAPON | 9 | 连弩机/贯石斧/青龙偃月刀/丈八蛇矛/双刃剑/麒麟弓/方天画戟/古锭刀/朱雀羽扇 |
+| ARMOR | 3 | 八卦阵/仁王盾/藤甲 |
+| HORSE | 8 | 进攻马(×4)+防守马(×4)，影响攻击距离 |
 
 > 内部 type 不变，`card.name` 为大中东主题名（如 WINE→沙漠之心）。卡牌名中东本土化待办见 `project_backlog.md`。
 
@@ -159,9 +162,9 @@ asura/
 - [x] 游戏统计（storage 存储的 metric_inc 计数器）
 
 ### 待办
-- [ ] 卡牌名中东本土化（~40 张卡牌名仍为三国杀中文名）
-- [ ] 每日任务系统（驱动 DAU，奖励金币）
-- [ ] 英雄碎片系统（F2P 解锁英雄路径）
+- [x] 每日任务系统 + 英雄碎片系统（daily_task_manager.lua + fragment_manager.lua，含赠送/兑换 RPC）
+- [x] 卡牌名中东本土化全量完成 → 已入库（card_deck.lua 108 张英文命名）
+- [x] 广播消息英文本土化全量完成 → 已入库（~105 条 OpCode 11 内容）
 - [ ] 多语言支持
 
 ## 部署说明
@@ -243,5 +246,5 @@ Lua 5.4 中循环跳过用 `goto continue` + `::continue::`，`break` 会截断�
 
 ---
 
-**最后更新**: 2026-06-12
-**版本**: 0.7.0
+**最后更新**: 2026-06-17
+**版本**: 0.8.0
