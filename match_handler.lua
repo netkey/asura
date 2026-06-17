@@ -676,17 +676,20 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             effective_timeout = 3
         end
 
-        -- 全员空过加速：所有存活玩家连续 ≥2 轮无出杀（NO_REACHABLE_TARGET 或手中无杀），
+        -- 多数空过加速：≥60% 存活玩家连续 ≥2 轮无出杀（NO_REACHABLE_TARGET 或手中无杀），
         -- 说明位置/距离已定局，直接跳过等待秒切回合
+        -- 用多数而非全部，防止单个偶尔可攻击的玩家拖慢整个对局
         if effective_timeout > 0 then
-            local all_stuck = true
+            local alive, stuck = 0, 0
             for pid, p in pairs(state.players) do
-                if p.health > 0 and (p._no_attack_count or 0) < 2 then
-                    all_stuck = false
-                    break
+                if p.health > 0 then
+                    alive = alive + 1
+                    if (p._no_attack_count or 0) >= 2 then
+                        stuck = stuck + 1
+                    end
                 end
             end
-            if all_stuck then
+            if alive > 0 and stuck / alive >= 0.6 then
                 effective_timeout = 0
             end
         end
