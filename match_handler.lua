@@ -676,20 +676,12 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             effective_timeout = 3
         end
 
-        -- 多数空过加速：≥60% 存活玩家连续 ≥2 轮无出杀（NO_REACHABLE_TARGET 或手中无杀），
-        -- 说明位置/距离已定局，直接跳过等待秒切回合
-        -- 用多数而非全部，防止单个偶尔可攻击的玩家拖慢整个对局
-        if effective_timeout > 0 then
-            local alive, stuck = 0, 0
-            for pid, p in pairs(state.players) do
-                if p.health > 0 then
-                    alive = alive + 1
-                    if (p._no_attack_count or 0) >= 2 then
-                        stuck = stuck + 1
-                    end
-                end
-            end
-            if alive > 0 and stuck / alive >= 0.6 then
+        -- 单玩家空过加速：当前回合玩家连续 ≥2 轮无出杀（NO_REACHABLE_TARGET 或手中无杀），
+        -- 则其出牌阶段无需等待，直接由 auto_play 空过并推进回合
+        -- 按玩家独立判定而非全局，修复"一人可攻击拖慢全队"场景
+        if effective_timeout > 0 and state.current_turn_id then
+            local current_p = state.players[state.current_turn_id]
+            if current_p and (current_p._no_attack_count or 0) >= 2 then
                 effective_timeout = 0
             end
         end
