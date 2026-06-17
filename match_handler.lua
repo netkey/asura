@@ -435,8 +435,16 @@ local function auto_resolve_pending(dispatcher, state)
         state.pending_action = nil
         state.pending_discard_continuation = {uid = act.player_id}
     else
-        -- 英雄技能超时：如果响应者已死亡，直接清除 pending_action 防止死锁
-        if act.player_id and state.players[act.player_id] and state.players[act.player_id].health <= 0 then
+        -- 英雄技能超时：如果相关玩家（响应者或目标）已死亡，直接清除 pending
+        local dead_related = false
+        local check_ids = { act.player_id, act.target_id }
+        for _, pid in ipairs(check_ids) do
+            if pid and state.players[pid] and state.players[pid].health <= 0 then
+                dead_related = true
+                break
+            end
+        end
+        if dead_related then
             state.pending_action = nil
             rules.broadcast_update(dispatcher, state)
             return

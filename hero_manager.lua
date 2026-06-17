@@ -81,6 +81,7 @@ function M.handle_timeout(dispatcher, state)
     if act.hero_id then
         local hero = heroes[act.hero_id]
         if hero and hero.on_timeout then
+            state.pending_action = nil
             hero.on_timeout(dispatcher, state, act)
             state._timeout_depth = (state._timeout_depth or 1) - 1
             return
@@ -89,6 +90,7 @@ function M.handle_timeout(dispatcher, state)
     -- 兜底：默认拒绝，通过 handle_response 正常结算
     nk.logger_warn(string.format("hero_manager.handle_timeout: 未知类型 %s，默认拒绝",
         tostring(act and act.type)))
+    state.pending_action = nil
     M.handle_response(dispatcher, state, act.player_id, { confirm = false })
     state._timeout_depth = (state._timeout_depth or 1) - 1
 end

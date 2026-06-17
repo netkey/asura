@@ -71,12 +71,17 @@ function M.on_response(dispatcher, state, player_id, payload)
 end
 
 function M.on_timeout(dispatcher, state, act)
-    local hero_mgr = require("hero_manager")
+    state.pending_action = nil
+    -- 超时时玩家已死，直接跳过（防死锁）
+    if not state.players[act.player_id] or state.players[act.player_id].health <= 0 then
+        require("game_rules").broadcast_update(dispatcher, state)
+        return
+    end
     if act.heart_cards and #act.heart_cards > 0 then
-        hero_mgr.handle_response(dispatcher, state, act.player_id,
+        require("hero_manager").handle_response(dispatcher, state, act.player_id,
             { confirm = true, card_id = act.heart_cards[1].id })
     else
-        hero_mgr.handle_response(dispatcher, state, act.player_id, { confirm = false })
+        require("hero_manager").handle_response(dispatcher, state, act.player_id, { confirm = false })
     end
 end
 
