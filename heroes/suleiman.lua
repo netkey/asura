@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 苏莱曼（Suleiman）- 奥斯曼帝国苏丹，"立法者"（Kanuni），以法律改革闻名
@@ -78,16 +79,15 @@ function M.on_response(dispatcher, state, player_id, payload)
     }
 
     local player = state.players[player_id]
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Decree], %s cannot use [%s] this turn!",
-            player.username, target.username,
-            BLOCKABLE_TYPES[payload.block_type] or payload.block_type),
-        event     = "skill_used",
-        hero      = "suleiman",
-        skill     = "chi_ling",
-        target_id = payload.target_id,
-        block_type = payload.block_type,
-    }))
+    local msg = local_mgr.bc("skill_suleiman_decree", {
+        username = player.username,
+    })
+    msg.event = "skill_used"
+    msg.hero = "suleiman"
+    msg.skill = "chi_ling"
+    msg.target_id = payload.target_id
+    msg.block_type = payload.block_type
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
 
     local rules = require("game_rules")
     rules.broadcast_update(dispatcher, state)

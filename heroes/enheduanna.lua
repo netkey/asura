@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 恩赫杜安娜 - 公元前22世纪的苏美尔诗人/神职人员，人类历史上第一位已知姓名的作家
@@ -112,11 +113,14 @@ function M.on_response(dispatcher, state, player_id, payload)
                     local target = state.players[payload.target_id]
                     if target and target.health > 0 then
                         table.insert(target.hand, card)
-                        dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s activates [Song Ci], gives %s 1 [%s]",
-                                player.username, target.username, c.name),
-                            hero = "enheduanna", skill = "song_ci"
-                        }))
+                        local msg = local_mgr.bc("skill_enheduanna_song_ci", {
+                            username = player.username,
+                            target = target.username,
+                            card_id = local_mgr.card_lookup_key(c.name),
+                        })
+                        msg.hero = "enheduanna"
+                        msg.skill = "song_ci"
+                        dispatcher.broadcast_message(11, nk.json_encode(msg))
                     else
                         table.insert(state.discard_pile, card)
                     end

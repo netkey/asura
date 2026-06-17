@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 结构化日志（state.match_id 由 match_handler 写入）
@@ -25,9 +26,9 @@ local CARD_EFFECTS = {
 
         -- 杜尼亚扎德【续篇】：本回合已被该目标免疫
         if state.dunyazad_immune and state.dunyazad_immune[source_id] == target_id then
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = state.players[target_id].username .. "'s [Continuation] nullified this attack"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_continuation_nullify", {
+                username = state.players[target_id].username
+            })))
             state.attack_bonus = nil
             state.attack_cancelled = nil
             state.dunyazad_immune = nil
@@ -48,9 +49,9 @@ local CARD_EFFECTS = {
         -- 仁王盾：黑色攻击被封锁
         if not has_ignore_armor and target.equipment.armor and target.equipment.armor.subtype == "block_black_attack" then
             if card.suit == "SPADE" or card.suit == "CLUB" then
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. "'s [Benevolence Shield] blocked the black attack!"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_benevolence_shield_block", {
+                    username = target.username
+                })))
                 return
             end
         end
@@ -74,22 +75,23 @@ local CARD_EFFECTS = {
         if target.equipment.armor and target.equipment.armor.subtype == "dodge_judgment" then
             local judge_card = M.execute_judgment(state)
             local is_red = judge_card.suit == "HEART" or judge_card.suit == "DIAMOND"
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = target.username .. "'s [Eight Trigrams] judgment: "
-                    .. (judge_card.suit or "?") .. " " .. (judge_card.number or "?")
-                    .. " (" .. (is_red and "red" or "black") .. ")"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_eight_trigrams_judgment", {
+                username = target.username,
+                suit = judge_card.suit or "?",
+                number = judge_card.number or "?",
+                color = is_red and "red" or "black",
+            })))
             if is_red then
                 -- 红色=自动闪避
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. "'s [Eight Trigrams] succeeded, auto-dodge!"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_eight_trigrams_success", {
+                    username = target.username,
+                })))
                 return
             end
             -- 黑色=八卦阵无效，继续走防御
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = target.username .. "'s [Eight Trigrams] failed, [Defense] still required"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_eight_trigrams_failed", {
+                username = target.username,
+            })))
         end
 
         -- 进入等待防御状态
@@ -115,13 +117,14 @@ local CARD_EFFECTS = {
     end,
 
     -- 桃 — 恢复 1 点生命值
-    ["HEAL"] = function(dispatcher, state, source_id)
+    ["HEAL"] = function(dispatcher, state, source_id, _, card)
         local p = state.players[source_id]
         if p.health < p.max_health then
             p.health = p.health + 1
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Date], restored 1 HP"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_heal", {
+                username = p.username,
+                card_id = card and card.id or "heal",
+            })))
         end
     end,
 
@@ -129,10 +132,12 @@ local CARD_EFFECTS = {
     ["WINE"] = function(dispatcher, state, source_id, _, card)
         local p = state.players[source_id]
         -- weapon_buff 由 handle_play_card 统一维护
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = p.username .. " drank [" .. card.name .. "], next attack deals +1 damage",
-            card = card
-        }))
+        local bc_msg = local_mgr.bc("game_use_wine", {
+            username = p.username,
+            card_id = card.id,
+        })
+        bc_msg.card = card
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     end,
 
     -- 武器 — 装备到武器槽，替换旧武器
@@ -143,10 +148,12 @@ local CARD_EFFECTS = {
             table.insert(state.discard_pile, old)
         end
         p.equipment.weapon = card
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = p.username .. " equipped [" .. card.name .. "]",
-            card = card
-        }))
+        local bc_msg = local_mgr.bc("game_equip_card", {
+            username = p.username,
+            card_id = card.id,
+        })
+        bc_msg.card = card
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     end,
 
     -- 防具 — 装备到防具槽，替换旧防具
@@ -157,10 +164,12 @@ local CARD_EFFECTS = {
             table.insert(state.discard_pile, old)
         end
         p.equipment.armor = card
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = p.username .. " equipped [" .. card.name .. "]",
-            card = card
-        }))
+        local bc_msg = local_mgr.bc("game_equip_card", {
+            username = p.username,
+            card_id = card.id,
+        })
+        bc_msg.card = card
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     end,
 
     -- 马牌 — 装备到马槽，替换旧马
@@ -171,10 +180,12 @@ local CARD_EFFECTS = {
             table.insert(state.discard_pile, old)
         end
         p.equipment.horse = card
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = p.username .. " equipped [" .. card.name .. "]",
-            card = card
-        }))
+        local bc_msg = local_mgr.bc("game_equip_card", {
+            username = p.username,
+            card_id = card.id,
+        })
+        bc_msg.card = card
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     end,
 
     -- 即时锦囊
@@ -183,10 +194,10 @@ local CARD_EFFECTS = {
 
         if card.subtype == "draw_two" then
             -- 无中生有
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Draw Two]",
-                card_type = "draw_two"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_draw_two", {
+                username = p.username,
+                card_type = card.type,
+            })))
             M.draw_cards(state, source_id, 2)
             M.broadcast_update(dispatcher, state)
 
@@ -210,9 +221,9 @@ local CARD_EFFECTS = {
                 required_response = "ATTACK",
                 deadline = os.time() + 15,
             }
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " activated [Sandstorm]! Everyone must play [Attack]!"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_aoe_attack", {
+                username = p.username,
+            })))
             M.notify_aoe_target(dispatcher, state)
 
         elseif card.subtype == "aoe_defense" then
@@ -235,9 +246,9 @@ local CARD_EFFECTS = {
                 required_response = "DEFENSE",
                 deadline = os.time() + 15,
             }
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " activated [Volley]! Everyone must play [Defense]!"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_aoe_defense", {
+                username = p.username,
+            })))
             M.notify_aoe_target(dispatcher, state)
 
         elseif card.subtype == "duel" then
@@ -245,9 +256,10 @@ local CARD_EFFECTS = {
             local target = state.players[target_id]
             if not target then return end
 
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " challenged " .. target.username .. " to a Duel!"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_duel_start", {
+                username = p.username,
+                target = target.username,
+            })))
 
             -- 检查目标是否有杀
             local has_attack = false
@@ -256,9 +268,9 @@ local CARD_EFFECTS = {
             end
             if not has_attack then
                 -- 无杀立即受伤害
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. " had no [Attack], lost the Duel, takes 1 damage"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_duel_no_attack", {
+                    target = target.username,
+                })))
                 M.apply_damage(dispatcher, state, target_id, 1, source_id)
                 return
             end
@@ -285,9 +297,10 @@ local CARD_EFFECTS = {
                 return  -- 无可弃牌
             end
 
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Dismantle] on " .. target.username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_dismantle", {
+                username = p.username,
+                target = target.username,
+            })))
 
             state.pending_action = {
                 type = "WAITING_FOR_TRICK_SELECT",
@@ -315,9 +328,10 @@ local CARD_EFFECTS = {
                 return
             end
 
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Pilfer] on " .. target.username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_pilfer", {
+                username = p.username,
+                target = target.username,
+            })))
 
             state.pending_action = {
                 type = "WAITING_FOR_TRICK_SELECT",
@@ -338,9 +352,9 @@ local CARD_EFFECTS = {
 
         elseif card.subtype == "mass_heal" then
             -- 桃园结义：全场各回复1点
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Mass Heal], everyone restores 1 HP"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_mass_heal", {
+                username = p.username,
+            })))
             for _, p2 in pairs(state.players) do
                 if p2.health > 0 and p2.health < p2.max_health then
                     p2.health = p2.health + 1
@@ -350,9 +364,9 @@ local CARD_EFFECTS = {
 
         elseif card.subtype == "mass_draw" then
             -- 五谷丰登：按座次各摸1张
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Bounty], everyone draws 1 card"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_bounty", {
+                username = p.username,
+            })))
             for _, uid in ipairs(state.presence_ids) do
                 local p2 = state.players[uid]
                 if p2 and p2.health > 0 then
@@ -365,9 +379,7 @@ local CARD_EFFECTS = {
             -- 借刀杀人：目标需有武器 + 有可攻击的对象
             local target = state.players[target_id]
             if not target or not target.equipment.weapon then
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "[Borrow Blade] target has no weapon or is dead"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_borrow_blade_no_weapon")))
                 return
             end
 
@@ -380,15 +392,14 @@ local CARD_EFFECTS = {
                 end
             end
             if #valid_targets == 0 then
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "[Borrow Blade] no valid attack target"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_borrow_blade_no_target")))
                 return
             end
 
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Borrow Blade] on " .. target.username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_borrow_blade", {
+                username = p.username,
+                target = target.username,
+            })))
 
             -- 让使用者选择攻击目标
             state.pending_action = {
@@ -411,22 +422,23 @@ local CARD_EFFECTS = {
             -- 火攻：目标展示一张手牌，猜花色
             local target = state.players[target_id]
             if not target or target.health <= 0 or #target.hand == 0 then
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "[Fire Attack] target has no hand cards or is dead"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_fire_attack_no_hand")))
                 return
             end
 
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = p.username .. " used [Fire Attack] on " .. target.username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_fire_attack", {
+                username = p.username,
+                target = target.username,
+            })))
 
             -- 随机选一张展示（或让目标选择——当前简化版随机）
             local show_idx = math.random(#target.hand)
             local revealed = target.hand[show_idx]
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = target.username .. " revealed [" .. revealed.name .. "] (" .. revealed.suit .. ")"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_fire_attack_reveal", {
+                target = target.username,
+                card_id = revealed.id,
+                suit = revealed.suit,
+            })))
 
             state.pending_action = {
                 type = "WAITING_FOR_FIRE_GUESS",
@@ -457,10 +469,12 @@ local CARD_EFFECTS = {
             number = card.number,
             from = source_id,
         })
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = target.username .. " received [" .. card.name .. "]",
-            card = card
-        }))
+        local bc_msg = local_mgr.bc("game_receive_delayed", {
+            target = target.username,
+            card_id = card.id,
+        })
+        bc_msg.card = card
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     end,
 }
 M.CARD_EFFECTS = CARD_EFFECTS
@@ -540,9 +554,9 @@ function M._handle_spear_skill(dispatcher, state, player_id, payload)
     local target = state.players[payload.target_id]
     if not target or target.health <= 0 then return false end
     if not M.can_attack(state, player_id, payload.target_id) then
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " out of range"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_out_of_range", {
+            username = player.username,
+        })))
         return false
     end
 
@@ -570,9 +584,9 @@ function M._handle_spear_skill(dispatcher, state, player_id, payload)
     end
     player.attacks_this_turn = (player.attacks_this_turn or 0) + 1
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Serpent Lance], uses 2 hand cards as [Attack]!", player.username)
-    }))
+    dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_spear_skill", {
+        username = player.username,
+    })))
 
     -- 构造一张虚拟的杀牌
     local virtual_card = { id = "spear_attack", type = "ATTACK", suit = "SPADE", number = 1, name = "Spear Attack" }
@@ -612,14 +626,13 @@ function M.handle_role_reward(dispatcher, state, killer_id, victim_id)
     if victim.role == "REBEL" then
         local reward = state.config and state.config.combat.rebel_kill_reward or 3
         M.draw_cards(state, killer_id, reward)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = killer.username .. " killed a Rebel, draws " .. reward .. " cards"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("reward_kill_rebel", {
+            username = killer.username,
+            count = reward,
+        })))
     elseif victim.role == "MINISTER" and killer.role == "MONARCH" then
         killer.hand = {}
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = "Monarch killed a loyalist! All hand cards discarded."
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("reward_monarch_kill_loyalist")))
     end
 end
 
@@ -789,19 +802,21 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     -- 苏莱曼【敕令】：检查封锁
     if state.suleiman_chi_ling and state.suleiman_chi_ling.target_id == player_id
         and card.type == state.suleiman_chi_ling.blocked_type then
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s is blocked by [Decree], cannot use [%s]!",
-                player.username, card.name),
-            hero = "suleiman", skill = "chi_ling"
-        }))
+        local bc_msg = local_mgr.bc("blocked_decree", {
+            username = player.username,
+            card_id = card.id,
+        })
+        bc_msg.hero = "suleiman"
+        bc_msg.skill = "chi_ling"
+        dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
         return false
     end
 
     -- 酒每回合限1次（增伤用）
     if card.type == "WINE" and player.wine_used_this_turn then
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " already used [Desert Heart] this turn"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("blocked_wine_already_used", {
+            username = player.username,
+        })))
         return false
     end
 
@@ -810,9 +825,9 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
         local has_unlimited = player.equipment.weapon
             and player.equipment.weapon.subtype == "unlimited_attack"
         if (player.attacks_this_turn or 0) >= 1 and not has_unlimited then
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = player.username .. " already used [Attack] this turn"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("blocked_attack_already_used", {
+                username = player.username,
+            })))
             return false
         end
     end
@@ -820,9 +835,10 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     -- 距离检查（杀/顺手牵羊）
     if card.type == "ATTACK" and target_id then
         if not M.can_attack(state, player_id, target_id) then
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = player.username .. " out of range, cannot attack " .. state.players[target_id].username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_out_of_range_attack", {
+                username = player.username,
+                target = state.players[target_id].username,
+            })))
             return false
         end
     end
@@ -831,10 +847,10 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
     if card.type == "INSTANT_TRICK" and card.subtype == "steal_one" and target_id then
         local dist = M.seat_distance(state, player_id, target_id)
         if dist > 1 then
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = player.username .. " is too far from " .. state.players[target_id].username
-                    .. " to use [Pilfer]"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_out_of_range_pilfer", {
+                username = player.username,
+                target = state.players[target_id].username,
+            })))
             return false
         end
     end
@@ -926,14 +942,16 @@ local function execute_death(dispatcher, state, target_id, source_id)
     target.equipment = {weapon = nil, armor = nil, horse = nil}
     hero_mgr.trigger("on_death", dispatcher, state, target_id)
     log_info(state, target.username .. " defeated, role: " .. target.role)
-    local ROLE_CN = { MONARCH="Monarch", MINISTER="Loyalist", REBEL="Rebel", TRAITOR="Traitor" }
-    local role_tag = ROLE_CN[target.role]
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content   = target.username .. (role_tag and " (" .. role_tag .. ")" or "") .. " defeated!",
-        event     = "player_death",
-        player_id = target_id,
-        role      = target.role,
-    }))
+    local ROLE_TAG = { MONARCH="Monarch", MINISTER="Loyalist", REBEL="Rebel", TRAITOR="Traitor" }
+    local role_tag = ROLE_TAG[target.role]
+    local bc_msg = local_mgr.bc("death_announce", {
+        username = target.username,
+        role = role_tag or target.role,
+    })
+    bc_msg.event = "player_death"
+    bc_msg.player_id = target_id
+    bc_msg.role = target.role
+    dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
     M.handle_role_reward(dispatcher, state, source_id, target_id)
 
     -- 清理 pending_action 中对死亡玩家的引用（防止死锁）
@@ -1032,9 +1050,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 if card_idx then
                     table.insert(state.discard_pile, table.remove(defender.hand, card_idx))
                     state.pending_action = nil
-                    dispatcher.broadcast_message(11, nk.json_encode({
-                        content = defender.username .. " played 2nd [Defense], blocked Jafar's [Poison Plot]!",
-                    }))
+                    dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_jafar_poison_block", {
+                        username = defender.username,
+                    })))
                     M.handle_defense_success(dispatcher, state, action.attacker_id, player_id, action.damage)
                 else
                     state.pending_action = nil
@@ -1144,9 +1162,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 -- 出杀回应决斗
                 local played = table.remove(p.hand, card_idx)
                 table.insert(state.discard_pile, played)
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = p.username .. " played [" .. played.name .. "] in the Duel"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_duel_play_attack", {
+                    username = p.username,
+                    card_id = played.id,
+                })))
 
                 -- 切换攻防方
                 action.is_attackers_turn = not action.is_attackers_turn
@@ -1165,9 +1184,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
         -- 无法出杀：受到1点伤害
         state.pending_action = nil
         local victim = state.players[player_id]
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = victim.username .. " lost the Duel, takes 1 damage"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_duel_lost", {
+            username = victim.username,
+        })))
         local duel_source = action.is_attackers_turn and action.target_id or action.attacker_id
         M.apply_damage(dispatcher, state, player_id, 1, duel_source, "normal")
         M.broadcast_update(dispatcher, state)
@@ -1191,12 +1210,14 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     table.insert(state.discard_pile, card)
                     state.players[dying_id].health = 1
                     rescued = true
-                    dispatcher.broadcast_message(11, nk.json_encode({
-                        content         = rescuer.username .. " saved " .. state.players[dying_id].username .. "!",
-                        event           = "rescue_success",
-                        rescuer_id      = player_id,
-                        dying_player_id = dying_id,
-                    }))
+                    local bc_msg = local_mgr.bc("rescue_success", {
+                        username = rescuer.username,
+                        target = state.players[dying_id].username,
+                    })
+                    bc_msg.event = "rescue_success"
+                    bc_msg.rescuer_id = player_id
+                    bc_msg.dying_player_id = dying_id
+                    dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
                     break
                 end
             end
@@ -1245,12 +1266,14 @@ function M.handle_response(dispatcher, state, player_id, payload)
             action.deadline = os.time() + 10
             if action.current_rescuer_idx <= #action.rescuers then
                 local next_id = action.rescuers[action.current_rescuer_idx]
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content         = state.players[dying_id].username .. " still dying, " .. state.players[next_id].username .. " to rescue",
-                    event           = "rescue_needed",
-                    dying_player_id = dying_id,
-                    rescuer_id      = next_id,
-                }))
+                local bc_msg = local_mgr.bc("rescue_next", {
+                    target = state.players[dying_id].username,
+                    rescuer = state.players[next_id].username,
+                })
+                bc_msg.event = "rescue_needed"
+                bc_msg.dying_player_id = dying_id
+                bc_msg.rescuer_id = next_id
+                dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
             else
                 execute_death(dispatcher, state, dying_id, action.attacker_id)
                 resume_aoe_or_end(parent)
@@ -1327,11 +1350,12 @@ function M.handle_response(dispatcher, state, player_id, payload)
         end
 
         local source_p = state.players[action.source_id]
-        local names_map = { discard_one = "Dismantle", steal_one = "Pilfer" }
-        local action_name = names_map[action.subtype] or "Trick"
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = (source_p and source_p.username or "?") .. " used [" .. action_name .. "]"
-        }))
+        local target_p_name = state.players[action.target_id] and state.players[action.target_id].username or "?"
+        local trick_key = action.subtype == "discard_one" and "game_use_dismantle" or "game_use_pilfer"
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc(trick_key, {
+            username = source_p and source_p.username or "?",
+            target = target_p_name,
+        })))
 
         state.pending_action = nil
         M.broadcast_update(dispatcher, state)
@@ -1352,9 +1376,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     table.remove(p.hand, i)
                     table.insert(state.discard_pile, c)
                     action.counter_depth = action.counter_depth + 1
-                    dispatcher.broadcast_message(11, nk.json_encode({
-                        content = p.username .. " used [Counterspell]!"
-                    }))
+                    dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_counterspell", {
+                        username = p.username,
+                    })))
                     break
                 end
             end
@@ -1378,9 +1402,9 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 local pt = state.pending_trick
                 state.pending_trick = nil
                 table.insert(state.discard_pile, pt.card)
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "[" .. pt.card.name .. "] was countered by [Counterspell]!"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_card_countered", {
+                    card_id = pt.card.id,
+                })))
             else
                 -- 偶数 → 锦囊生效
                 M.resolve_pending_trick(dispatcher, state)
@@ -1403,10 +1427,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
                         table.remove(target_p.hand, i)
                         table.insert(state.discard_pile, c)
                         state.pending_action = nil
-                        dispatcher.broadcast_message(11, nk.json_encode({
-                            content = string.format("%s attacked %s via [Borrow Blade]!",
-                                target_p.username, state.players[action.attack_target].username)
-                        }))
+                        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_borrow_weapon_attack", {
+                            username = target_p.username,
+                            target = state.players[action.attack_target].username,
+                        })))
                         CARD_EFFECTS["ATTACK"](dispatcher, state, action.target_id, action.attack_target, c)
                         M.broadcast_update(dispatcher, state)
                         return
@@ -1422,10 +1446,11 @@ function M.handle_response(dispatcher, state, player_id, payload)
             local weapon = target_p.equipment.weapon
             target_p.equipment.weapon = nil
             table.insert(state.players[action.caster_id].hand, weapon)
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = target_p.username .. " gave [" .. weapon.name .. "] to "
-                    .. state.players[action.caster_id].username
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_give_weapon", {
+                username = target_p.username,
+                card_id = local_mgr.card_lookup_key(weapon.name),
+                caster = state.players[action.caster_id].username,
+            })))
         end
         M.broadcast_update(dispatcher, state)
 
@@ -1437,19 +1462,24 @@ function M.handle_response(dispatcher, state, player_id, payload)
         local target = state.players[action.target_id]
         local revealed_card = action.revealed_card
         local guessed = type(payload.guess) == "string" and payload.guess
+        local caster_username = state.players[action.caster_id].username
         if guessed and guessed == revealed_card.suit then
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = state.players[action.caster_id].username
-                    .. " guessed right (" .. revealed_card.suit .. "), "
-                    .. target.username .. " takes 1 fire damage!"
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_fire_guess_right", {
+                username = caster_username,
+                suit = revealed_card.suit,
+                target = target.username,
+            })))
             M.apply_damage(dispatcher, state, action.target_id, 1, action.caster_id, "fire")
+        elseif guessed then
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_fire_guess_wrong", {
+                username = caster_username,
+                guess = guessed,
+                actual = revealed_card.suit,
+            })))
         else
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = state.players[action.caster_id].username
-                    .. (guessed and (" guessed wrong (guessed " .. guessed .. ", was " .. revealed_card.suit .. ")")
-                        or " gave up guessing")
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_fire_guess_gave_up", {
+                username = caster_username,
+            })))
         end
         M.broadcast_update(dispatcher, state)
 
@@ -1459,7 +1489,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
         state.pending_action = nil
 
         if payload.confirm ~= true then
-            dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
             M.broadcast_update(dispatcher, state)
             local hero_mgr = require("hero_manager")
             hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
@@ -1468,7 +1498,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
         local attacker = state.players[action.attacker_id]
         if not attacker or attacker.health <= 0 then
-            dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
             M.broadcast_update(dispatcher, state)
             return
         end
@@ -1481,15 +1511,15 @@ function M.handle_response(dispatcher, state, player_id, payload)
             discarded = discarded + 1
         end
         if discarded < 2 then
-            dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
             M.broadcast_update(dispatcher, state)
             return
         end
 
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Splitting Axe], discards 2 to force hit %s!",
-                attacker.username, state.players[action.target_id].username)
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_splitting_axe", {
+            username = attacker.username,
+            target = state.players[action.target_id].username,
+        })))
         M.apply_damage(dispatcher, state, action.target_id, action.damage or 1, action.attacker_id, "normal")
         if not (state.pending_action and state.pending_action.type == "WAITING_FOR_RESCUE") then
             M.broadcast_update(dispatcher, state)
@@ -1503,7 +1533,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
         state.pending_action = nil
 
         if payload.confirm ~= true or type(payload.card_id) ~= "string" then
-            dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
             M.broadcast_update(dispatcher, state)
             local hero_mgr = require("hero_manager")
             hero_mgr.trigger("on_attack_resolved", dispatcher, state, action.attacker_id)
@@ -1512,7 +1542,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
 
         local attacker = state.players[action.attacker_id]
         if not attacker or attacker.health <= 0 then
-            dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
             M.broadcast_update(dispatcher, state)
             return
         end
@@ -1531,10 +1561,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
         end
 
         table.insert(state.discard_pile, attack_card)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Green Dragon Blade], chases %s with [Attack]!",
-                attacker.username, state.players[action.target_id].username)
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_green_dragon_blade", {
+            username = attacker.username,
+            target = state.players[action.target_id].username,
+        })))
         -- 重新触发攻击效果（会自动设置 WAITING_FOR_DEFENSE）
         CARD_EFFECTS["ATTACK"](dispatcher, state, action.attacker_id, action.target_id, attack_card)
     end
@@ -1593,7 +1623,7 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id, d
         end
     end
 
-    dispatcher.broadcast_message(11, nk.json_encode({content = "Defense successful!"}))
+    dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_defense_success")))
     M.broadcast_update(dispatcher, state)
     hero_mgr.trigger("on_attack_resolved", dispatcher, state, attacker_id)
 end
@@ -1648,10 +1678,11 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
         local horse = target.equipment.horse
         target.equipment.horse = nil
         table.insert(state.discard_pile, horse)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Qilin Bow], knocks off %s's [%s]!",
-                source.username, target.username, horse.name)
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("card_qilin_bow", {
+            username = source.username,
+            target = target.username,
+            card_id = local_mgr.card_lookup_key(horse.name),
+        })))
     end
 
     if target.health <= 0 then
@@ -1686,12 +1717,13 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
                 deadline            = os.time() + 10,
                 parent_action       = parent,
             }
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content         = target.username .. " is dying, request rescue!",
-                event           = "rescue_needed",
-                dying_player_id = target_id,
-                rescuer_id      = rescuers[1],
-            }))
+            local bc_msg = local_mgr.bc("rescue_dying", {
+                username = target.username,
+            })
+            bc_msg.event = "rescue_needed"
+            bc_msg.dying_player_id = target_id
+            bc_msg.rescuer_id = rescuers[1]
+            dispatcher.broadcast_message(11, nk.json_encode(bc_msg))
         else
             execute_death(dispatcher, state, target_id, source_id)
             state.pending_action = parent
@@ -1792,11 +1824,12 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
         -- 乐不思蜀：判定牌非HEART则跳过出牌阶段
         local judge_card = M.execute_judgment(state)
         local skip = judge_card.suit ~= "HEART"
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. "'s [Skip Turn] judgment: "
-                .. (judge_card.suit or "?") .. (judge_card.number or "?")
-                .. " (" .. (skip and "skip play phase" or "judgment passed, normal") .. ")"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("turn_skip_play_judgment", {
+            username = player.username,
+            suit = judge_card.suit or "?",
+            number = judge_card.number or "?",
+            result = skip and "skip play phase" or "judgment passed, normal",
+        })))
         if skip then
             player.skip_play_phase = true
         end
@@ -1806,11 +1839,12 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
         -- 兵粮寸断：判定牌非CLUB则跳过摸牌阶段
         local judge_card = M.execute_judgment(state)
         local skip = judge_card.suit ~= "CLUB"
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. "'s [Supply Cut] judgment: "
-                .. (judge_card.suit or "?") .. (judge_card.number or "?")
-                .. " (" .. (skip and "skip draw phase" or "judgment passed, normal draw") .. ")"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("turn_skip_draw_judgment", {
+            username = player.username,
+            suit = judge_card.suit or "?",
+            number = judge_card.number or "?",
+            result = skip and "skip draw phase" or "judgment passed, normal draw",
+        })))
         if skip then
             player.skip_draw_phase = true
         end
@@ -1820,11 +1854,12 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
         -- 闪电：判定黑桃2-9则受3点雷电伤害，否则传给下家
         local judge_card = M.execute_judgment(state)
         local hit = (judge_card.suit == "SPADE" and judge_card.number >= 2 and judge_card.number <= 9)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. "'s [Lightning] judgment: "
-                .. (judge_card.suit or "?") .. (judge_card.number or "?")
-                .. " (" .. (hit and "HIT!" or "missed, passes to next") .. ")"
-        }))
+        dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("turn_lightning_judgment", {
+            username = player.username,
+            suit = judge_card.suit or "?",
+            number = judge_card.number or "?",
+            result = hit and "HIT!" or "missed, passes to next",
+        })))
         if hit then
             state._in_judgment_phase = true
             local dmg = state.config and state.config.combat.lightning_damage or 3
@@ -1836,9 +1871,7 @@ function M.process_delayed_judgment(dispatcher, state, player, eff)
             local next_uid = M.get_next_player_id(state)
             if next_uid == player.id then
                 -- 绕一圈回到自己：闪电消失
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = "[Lightning] circled everyone, dissipates"
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("turn_lightning_dissipate")))
                 return true
             end
             local next_p = state.players[next_uid]

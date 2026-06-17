@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 祖拜达 - 哈里发哈伦·拉希德之妻，以慷慨仁慈著称
@@ -24,11 +25,13 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     if target.health >= target.max_health then return false end
 
     target.health = target.health + 1
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s triggers [Benevolence], causing %s to recover 1 HP!",
-            player.username, target.username),
-        hero = "zubaydah", skill = "ren_ji"
-    }))
+    local msg = local_mgr.bc("skill_zubaydah_benevolence", {
+        username = player.username,
+        target = target.username,
+    })
+    msg.hero = "zubaydah"
+    msg.skill = "ren_ji"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     local rules = require("game_rules")
     rules.broadcast_update(dispatcher, state)
     return false

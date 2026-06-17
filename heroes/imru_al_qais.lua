@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 伊姆鲁勒盖斯 - 阿拉伯贾希利叶时期最伟大的诗人，"悬诗"诗人之首
@@ -17,11 +18,13 @@ function M.on_turn_end(dispatcher, state, player_id)
     if attack_count >= 3 then
         local rules = require("game_rules")
         rules.draw_cards(state, player_id, 1)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Ode], holding %d [Attack] cards, draws 1 extra!",
-                player.username, attack_count),
-            hero = "imru_al_qais", skill = "xuan_shi"
-        }))
+        local msg = local_mgr.bc("skill_imru_ode", {
+            username = player.username,
+            count = tostring(attack_count),
+        })
+        msg.hero = "imru_al_qais"
+        msg.skill = "xuan_shi"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
     return false
 end

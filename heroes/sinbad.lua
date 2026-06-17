@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 辛巴达 - 传奇七次航海的水手
@@ -17,11 +18,14 @@ function M.on_turn_end(dispatcher, state, player_id)
     table.insert(player.hand, card)
     player.sinbad_voyages = player.sinbad_voyages + 1
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Seven Voyages], retrieves 1 card (%d/7)",
-            player.username, player.sinbad_voyages),
-        hero = "sinbad", skill = "qi_hang"
-    }))
+    local msg = local_mgr.bc("skill_sinbad_seven_voyages", {
+        username = player.username,
+        current = tostring(player.sinbad_voyages),
+        max = "7",
+    })
+    msg.hero = "sinbad"
+    msg.skill = "qi_hang"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     local rules = require("game_rules")
     rules.broadcast_update(dispatcher, state)
     return false

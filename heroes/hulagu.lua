@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 旭烈兀 - 蒙古西征统帅，攻克巴格达
@@ -13,10 +14,12 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
 
     if #target.hand > #player.hand then
         state.attack_bonus = 1  -- 伤害+1，总计2点
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activates [Iron Hoof], target has more hand cards, attack damage +1!", player.username),
-            hero = "hulagu", skill = "tie_ti"
-        }))
+        local msg = local_mgr.bc("skill_hulagu_iron_hoof", {
+            username = player.username,
+        })
+        msg.hero = "hulagu"
+        msg.skill = "tie_ti"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
     return false
 end

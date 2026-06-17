@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 帖木儿 - 14世纪中亚征服者，建立帖木儿帝国
@@ -15,11 +16,13 @@ function M.on_damage_dealt(dispatcher, state, player_id, amount, target_id)
 
     local rules = require("game_rules")
     rules.draw_cards(state, player_id, 1)
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Ten Thousand Horsemen], draws 1 card after dealing damage!",
-            player.username),
-        hero = "tamerlane", skill = "wan_qi"
-    }))
+    local msg = local_mgr.bc("skill_tamerlane_cavalry", {
+        username = player.username,
+        extra = "1",
+    })
+    msg.hero = "tamerlane"
+    msg.skill = "wan_qi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     return false
 end
 
@@ -29,11 +32,13 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
 
     local rules = require("game_rules")
     rules.draw_cards(state, player_id, 3)
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Ten Thousand Horsemen], draws 3 cards after killing!",
-            player.username),
-        hero = "tamerlane", skill = "wan_qi"
-    }))
+    local msg2 = local_mgr.bc("skill_tamerlane_cavalry", {
+        username = player.username,
+        extra = "3",
+    })
+    msg2.hero = "tamerlane"
+    msg2.skill = "wan_qi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg2))
     return false
 end
 

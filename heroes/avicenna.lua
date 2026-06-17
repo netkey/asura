@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 伊本·西拿（阿维森纳）- 医学泰斗
@@ -56,11 +57,13 @@ function M.on_response(dispatcher, state, player_id, payload)
             if c.id == payload.card_id and c.suit == "HEART" then
                 table.insert(state.discard_pile, table.remove(player.hand, i))
                 player.health = math.min(player.health + 1, player.max_health)
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = string.format("%s discards heart card [%s], activating [Canon of Medicine: Self-Diagnosis] to recover 1 HP!",
-                        player.username, c.name),
-                    hero = "avicenna", skill = "yi_dian"
-                }))
+                local msg = local_mgr.bc("skill_avicenna_self_heal", {
+                    username = player.username,
+                    card_id = local_mgr.card_lookup_key(c.name),
+                })
+                msg.hero = "avicenna"
+                msg.skill = "yi_dian"
+                dispatcher.broadcast_message(11, nk.json_encode(msg))
                 break
             end
         end

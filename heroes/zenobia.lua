@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 芝诺比娅 - 帕尔米拉帝国女王，被称为"东方女王"
@@ -22,12 +23,12 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
 
     if target_id == top_target then
         state.attack_forced = true
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Iron Queen], %s has most cards, attack guaranteed hit!",
-                player.username,
-                state.players[target_id] and state.players[target_id].username or target_id),
-            hero = "zenobia", skill = "tie_jia_nv_wang"
-        }))
+        local msg = local_mgr.bc("skill_zenobia_iron_queen", {
+            username = player.username,
+        })
+        msg.hero = "zenobia"
+        msg.skill = "tie_jia_nv_wang"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
     return false
 end

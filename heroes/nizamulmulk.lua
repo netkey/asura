@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 尼扎姆·穆尔克 - 塞尔柱帝国大维齐尔，"权谋"政治家
@@ -20,11 +21,13 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
         local ri = math.random(#attacker.hand)
         local card = table.remove(attacker.hand, ri)
         table.insert(state.discard_pile, card)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activates Quan Mou, %s was forced to discard 1 card!",
-                player.username, attacker.username),
-            hero = "nizamulmulk", skill = "quan_mou"
-        }))
+        local msg = local_mgr.bc("skill_nizamulmulk_statecraft", {
+            username = player.username,
+            target = attacker.username,
+        })
+        msg.hero = "nizamulmulk"
+        msg.skill = "quan_mou"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
         local rules = require("game_rules")
         rules.broadcast_update(dispatcher, state)
     end

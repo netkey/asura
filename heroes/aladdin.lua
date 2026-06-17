@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 阿拉丁 - 神灯主题英雄
@@ -21,21 +22,24 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     local judge_card = table.remove(state.deck, 1)
     table.insert(state.discard_pile, judge_card)
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Magic Lamp], judgement: %s (%s)",
-            player.username,
-            judge_card.suit == "HEART" and "♥ Hearts" or judge_card.suit == "DIAMOND" and "♦ Diamonds" or "♠♣ Black",
-            judge_card.name),
-        hero = "aladdin", skill = "shen_deng"
-    }))
+    local msg = local_mgr.bc("skill_aladdin_magic_lamp", {
+        username = player.username,
+        suit_color = judge_card.suit == "HEART" and "♥ Hearts" or judge_card.suit == "DIAMOND" and "♦ Diamonds" or "♠♣ Black",
+        card_id = local_mgr.card_lookup_key(judge_card.name),
+    })
+    msg.hero = "aladdin"
+    msg.skill = "shen_deng"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
 
     -- 红色 → 神灯显灵，从牌堆摸1张
     if judge_card.suit == "HEART" or judge_card.suit == "DIAMOND" then
         rules.draw_cards(state, player_id, 1)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s Magic Lamp awakens, draws 1 card!", player.username),
-            hero = "aladdin", skill = "shen_deng"
-        }))
+        local msg2 = local_mgr.bc("skill_aladdin_awaken", {
+            username = player.username,
+        })
+        msg2.hero = "aladdin"
+        msg2.skill = "shen_deng"
+        dispatcher.broadcast_message(11, nk.json_encode(msg2))
     end
 
     rules.broadcast_update(dispatcher, state)

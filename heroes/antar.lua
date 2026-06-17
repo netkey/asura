@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 安塔拉·伊本·沙达德 - 前伊斯兰时代最著名的阿拉伯骑士诗人
@@ -13,12 +14,13 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
 
     state.attack_forced = true
     local target = state.players[target_id]
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Knight's Oath], this attack is forced to hit, %s cannot defend!",
-            player.username,
-            target and target.username or target_id),
-        hero = "antar", skill = "qi_shi_zhi_shi"
-    }))
+    local msg = local_mgr.bc("skill_antar_oath", {
+        username = player.username,
+        target = target.username,
+    })
+    msg.hero = "antar"
+    msg.skill = "qi_shi_zhi_shi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     return false
 end
 

@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 曼苏尔 - 阿拔斯王朝哈里发，巴格达建城者
@@ -17,11 +18,12 @@ function M.on_kill(dispatcher, state, player_id, victim_id)
     player.mansur_full_heals = heals + 1
     player.health = player.max_health
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Jian Cheng], fully healed after kill! (Time %d/3)",
-            player.username, player.mansur_full_heals),
-        hero = "al_mansur", skill = "jian_cheng"
-    }))
+    local msg = local_mgr.bc("skill_al_mansur_city_building", {
+        username = player.username,
+    })
+    msg.hero = "al_mansur"
+    msg.skill = "jian_cheng"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     local rules = require("game_rules")
     rules.broadcast_update(dispatcher, state)
     return false
@@ -38,11 +40,13 @@ function M.on_turn_end(dispatcher, state, player_id)
 
     if damage_this_turn >= 2 and player.health < player.max_health then
         player.health = player.health + 1
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s dealt %d damage this turn, activates [Jian Cheng] to recover 1 HP!",
-                player.username, damage_this_turn),
-            hero = "al_mansur", skill = "jian_cheng"
-        }))
+        local msg2 = local_mgr.bc("skill_al_mansur_damage_count", {
+            username = player.username,
+            amount = tostring(damage_this_turn),
+        })
+        msg2.hero = "al_mansur"
+        msg2.skill = "jian_cheng"
+        dispatcher.broadcast_message(11, nk.json_encode(msg2))
         local rules = require("game_rules")
         rules.broadcast_update(dispatcher, state)
     end

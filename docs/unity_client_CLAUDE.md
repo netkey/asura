@@ -247,3 +247,178 @@ Boot → Login → Lobby → [HeroSelect弹窗] → Match → Result → Lobby
 - 出牌后立即播放出牌动画并移除手牌（乐观），等 OpCode 10 到达后刷新完整状态
 - `pending.deadline` 字段为服务端 Unix 时间戳，客户端据此显示倒计时（注意时钟偏差，建议 ±2s 容差）
 - 断线重连后服务端会推送带 `"is_reconnect": true` 的 OpCode 10，客户端重置所有面板状态
+
+---
+
+## 多语言支持（v0.9.0+）
+
+### 集成流程
+
+```
+登录成功
+  ↓
+get_localization() ───→ 缓存 bundle 到本地（PlayerPrefs / 本地文件）
+  ↓
+根据 Settings.Language 选 locales[lang]:
+  ├── direction → UI 镜像（RTL for ar）
+  └── strings   → 所有 OpCode 11 的渲染源
+  ↓
+进入大厅 / 后台定时
+  ↓
+check_localization_version() ───→ version 一致 → 继续用缓存
+                                      ↓ 不一致
+                                 get_localization() 重新拉取
+```
+
+### 步骤详解
+
+**1. 登录后初始化**
+
+```csharp
+// NakamaManager.cs — 登录成功后
+public async Task InitLocalization()
+{
+    // 读本地缓存
+    var cached = PlayerPrefs.GetString("locale_bundle");
+    var cachedVer = PlayerPrefs.GetString("locale_version");
+
+    // 拉取最新 bundle
+    var resp = await _client.RpcAsync(_session, "get_localization", "{}");
+    var bundle = JsonConvert.DeserializeObject<LocalizationBundle>(resp.Payload);
+
+    // 缓存
+    PlayerPrefs.SetString("locale_bundle", resp.Payload);
+    PlayerPrefs.SetString("locale_version", bundle.version);
+    PlayerPrefs.Save();
+
+    // 设置当前语言
+    var lang = GetCurrentLanguage(); // "en" / "ar"
+    Locale.Current = bundle.locales[lang];
+
+    // RTL 镜像
+    if (Locale.Current.direction == "rtl")
+        EnableRTLMirroring();
+}
+```
+
+**2. OpCode 11 渲染**
+
+```csharp
+// EventLogView.cs
+public void OnEventLog(string json)
+{
+    var msg = JsonConvert.DeserializeObject<Op11Message>(json);
+
+    // 查表获取模板
+    var template = Locale.Current.strings[msg.template];
+    if (template == null)
+    {
+        // fallback: 用 content 字段（英文原文）
+        AppendLog(msg.content);
+        return;
+    }
+
+    // 替换占位符
+    var rendered = template;
+    foreach (var kv in msg.params_)
+    {
+        var key = kv.Key;
+        var val = kv.Value;
+
+        // _id / _key 后缀的字段：查卡牌/技能/英雄名表
+        if (key.EndsWith("_id") || key.EndsWith("_key"))
+            val = LookupLocalizedName(key, val, Locale.Lang);
+
+        rendered = rendered.Replace("{" + key + "}", val);
+    }
+
+    AppendLog(rendered);
+}
+```
+
+**3. 参数字段约定**
+
+| 后缀 | 含义 | 客户端处理 |
+|------|------|-----------|
+| `_id` / `_key` | 需查表（card_id / hero_id / skill_key） | 查 `bundle.cards[lang]` / `bundle.heroes[lang]` / `bundle.skills[lang]` |
+| 其他 | 直接替换 | `username` → 玩家名, `target` → 目标名, `count` → 数字字符串 |
+
+Lookup 实现：
+
+```csharp
+private string LookupLocalizedName(string key, string id, string lang)
+{
+    if (key == "card_id")
+        return Locale.Bundle.cards[lang].ContainsKey(id) ? Locale.Bundle.cards[lang][id] : id;
+    if (key == "hero_id")
+        return Locale.Bundle.heroes[lang].ContainsKey(id) ? Locale.Bundle.heroes[lang][id] : id;
+    if (key == "skill_key")
+        return Locale.Bundle.skills[lang].ContainsKey(id) ? Locale.Bundle.skills[lang][id] : id;
+    return id;
+}
+```
+
+**4. 版本检查（增量更新）**
+
+```csharp
+// LobbyController.cs — 每 5 分钟或每次进入大厅
+public async Task CheckLocalizationUpdate()
+{
+    var resp = await _rpc.CheckLocalizationVersion();
+    var remote = JsonConvert.DeserializeObject<VersionOnly>(resp.Payload);
+    var cached = PlayerPrefs.GetString("locale_version");
+
+    if (remote.version != cached)
+    {
+        // 版本不一致，重新拉取完整 bundle
+        await InitLocalization();
+    }
+}
+```
+
+### 卡牌名 / 技能名 / 英雄名本地化
+
+卡牌名在 OpCode 10 中仍为 ID（`card.id`），**不做本地化替换**。客户端在以下场景自行查表：
+
+- **手牌渲染**：根据 `card.id` 查 `bundle.cards[lang]` 获取显示名
+- **英雄选择**：根据 `hero_id` 查 `bundle.heroes[lang]` 获取显示名  
+- **事件日志**：OpCode 11 `params` 中 `card_id` / `hero_id` 字段自动查表替换
+
+### 数据类定义
+
+```csharp
+[Serializable]
+public class LocalizationBundle
+{
+    public string version;
+    public Dictionary<string, LocaleData> locales;
+    public Dictionary<string, Dictionary<string, string>> cards;
+    public Dictionary<string, Dictionary<string, string>> skills;
+    public Dictionary<string, Dictionary<string, string>> heroes;
+}
+
+[Serializable]
+public class LocaleData
+{
+    public string direction;    // "ltr" / "rtl"
+    public Dictionary<string, string> strings;
+}
+
+// OpCode 11 消息结构
+[Serializable]
+public class Op11Message
+{
+    public string template;
+    public Dictionary<string, string> @params; // C# 中 params 是保留字，用 @params
+    public string content;                     // 英文回退
+    public string @event;                      // 额外字段（保留）
+    public string hero;                        // 额外字段（保留）
+    public string player_id;                   // 额外字段（保留）
+}
+```
+
+### RTL 注意事项
+
+- `direction == "rtl"` 时启用 UI 镜像（`RectTransform` 翻转），文本用 RTL 字体
+- 卡牌描述、技能描述等静态文本**不在服务端**，由客户端本地对照表管理
+- 数字、玩家名（纯 ASCII）嵌入 RTL 文本时用 Unicode LRM 标记（`‎`）维持阅读顺序

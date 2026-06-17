@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 哈基姆 - 法蒂玛王朝哈里发，神秘智者
@@ -75,11 +76,13 @@ function M.on_response(dispatcher, state, player_id, payload)
         table.insert(state.deck, 1, ordered[i])
     end
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Xing Xiang], reordered the top %d card(s) of the deck!",
-            player.username, #action.cards),
-        hero = "hakim", skill = "xing_xiang"
-    }))
+    local msg = local_mgr.bc("skill_hakim_xingxiang", {
+        username = player.username,
+        count = tostring(#action.cards),
+    })
+    msg.hero = "hakim"
+    msg.skill = "xing_xiang"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
 
     rules.draw_cards(state, player_id, 2)
     rules.broadcast_update(dispatcher, state)

@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 萨拉丁 - 战士主题英雄
@@ -23,12 +24,13 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     local draw_count = amount or 1
     rules.draw_cards(state, player_id, draw_count)
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Hold Fast], suffered %d damage, drew %d cards!",
-            player.username, draw_count, draw_count),
-        hero = "saladin",
-        skill = "jian_shou"
-    }))
+    local msg = local_mgr.bc("skill_saladin_hold_fast", {
+        username = player.username,
+        count = tostring(draw_count),
+    })
+    msg.hero = "saladin"
+    msg.skill = "jian_shou"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
 
     -- 触发后同步状态
     rules.broadcast_update(dispatcher, state)

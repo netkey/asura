@@ -4,7 +4,8 @@ local catalog   = require("hero_catalog")
 local rules     = require("game_rules")
 local config    = require("game_config")
 local season_mgr = require("season_manager")
-local skin_catalog = require("skin_catalog")
+local skin_catalog  = require("skin_catalog")
+local local_mgr = require("localization_manager")
 
 local M = {}
 
@@ -378,10 +379,11 @@ local function auto_discard_from_end(dispatcher, state, uid, discard_count)
         table.insert(state.discard_pile, card)
         table.insert(discarded, card.name or card.type)
     end
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = ep.username .. " discard phase: " .. #discarded ..
-                  " cards: " .. table.concat(discarded, "/")
-    }))
+    dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("match_discard_phase", {
+        username = ep.username,
+        count = tostring(#discarded),
+        card_list = table.concat(discarded, ", "),
+    })))
 end
 
 -- 托管 AI 辅助：解决当前 pending_action（一层），为不支持复杂交互的托管提供默认选择
@@ -890,10 +892,11 @@ function M.handle_discard_response(dispatcher, state, uid, payload)
                     end
                 end
             end
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = ep.username .. " discard phase: " .. act.discard_count ..
-                          " cards: " .. table.concat(discarded, "/")
-            }))
+            dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("match_discard_phase", {
+                username = ep.username,
+                count = tostring(act.discard_count),
+                card_list = table.concat(discarded, ", "),
+            })))
         end
     end
 

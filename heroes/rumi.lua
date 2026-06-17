@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 鲁米 - 波斯诗人与哲人，旋转舞创始人
@@ -48,11 +49,12 @@ function M.on_response(dispatcher, state, player_id, payload)
 
     -- 摸等量新牌
     rules.draw_cards(state, player_id, count)
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Whirl], discards %d draws %d, fresh hand!",
-            player.username, count, count),
-        hero = "rumi", skill = "xuan_hui"
-    }))
+    local msg = local_mgr.bc("skill_rumi_whirl", {
+        username = player.username,
+    })
+    msg.hero = "rumi"
+    msg.skill = "xuan_hui"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     state.pending_action = nil
     rules.broadcast_update(dispatcher, state)
 end

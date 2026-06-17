@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 海亚姆（奥马尔·海亚姆）- 波斯数学家、天文学家、诗人
@@ -17,11 +18,13 @@ function M.on_turn_end(dispatcher, state, player_id)
     end
     state.discard_pile = {}
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Poetic Soul], shuffling %d discarded cards back into the deck!",
-            player.username, count),
-        hero = "khayyam", skill = "shi_hun"
-    }))
+    local msg = local_mgr.bc("skill_khayyam_poetry_soul", {
+        username = player.username,
+        count = tostring(count),
+    })
+    msg.hero = "khayyam"
+    msg.skill = "shi_hun"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     rules.broadcast_update(dispatcher, state)
     return false
 end

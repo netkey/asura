@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 巴希拉 - 巴士拉著名女学者，以敏锐洞察力著称
@@ -36,16 +37,16 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     local card_name = top_card.name or "none"
     local color_str = is_red and "red" or "black"
     local extra_str = is_red and "draw 1 extra card!" or "no extra draw"
-    local msg = string.format("%s activated [Insight], top card: %s %s (%s) %s",
-        player.username,
-        top_card.suit or "?",
-        card_name,
-        color_str,
-        extra_str)
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = msg,
-        hero = "basira", skill = "dong_cha"
-    }))
+    local bmsg = local_mgr.bc("skill_basira_insight", {
+        username = player.username,
+        suit = top_card.suit or "?",
+        card_id = local_mgr.card_lookup_key(card_name),
+        color = color_str,
+        extra = extra_str,
+    })
+    bmsg.hero = "basira"
+    bmsg.skill = "dong_cha"
+    dispatcher.broadcast_message(11, nk.json_encode(bmsg))
     rules.broadcast_update(dispatcher, state)
     return true
 end

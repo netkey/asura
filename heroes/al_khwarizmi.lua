@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 花拉子密 - 代数之父，"算法"一词源于其名
@@ -89,11 +90,14 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 
     if keep_count > 0 then
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activated [Algorithm], viewed the top %d cards, took %d into hand!",
-                player.username, #action.cards, keep_count),
-            hero = "al_khwarizmi", skill = "suan_fa"
-        }))
+        local msg = local_mgr.bc("skill_al_khwarizmi_algorithm", {
+            username = player.username,
+            count = tostring(#action.cards),
+            keep = tostring(keep_count),
+        })
+        msg.hero = "al_khwarizmi"
+        msg.skill = "suan_fa"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
 
     rules.broadcast_update(dispatcher, state)

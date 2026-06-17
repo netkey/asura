@@ -7,6 +7,7 @@ local skin_catalog = require("skin_catalog")
 local rate_limiter  = require("rate_limiter")
 local daily_mgr     = require("daily_task_manager")
 local frag_mgr      = require("fragment_manager")
+local local_mgr     = require("localization_manager")
 
 -- pcall 包装器：防止 RPC 中未捕获异常导致客户端收到非 JSON 500
 local function safe_rpc(fn)
@@ -1652,3 +1653,15 @@ nk.register_rpc(safe_rpc(daily_mgr.claim),     "claim_daily_task")
 nk.register_rpc(safe_rpc(frag_mgr.get_fragments),  "get_fragments")
 nk.register_rpc(safe_rpc(frag_mgr.convert),         "convert_fragment")
 nk.register_rpc(safe_rpc(frag_mgr.send_fragment),   "send_fragment")
+
+-- ==========================================
+-- 本地化 RPC
+-- ==========================================
+local function rpc_get_localization(_, _)
+    return local_mgr.get_bundle()
+end
+local function rpc_check_localization_version(_, _)
+    return local_mgr.get_version_json()
+end
+nk.register_rpc(safe_rpc(rpc_get_localization),          "get_localization")
+nk.register_rpc(safe_rpc(rpc_check_localization_version), "check_localization_version")

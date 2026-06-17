@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 吉尔伽美什 - 美索不达米亚神话中传奇的乌鲁克国王，追寻永生
@@ -51,11 +52,13 @@ function M.on_response(dispatcher, state, player_id, payload)
         if c.id == payload.card_id then
             table.insert(state.discard_pile, table.remove(player.hand, i))
             player.health = math.min(player.health + 1, player.max_health)
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s discards [%s], activates [Bu Xiu] to restore 1 HP!",
-                    player.username, c.name),
-                hero = "gilgamesh", skill = "bu_xiu"
-            }))
+            local msg = local_mgr.bc("skill_gilgamesh_immortal", {
+                username = player.username,
+                card_id = local_mgr.card_lookup_key(c.name),
+            })
+            msg.hero = "gilgamesh"
+            msg.skill = "bu_xiu"
+            dispatcher.broadcast_message(11, nk.json_encode(msg))
             break
         end
     end

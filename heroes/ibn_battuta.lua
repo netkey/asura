@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 伊本·白图泰 - 史上最伟大旅行家
@@ -60,10 +61,12 @@ function M.on_response(dispatcher, state, player_id, payload)
         -- 取弃牌堆中自己刚弃的那张之前的牌（自己刚弃的在堆顶）
         local taken = table.remove(state.discard_pile, #state.discard_pile - 1)
         table.insert(player.hand, taken)
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = player.username .. " activates [Journey], trading card for card!",
-            hero = "ibn_battuta", skill = "yuan_xing"
-        }))
+        local msg = local_mgr.bc("skill_ibn_battuta_journey", {
+            username = player.username,
+        })
+        msg.hero = "ibn_battuta"
+        msg.skill = "yuan_xing"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
     state.pending_action = nil
     rules.broadcast_update(dispatcher, state)

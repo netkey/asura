@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 哈伦·拉希德 - 阿拔斯王朝最鼎盛时期的哈里发
@@ -61,14 +62,15 @@ function M.on_response(dispatcher, state, player_id, payload)
         end
 
         local player = state.players[player_id]
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content   = string.format("%s activated Caliph's Decree, targeting %s: discard 1 card or take 1 damage",
-                            player.username, target.username),
-            event     = "skill_used",
-            hero      = "harun_al_rashid",
-            skill     = "ha_li_fa_ling",
-            target_id = payload.target_id,
-        }))
+        local msg = local_mgr.bc("skill_harun_caliph_decree", {
+            username = player.username,
+            target = target.username,
+        })
+        msg.event = "skill_used"
+        msg.hero = "harun_al_rashid"
+        msg.skill = "ha_li_fa_ling"
+        msg.target_id = payload.target_id
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
 
         state.pending_action = {
             type        = "HARUN_CHOOSE",
@@ -99,9 +101,9 @@ function M.on_response(dispatcher, state, player_id, payload)
             if payload.confirm == true and payload.choose_discard and #target.hand > 0 then
                 local card = table.remove(target.hand, math.random(#target.hand))
                 table.insert(state.discard_pile, card)
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = target.username .. " obeyed Caliph's Decree and discarded 1 card",
-                }))
+                dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("skill_harun_caliph_discard", {
+                    target = target.username,
+                })))
             else
                 rules.apply_damage(dispatcher, state, action.target_id, 1, caster_id)
             end

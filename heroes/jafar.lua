@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 
 local M = {}
 
@@ -12,12 +13,13 @@ function M.on_before_attack(dispatcher, state, player_id, target_id)
     state.jafar_du_ji = true
 
     local target = state.players[target_id]
-    local msg = string.format("%s activated [Poison Plot], %s needs 2 [Defense] to block!",
-        player.username, target and target.username or target_id)
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = msg,
-        hero = "jafar", skill = "du_ji"
-    }))
+    local bmsg = local_mgr.bc("skill_jafar_poison_plot", {
+        username = player.username,
+        target = target.username,
+    })
+    bmsg.hero = "jafar"
+    bmsg.skill = "du_ji"
+    dispatcher.broadcast_message(11, nk.json_encode(bmsg))
 
     return false
 end

@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.8.0 · 最后更新：2026-06-17  
+> 版本：v0.9.0 · 最后更新：2026-06-17  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -24,6 +24,7 @@
    - [管理员接口](#311-管理员接口)
    - [每日任务系统](#312-每日任务系统)
    - [英雄碎片系统](#313-英雄碎片系统)
+   - [本地化系统](#314-本地化系统)
 4. [存储结构（Storage Schema）](#4-存储结构storage-schema)
 5. [成就列表（19 枚）](#5-成就列表19-枚)
 6. [关键设计决策](#6-关键设计决策)
@@ -124,7 +125,7 @@
 | OpCode | 触发时机 | Payload 示例 |
 |--------|---------|-------------|
 | `10` | 每次状态变更后广播全量状态 | 见下方详细结构 |
-| `11` | 游戏事件日志（弃牌、技能发动、判定、死亡等文本） | `{"content":"萨拉丁 受到1点伤害","event":"skill_used","hero":"saladin"}` |
+| `11` | 游戏事件日志（弃牌、技能发动、判定、死亡等文本） | `{"template":"game_bounty","params":{"username":"Player1"},"content":"Player1 used Bounty, everyone draws 1 card","event":"skill_used","hero":"saladin"}` |
 | `20` | 伤害结算时广播（动画驱动） | `{"event":"damage","target":"uid-B","source":"uid-A","amount":1}` |
 | `30` | 对局结束 | `{"winner":"MONARCH_WIN"}` |
 | `105` | 攻击或 AOE 命中某玩家，该玩家需要响应（广播全场，非目标玩家可播放攻击动画） | `{"attacker":"uid-A","target":"uid-B","damage":1,"msg":"受到攻击，请出示【防御】"}` |
@@ -136,7 +137,7 @@
 | `101` | 技能使用者或目标玩家 | 英雄技能询问，如苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","description":"是否发动【敕令】？","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
 | `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART"}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"msg":"需要弃置 2 张牌"}` |
 
-> **接收 101 时客户端需弹出英雄技能交互面板**；玩家决策后通过 **OpCode 5**（confirm + 可选 target_id / card_id / sorted_ids）回传。超时由服务端以 `confirm=false` 自动推进。
+> **OpCode 11 国际化格式**（v0.9.0+）：服务端发送 `{template, params, content}` 格式，其中 `template` 为 i18n key，`params` 为替换参数，`content` 为英文本地化回退。参数中以 `_id` / `_key` 结尾的字段（如 `card_id`、`hero_id`）由客户端查本地化对照表，其余字段直接替换模板中的 `{placeholder}`。客户端在 `get_localization` RPC 获取的 bundle 中查表渲染。
 
 #### OpCode 10 Payload 结构
 
@@ -982,6 +983,50 @@ JoinMatch(match_id, metadata={"hero_id": "hakim"})
 ```
 
 > `hero_id` 传 `"universal"` 即可赠送通用碎片。
+
+### 3.14 本地化系统
+
+#### `get_localization`
+获取完整本地化 bundle（含 locales strings、卡牌名表、技能名表、英雄名表）。客户端在登录后调用一次，缓存后通过 `check_localization_version` 增量检查更新。
+
+```json
+// 无需入参
+
+// 出参（JSON 字符串，size ~25KB）
+{
+  "version": "2026-06-17-v1",
+  "locales": {
+    "en": {"direction": "ltr", "strings": {"game_defense_success": "Defense successful!", ...}},
+    "ar": {"direction": "rtl", "strings": {...}}
+  },
+  "cards": {
+    "en": {"damascus_blade": "Damascus Blade", "date": "Date", ...},
+    "ar": {"damascus_blade": "", "date": "", ...}
+  },
+  "skills": {
+    "en": {"magic_lamp": "Magic Lamp", ...},
+    "ar": {"magic_lamp": "", ...}
+  },
+  "heroes": {
+    "en": {"aladdin": "Aladdin", ...},
+    "ar": {"aladdin": "", ...}
+  }
+}
+```
+
+> `version` 为日期版本号，变更时加后缀（如 `-v1`、`-v2`）。客户端缓存此版本，在切换语言或每日首次进入大厅时调用 `check_localization_version` 检查更新。`locale.strings` 持所有 OpCode 11 广播模板字符串，参数以 `{placeholder}` 标记。
+
+#### `check_localization_version`
+轻量检查本地化版本是否需要更新，避免每次进入大厅都重新下载完整 bundle。
+
+```json
+// 无需入参
+
+// 出参
+{"version": "2026-06-17-v1"}
+```
+
+> 客户端比对返回的 `version` 与缓存的 version：一致则继续使用缓存，否则调用 `get_localization` 重新拉取。
 
 ### 并行测试脚本配置
 

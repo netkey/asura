@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 舍赫拉莎德 - 一千零一夜的讲述者
@@ -85,11 +86,14 @@ function M.on_response(dispatcher, state, player_id, payload)
     for i, c in ipairs(attacker.hand) do
         if c.id == payload.target_card_id then
             table.insert(state.discard_pile, table.remove(attacker.hand, i))
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s activated [Thousand Nights], discarded 1 card and forced %s to discard [%s]!",
-                    player.username, attacker.username, c.name),
-                hero = "scheherazade", skill = "qian_ye"
-            }))
+            local msg = local_mgr.bc("skill_scheherazade_thousand_nights", {
+                username = player.username,
+                target = attacker.username,
+                card_id = local_mgr.card_lookup_key(c.name),
+            })
+            msg.hero = "scheherazade"
+            msg.skill = "qian_ye"
+            dispatcher.broadcast_message(11, nk.json_encode(msg))
             break
         end
     end

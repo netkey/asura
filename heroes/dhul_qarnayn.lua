@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 双角王（Dhul-Qarnayn）- 《古兰经》中的伟大君主，筑壁垒、征远疆
@@ -46,11 +47,14 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
     if #state.discard_pile == 0 then return false end
 
     p.dhul_wall_count = p.dhul_wall_count + 1
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activates [Wall-Build], recovers 1 card from discard as wall (%d/%d)",
-            p.username, p.dhul_wall_count, MAX_WALLS),
-        hero    = "dhul_qarnayn", skill = "zhu_bi"
-    }))
+    local msg = local_mgr.bc("skill_dhul_qarnayn_wall_recover", {
+        username = p.username,
+        current = tostring(p.dhul_wall_count),
+        max = tostring(MAX_WALLS),
+    })
+    msg.hero = "dhul_qarnayn"
+    msg.skill = "zhu_bi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     return false
 end
 
@@ -176,11 +180,14 @@ function M.on_before_damage(dispatcher, state, target_id, amount, source_id)
                 local rules = require("game_rules")
                 rules.draw_cards(state, p.id, 1)
                 local tname = (state.players[target_id] and state.players[target_id].username) or "?"
-                dispatcher.broadcast_message(11, nk.json_encode({
-                    content = string.format("%s consumes 1 wall, reduces 1 damage to %s and draws 1 card (%d remaining)",
-                        p.username, tname, p.dhul_wall_count),
-                    hero = "dhul_qarnayn", skill = "zhu_bi"
-                }))
+                local msg3 = local_mgr.bc("skill_dhul_qarnayn_wall_consume", {
+                    username = p.username,
+                    target = tname,
+                    remaining = tostring(p.dhul_wall_count),
+                })
+                msg3.hero = "dhul_qarnayn"
+                msg3.skill = "zhu_bi"
+                dispatcher.broadcast_message(11, nk.json_encode(msg3))
                 return true
             end
         end
@@ -222,29 +229,34 @@ function M.on_response(dispatcher, state, player_id, payload)
 
         if payload.skill == "wall" then
             p.dhul_wall_count = (p.dhul_wall_count or 0) + 1
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s activates [Wall-Build], forges 1 hand card into wall (%d/%d)",
-                    p.username, p.dhul_wall_count, MAX_WALLS),
-                hero = "dhul_qarnayn", skill = "zhu_bi"
-            }))
+            local msg = local_mgr.bc("skill_dhul_qarnayn_wall_build", {
+                username = p.username,
+                current = tostring(p.dhul_wall_count),
+                max = tostring(MAX_WALLS),
+            })
+            msg.hero = "dhul_qarnayn"
+            msg.skill = "zhu_bi"
+            dispatcher.broadcast_message(11, nk.json_encode(msg))
 
         elseif payload.skill == "westward" then
             state.dhul_westward = state.dhul_westward or {}
             state.dhul_westward[player_id] = true
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s activates [Far-Reach West]: this turn [ATTACK] has no range limit and can target 1 extra target",
-                    p.username),
-                hero = "dhul_qarnayn", skill = "yuan_jiang"
-            }))
+            local msg4 = local_mgr.bc("skill_dhul_qarnayn_far_west", {
+                username = p.username,
+            })
+            msg4.hero = "dhul_qarnayn"
+            msg4.skill = "yuan_jiang"
+            dispatcher.broadcast_message(11, nk.json_encode(msg4))
 
         elseif payload.skill == "eastward" then
             state.dhul_eastward = state.dhul_eastward or {}
             state.dhul_eastward[player_id] = true
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = string.format("%s activates [Far-Reach East]: this turn non-delayed tricks can target 1 extra target",
-                    p.username),
-                hero = "dhul_qarnayn", skill = "yuan_jiang"
-            }))
+            local msg5 = local_mgr.bc("skill_dhul_qarnayn_far_east", {
+                username = p.username,
+            })
+            msg5.hero = "dhul_qarnayn"
+            msg5.skill = "yuan_jiang"
+            dispatcher.broadcast_message(11, nk.json_encode(msg5))
 
         else
             rules.broadcast_update(dispatcher, state)
@@ -270,11 +282,13 @@ function M.on_response(dispatcher, state, player_id, payload)
         end
 
         -- 复用攻击效果（用记录的卡牌对额外目标发起攻击）
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activates [Far-Reach West], launches extra attack on %s!",
-                p.username, target.username),
-            hero = "dhul_qarnayn", skill = "yuan_jiang"
-        }))
+        local msg6 = local_mgr.bc("skill_dhul_qarnayn_far_west_extra", {
+            username = p.username,
+            target = target.username,
+        })
+        msg6.hero = "dhul_qarnayn"
+        msg6.skill = "yuan_jiang"
+        dispatcher.broadcast_message(11, nk.json_encode(msg6))
         local card = action.card
         local rules2 = require("game_rules")
         rules2.CARD_EFFECTS["ATTACK"](dispatcher, state, player_id, payload.target_id, card)
@@ -302,11 +316,13 @@ function M.on_response(dispatcher, state, player_id, payload)
             end
         end
 
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activates [Far-Reach East], uses extra trick on %s!",
-                p.username, target.username),
-            hero = "dhul_qarnayn", skill = "yuan_jiang"
-        }))
+        local msg7 = local_mgr.bc("skill_dhul_qarnayn_far_east_extra", {
+            username = p.username,
+            target = target.username,
+        })
+        msg7.hero = "dhul_qarnayn"
+        msg7.skill = "yuan_jiang"
+        dispatcher.broadcast_message(11, nk.json_encode(msg7))
 
         local card = action.trick_card
         local pt = state.pending_trick

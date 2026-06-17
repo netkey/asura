@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 阿里巴巴 - 盗贼主题英雄
@@ -75,11 +76,13 @@ function M.on_response(dispatcher, state, player_id, payload)
             if state.players[attacker_id] then
                 attacker_name = state.players[attacker_id].username
             end
-            dispatcher.broadcast_message(11, nk.json_encode({
-                content = defender.username .. " activates [Secret Signal] to counter " .. attacker_name .. "!",
-                hero = "alibaba",
-                skill = "an_hao"
-            }))
+            local msg = local_mgr.bc("skill_alibaba_code_word", {
+                username = defender.username,
+                attacker = attacker_name,
+            })
+            msg.hero = "alibaba"
+            msg.skill = "an_hao"
+            dispatcher.broadcast_message(11, nk.json_encode(msg))
 
             -- 攻击者可能已阵亡，跳过反击
             if not state.players[attacker_id] then

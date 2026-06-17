@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 穆阿维叶 - 倭马亚王朝建立者，以卓越政治手腕著称
@@ -19,11 +20,13 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
     local stolen = table.remove(attacker.hand, ri)
     table.insert(player.hand, stolen)
 
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = string.format("%s activated [Mou Lue], taking 1 random card from %s!",
-            player.username, attacker.username),
-        hero = "muawiyah", skill = "mou_lue"
-    }))
+    local msg = local_mgr.bc("skill_muawiyah_strategy", {
+        username = player.username,
+        target = attacker.username,
+    })
+    msg.hero = "muawiyah"
+    msg.skill = "mou_lue"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
 
     state.pending_action = nil
     local rules = require("game_rules")

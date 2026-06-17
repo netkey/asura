@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 比鲁尼 - 中世纪伊斯兰最伟大的百科全书式学者
@@ -70,11 +71,13 @@ function M.on_response(dispatcher, state, player_id, payload)
     end
 
     if kept > 0 then
-        dispatcher.broadcast_message(11, nk.json_encode({
-            content = string.format("%s activates [Measurement], selects %d out of %d cards!",
-                player.username, kept, #action.cards),
-            hero = "al_biruni", skill = "ce_liang"
-        }))
+        local msg = local_mgr.bc("skill_al_biruni_measure", {
+            username = player.username,
+            count = tostring(kept),
+        })
+        msg.hero = "al_biruni"
+        msg.skill = "ce_liang"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
     end
 
     rules.broadcast_update(dispatcher, state)

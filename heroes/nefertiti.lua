@@ -1,4 +1,5 @@
 local nk = require("nakama")
+local local_mgr = require("localization_manager")
 local M = {}
 
 -- 纳芙蒂蒂 - 古埃及王后，"美人驾临"之意，中东文明圈代表性女性
@@ -14,10 +15,12 @@ function M.on_turn_end(dispatcher, state, player_id)
     if (player.attacks_this_turn or 0) > 0 then return false end
 
     player.health = player.health + 1
-    dispatcher.broadcast_message(11, nk.json_encode({
-        content = player.username .. " activates Ancient Ritual, recovers 1 HP for not attacking!",
-        hero = "nefertiti", skill = "gu_yi"
-    }))
+    local msg = local_mgr.bc("skill_nefertiti_ancient_rite", {
+        username = player.username,
+    })
+    msg.hero = "nefertiti"
+    msg.skill = "gu_yi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
     return false
 end
 
