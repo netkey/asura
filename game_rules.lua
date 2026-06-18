@@ -1570,6 +1570,7 @@ function M.handle_response(dispatcher, state, player_id, payload)
         })))
         -- 重新触发攻击效果（会自动设置 WAITING_FOR_DEFENSE）
         CARD_EFFECTS["ATTACK"](dispatcher, state, action.attacker_id, action.target_id, attack_card)
+        M.broadcast_update(dispatcher, state)
     end
 end
 

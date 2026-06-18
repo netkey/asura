@@ -248,7 +248,17 @@ Lua 5.4 中循环跳过用 `goto continue` + `::continue::`，`break` 会截断�
 - [API 文档](./docs/backend_api.md)（客户端对接用，变更后需同步更新）
 - [英雄设计评审报告](./docs/hero_design_review.md)
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as GitHub issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage labels with default names. See `docs/agents/triage-labels.md`.
+
 ---
 
-**最后更新**: 2026-06-17
+**最后更新**: 2026-06-18
 **版本**: 0.8.0
