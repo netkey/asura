@@ -94,6 +94,9 @@ local CARD_EFFECTS = {
             })))
         end
 
+        -- 防御性检查：目标玩家在此过程中死亡（on_before_attack 等钩子可能已导致目标死亡）
+        if target.health <= 0 then return end
+
         -- 进入等待防御状态
         state.pending_action = {
             type = "WAITING_FOR_DEFENSE",

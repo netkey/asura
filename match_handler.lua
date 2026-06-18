@@ -592,7 +592,20 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 只有在对局进行中才计时
     if state.status == STATE.PLAYING then
         -- 检查 pending_action 超时（防止防御/AOE/求救/弃牌等待永久卡死）
-        if state.pending_action and state.pending_action.deadline and os.time() > state.pending_action.deadline then
+        -- 以及 pending 相关玩家已死亡时不等 deadline，立即自动解决
+        local auto_resolve = false
+        local act = state.pending_action
+        if act and act.deadline and os.time() > act.deadline then
+            auto_resolve = true
+        elseif act then
+            -- WAITING_FOR_DEFENSE 或 WAITING_FOR_AOE 目标已死亡 → 立即解决
+            local dead_id = (act.type == "WAITING_FOR_DEFENSE" and act.target_id)
+                or (act.type == "WAITING_FOR_AOE" and act.current_target)
+            if dead_id and state.players[dead_id] and state.players[dead_id].health <= 0 then
+                auto_resolve = true
+            end
+        end
+        if auto_resolve then
             auto_resolve_pending(dispatcher, state)
             -- 连续 auto_resolve 检测：5 次无 turn 变化 → 强制 next_turn 防止死锁
             if state.current_turn_id then
