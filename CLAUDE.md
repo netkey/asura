@@ -179,11 +179,15 @@ docker compose logs -f nakama
 ```
 
 ### 自动化部署（VPS）
-GitHub Actions self-hosted runner 在 VPS 上运行，`push 到 main` 时自动触发：
-1. checkout → rsync 代码到 `/data/nakama/modules`
-2. 清理 `demo*.lua`（防止 Nakama 启动时加载导致崩溃）
-3. `docker compose up -d` 重启 Nakama
+GitHub Actions self-hosted runner 在 VPS 上运行，`push 到 main` 时自动触发（Docker 镜像模式）：
+1. Build Docker 镜像 → push 到 ghcr.io
+2. 排空（drain）现有对局，最长 120s
+3. 拉取新镜像 → `docker compose up -d --force-recreate`
 4. 健康检查（轮询 port 7350，最多 60s）
+5. 取消排空（undrain）恢复匹配
+6. Hermes 自动重测 10 局
+
+> ⚠️ 新增脚本文件/目录必须在 `Dockerfile` 中添加对应的 `COPY` 指令，否则不会进入镜像。
 
 ### 本地测试
 ```bash

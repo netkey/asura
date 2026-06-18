@@ -2,10 +2,19 @@
 -- 加载本地化数据并提供给 RPC 层
 -- locales/*.lua 为 Lua module 格式，require 加载，零运行时开销
 
-local en = require("locales.en")
-local ar = require("locales.ar")
-local card_names = require("locales.card_names")
 local hero_catalog = require("hero_catalog")
+
+-- 生产加固：pcall 包裹 require，单文件缺失不会 fatal 整个服务器
+local en, ar, card_names
+local function safe_require(mod)
+  local ok, m = pcall(require, mod)
+  if ok then return m end
+  nk.logger_info("localization_manager: require(" .. mod .. ") failed, using fallback")
+  return nil
+end
+en = safe_require("locales.en") or {}
+ar = safe_require("locales.ar") or {}
+card_names = safe_require("locales.card_names") or { cards = {}, skills = {}, get_card_name = function() return "" end, get_hero_name = function() return "" end }
 
 local VERSION = "2026-06-17-v1"
 
