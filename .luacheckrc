@@ -7,5 +7,5 @@ unused_loopvars = false
 max_line_length = false
 max_comment_columns = false
 
--- 忽略：未使用参数 / 变量自赋值 / 未使用变量赋值 / 全局变量影子 / 局部变量影子
-ignore = {"021", "031", "122", "151", "421"}
+-- 忽略：未使用变量赋值 / 变量自赋值 / 未使用循环变量 / 全局变量影子
+ignore = {"021", "031", "122", "151"}

@@ -682,7 +682,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         -- 则其出牌阶段无需等待，直接由 auto_play 空过并推进回合
         -- 按玩家独立判定而非全局，修复"一人可攻击拖慢全队"场景
         if effective_timeout > 0 and state.current_turn_id then
-            local current_p = state.players[state.current_turn_id]
+            current_p = state.players[state.current_turn_id]
             if current_p and (current_p._no_attack_count or 0) >= 2 then
                 effective_timeout = 0
             end
