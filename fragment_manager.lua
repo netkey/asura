@@ -280,7 +280,7 @@ function M.send_fragment(context, payload)
 
     -- === 接收方入库（OCC 保护，防止并发赠送丢失） ===
     local recv_inv, recv_ver = load(target_id)
-    local recv_orig = copy(recv_inv)
+    -- recv_orig 是 dead code（copy 后未读取），直接跳过深拷贝节省 CPU
     if hero_id == "universal" then
         recv_inv.universal = (recv_inv.universal or 0) + count
     else

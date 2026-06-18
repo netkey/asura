@@ -325,7 +325,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         dispatcher.broadcast_message(11, nk.json_encode(msg7))
 
         local card = action.trick_card
-        local pt = state.pending_trick
+        -- pt intentionally unused: only need the trick_card reference above
         -- 绕过 COUNTER 窗口直接执行效果（额外目标是同一锦囊的一部分）
         local rules2 = require("game_rules")
         rules2.CARD_EFFECTS["INSTANT_TRICK"](dispatcher, state, player_id, payload.target_id, card)
