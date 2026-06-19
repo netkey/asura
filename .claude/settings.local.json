@@ -64,7 +64,7 @@
           },
           {
             "type": "command",
-            "command": "echo \"${CLAUDE_TOOL_INPUT}\" | grep -q '\\.lua$' && (luacheck --no-color \"${CLAUDE_TOOL_INPUT}\" 2>&1 || true)"
+            "command": "echo \"${CLAUDE_TOOL_INPUT}\" | grep -q '\\.lua$' && (luacheck --no-color \"${CLAUDE_TOOL_INPUT}\" 2>&1 || true) || true"
           }
         ]
       }
