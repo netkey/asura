@@ -165,7 +165,7 @@ asura/
 - [x] 每日任务系统 + 英雄碎片系统（daily_task_manager.lua + fragment_manager.lua，含赠送/兑换 RPC）
 - [x] 卡牌名中东本土化全量完成 → 已入库（card_deck.lua 108 张英文命名）
 - [x] 广播消息英文本土化全量完成 → 已入库（~105 条 OpCode 11 内容）
-- [ ] 多语言支持
+- [x] 多语言支持 → 服务端本地化框架完成（localization_manager + locales/ + 30 条硬编码迁移），阿语模板待翻译
 
 ## 部署说明
 
@@ -260,5 +260,5 @@ Five canonical triage labels with default names. See `docs/agents/triage-labels.
 
 ---
 
-**最后更新**: 2026-06-18
-**版本**: 0.8.0
+**最后更新**: 2026-06-19
+**版本**: 0.10.0

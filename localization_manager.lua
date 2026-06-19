@@ -16,7 +16,7 @@ en = safe_require("locales.en") or {}
 ar = safe_require("locales.ar") or {}
 card_names = safe_require("locales.card_names") or { cards = {}, skills = {}, get_card_name = function() return "" end, get_hero_name = function() return "" end }
 
-local VERSION = "2026-06-17-v1"
+local VERSION = "2026-06-19-v2"
 
 -- 循环中复用的语言表（避免每次分配新 table）
 local LOCALES = { en = true, ar = true }

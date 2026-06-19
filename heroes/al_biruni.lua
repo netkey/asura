@@ -26,12 +26,11 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         deadline  = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "ce_liang",
-        description = string.format("[Measurement]: Look at top %d cards, pick 2 to hand, discard the rest", #cards),
-        cards       = cards,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_al_biruni_measure_prompt", { count = #cards })
+    m.type  = "skill_choice"
+    m.skill = "ce_liang"
+    m.cards = cards
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end

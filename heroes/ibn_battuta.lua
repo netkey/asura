@@ -18,12 +18,12 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         deadline = os.time() + 15,
         description = "Discard 1 card to activate [Journey] and retrieve the top card from the discard pile?"
     }
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type = "skill_choice",
-        skill = "yuan_xing",
-        description = "Discard 1 card to activate [Journey] and draw the top card from the discard pile?",
-        min_cards = 1, max_cards = 1
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_ibn_battuta_journey_prompt")
+    m.type = "skill_choice"
+    m.skill = "yuan_xing"
+    m.min_cards = 1
+    m.max_cards = 1
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
     return true
 end
 

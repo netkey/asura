@@ -38,13 +38,11 @@ function M.on_damaged(dispatcher, state, target_id, amount, source_id)
         deadline    = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "qian_ye",
-        description = string.format("%s dealt %d damage to you! Activate [Thousand Nights]? Discard 1 card and choose 1 of their cards to discard.",
-            attacker.username, amount),
-        shown_cards = shown,
-    }), {state.presences[target_id]})
+    local m = local_mgr.bc("skill_scheherazade_qian_ye_prompt", { username = attacker.username, damage = amount })
+    m.type        = "skill_choice"
+    m.skill       = "qian_ye"
+    m.shown_cards = shown
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[target_id]})
 
     return false
 end

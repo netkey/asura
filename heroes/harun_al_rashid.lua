@@ -30,12 +30,11 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         deadline    = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "ha_li_fa_ling",
-        description = "Activate Caliph's Decree? Choose a player: discard 1 card or take 1 damage",
-        targets     = target_list,
-    }), { state.presences[player_id] })
+    local m = local_mgr.bc("skill_harun_caliph_decree_prompt")
+    m.type    = "skill_choice"
+    m.skill   = "ha_li_fa_ling"
+    m.targets = target_list
+    dispatcher.broadcast_message(101, nk.json_encode(m), { state.presences[player_id] })
 
     return true
 end
@@ -80,13 +79,11 @@ function M.on_response(dispatcher, state, player_id, payload)
             target_id   = payload.target_id,
             deadline    = os.time() + 15,
         }
-        dispatcher.broadcast_message(101, nk.json_encode({
-            type        = "skill_choice",
-            skill       = "ha_li_fa_ling",
-            description = string.format("%s activated Caliph's Decree on you, choose: discard 1 card or take 1 damage",
-                              player.username),
-            caster_id   = player_id,
-        }), { state.presences[payload.target_id] })
+        local m = local_mgr.bc("skill_harun_caliph_decree_on_target", { username = player.username })
+        m.type      = "skill_choice"
+        m.skill     = "ha_li_fa_ling"
+        m.caster_id = player_id
+        dispatcher.broadcast_message(101, nk.json_encode(m), { state.presences[payload.target_id] })
         return
     end
 

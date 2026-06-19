@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.9.0 · 最后更新：2026-06-17  
+> 版本：v0.10.0 · 最后更新：2026-06-19  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -128,16 +128,16 @@
 | `11` | 游戏事件日志（弃牌、技能发动、判定、死亡等文本） | `{"template":"game_bounty","params":{"username":"Player1"},"content":"Player1 used Bounty, everyone draws 1 card","event":"skill_used","hero":"saladin"}` |
 | `20` | 伤害结算时广播（动画驱动） | `{"event":"damage","target":"uid-B","source":"uid-A","amount":1}` |
 | `30` | 对局结束 | `{"winner":"MONARCH_WIN"}` |
-| `105` | 攻击或 AOE 命中某玩家，该玩家需要响应（广播全场，非目标玩家可播放攻击动画） | `{"attacker":"uid-A","target":"uid-B","damage":1,"msg":"受到攻击，请出示【防御】"}` |
+| `105` | 攻击或 AOE 命中某玩家，该玩家需要响应（广播全场，非目标玩家可播放攻击动画） | `{"template":"prompt_under_attack","params":{},"content":"Under attack! Play [Defense] or take damage","attacker":"uid-A","target":"uid-B","damage":1}` |
 
 #### 私发（仅发给特定玩家）
 
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
-| `101` | 技能使用者或目标玩家 | 英雄技能询问，如苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","description":"是否发动【敕令】？","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
-| `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART"}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"msg":"需要弃置 2 张牌"}` |
+| `101` | 技能使用者或目标玩家 | 英雄技能询问，如苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","template":"skill_suleiman_decree_prompt","params":{},"content":"Activate [Decree]? Choose a target and block a card type","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
+| `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART","template":"prompt_fire_guess","content":"Guess suit..."}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"template":"match_discard_required","params":{"username":"foo","count":2},"content":"foo must discard 2 card(s)"}` |
 
-> **OpCode 11 国际化格式**（v0.9.0+）：服务端发送 `{template, params, content}` 格式，其中 `template` 为 i18n key，`params` 为替换参数，`content` 为英文本地化回退。参数中以 `_id` / `_key` 结尾的字段（如 `card_id`、`hero_id`）由客户端查本地化对照表，其余字段直接替换模板中的 `{placeholder}`。客户端在 `get_localization` RPC 获取的 bundle 中查表渲染。
+> **国际化格式**（v0.9.0+）：所有用户可见文本（OpCode 11/99/101/105/106）均发送 `{template, params, content}` 格式，其中 `template` 为 i18n key，`params` 为替换参数，`content` 为英文本地化回退。参数中以 `_id` / `_key` 结尾的字段（如 `card_id`、`hero_id`）由客户端查本地化对照表，其余字段直接替换模板中的 `{placeholder}`。客户端在 `get_localization` RPC 获取的 bundle 中查表渲染。服务端通过 `localization_manager.bc(template_key, params)` 统一生成。
 
 #### OpCode 10 Payload 结构
 

@@ -36,12 +36,11 @@ function M.on_attack_defended(dispatcher, state, defender_id, attacker_id)
         description = "Use an ATTACK card to counter the attacker?"
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type = "skill_choice",
-        skill = "an_hao",
-        description = "Defense successful! Activate [Secret Signal] to counter the attacker?",
-        attacker_id = attacker_id
-    }), {state.presences[defender_id]})
+    local m = local_mgr.bc("skill_alibaba_an_hao_prompt")
+    m.type = "skill_choice"
+    m.skill = "an_hao"
+    m.attacker_id = attacker_id
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[defender_id]})
 
     return true  -- 挂起等待玩家选择
 end

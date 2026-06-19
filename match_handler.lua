@@ -3,6 +3,7 @@ local hero_mgr  = require("hero_manager")
 local catalog   = require("hero_catalog")
 local rules     = require("game_rules")
 local config    = require("game_config")
+local local_mgr = require("localization_manager")
 local season_mgr = require("season_manager")
 local skin_catalog  = require("skin_catalog")
 local local_mgr = require("localization_manager")
@@ -851,12 +852,11 @@ function M.do_discard_phase(dispatcher, state, ending_uid)
             discard_count = discard_count,
             deadline = os.time() + state.turn_timeout,
         }
-        dispatcher.broadcast_message(106, nk.json_encode({
-            event = "discard_required",
-            player_id = ending_uid,
-            discard_count = discard_count,
-            msg = ep.username .. " must discard " .. discard_count .. " card(s)",
-        }), {state.presences[ending_uid]})
+        local m = local_mgr.bc("match_discard_required", { username = ep.username, count = discard_count })
+        m.event = "discard_required"
+        m.player_id = ending_uid
+        m.discard_count = discard_count
+        dispatcher.broadcast_message(106, nk.json_encode(m), {state.presences[ending_uid]})
         state.pending_discard_continuation = {uid = ending_uid}
         return true
     end
@@ -1184,11 +1184,10 @@ function M.match_terminate(context, dispatcher, tick, state, grace_seconds)
     end
 
     -- 首次调用：广播关闭通知
-    dispatcher.broadcast_message(99, nk.json_encode({
-        event = "server_shutdown",
-        message = string.format("服务器即将维护，当前对局将在 %d 秒后强制结束", grace_seconds),
-        grace_seconds = grace_seconds,
-    }))
+    local sd_msg = local_mgr.bc("match_server_shutdown_hard", { seconds = grace_seconds })
+    sd_msg.event = "server_shutdown"
+    sd_msg.grace_seconds = grace_seconds
+    dispatcher.broadcast_message(99, nk.json_encode(sd_msg))
     state.pending_shutdown = os.time() + grace_seconds
 
     -- 排空期间保持对局运行，match_loop 中 pending_shutdown 检查到期后自动清理，
@@ -1202,11 +1201,10 @@ function M.match_signal(context, dispatcher, tick, state, data)
         local grace = tonumber(signal.grace) or 120
         if not state.pending_shutdown then
             state.pending_shutdown = os.time() + grace
-            dispatcher.broadcast_message(99, nk.json_encode({
-                event = "server_shutdown",
-                message = string.format("服务器即将维护，对局将在 %d 秒后结束", grace),
-                grace_seconds = grace,
-            }))
+            local sd_msg = local_mgr.bc("match_server_shutdown_soft", { seconds = grace })
+            sd_msg.event = "server_shutdown"
+            sd_msg.grace_seconds = grace
+            dispatcher.broadcast_message(99, nk.json_encode(sd_msg))
             log_info(state, string.format("收到 drain 信号，排空剩余 %d 秒", grace))
         end
         return state, "draining"

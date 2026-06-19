@@ -111,12 +111,11 @@ local CARD_EFFECTS = {
         state.jafar_du_ji = nil
 
         -- 通知目标出防御
-        dispatcher.broadcast_message(105, nk.json_encode({
-            attacker = source_id,
-            target = target_id,
-            damage = dmg,
-            msg = "Under attack! Play [Defense] or take damage"
-        }))
+        local m = local_mgr.bc("prompt_under_attack")
+        m.attacker = source_id
+        m.target = target_id
+        m.damage = dmg
+        dispatcher.broadcast_message(105, nk.json_encode(m))
     end,
 
     -- 桃 — 恢复 1 点生命值
@@ -285,11 +284,10 @@ local CARD_EFFECTS = {
                 is_attackers_turn = false,  -- 目标先出杀
                 deadline = os.time() + 15,
             }
-            dispatcher.broadcast_message(105, nk.json_encode({
-                event = "duel_require_attack",
-                target_id = target_id,
-                msg = "Duel! Play [Attack] or take 1 damage"
-            }))
+            local m = local_mgr.bc("prompt_duel_require_attack")
+            m.event = "duel_require_attack"
+            m.target_id = target_id
+            dispatcher.broadcast_message(105, nk.json_encode(m))
 
         elseif card.subtype == "discard_one" then
             -- 过河拆桥
@@ -451,11 +449,10 @@ local CARD_EFFECTS = {
                 deadline = os.time() + 15,
             }
             if state.presences[source_id] then
-                dispatcher.broadcast_message(106, nk.json_encode({
-                    event = "fire_guess",
-                    target_hand = revealed.suit,  -- 服务端直接告诉客户端实际花色
-                    prompt = "Guess suit (HEART/SPADE/CLUB/DIAMOND)",
-                }), {state.presences[source_id]})
+                local m = local_mgr.bc("prompt_fire_guess")
+                m.event = "fire_guess"
+                m.target_hand = revealed.suit
+                dispatcher.broadcast_message(106, nk.json_encode(m), {state.presences[source_id]})
             end
 
         end
@@ -497,12 +494,11 @@ function M.notify_aoe_target(dispatcher, state)
     end
 
     local required_name = action.required_response == "ATTACK" and "[Attack]" or "[Defense]"
-    dispatcher.broadcast_message(105, nk.json_encode({
-        attacker = action.attacker_id,
-        target   = target_id,
-        required = action.required_response,
-        msg      = "Under AOE! Play " .. required_name .. " or take damage"
-    }))
+    local m = local_mgr.bc("prompt_aoe", { required_name = required_name })
+    m.attacker = action.attacker_id
+    m.target   = target_id
+    m.required = action.required_response
+    dispatcher.broadcast_message(105, nk.json_encode(m))
 end
 
 -- ==========================================
@@ -1094,12 +1090,11 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     jafar_step2 = true,
                     deadline = os.time() + 15,
                 }
-                dispatcher.broadcast_message(105, nk.json_encode({
-                    attacker = action.attacker_id,
-                    target = action.target_id,
-                    damage = action.damage,
-                    msg = "Jafar's [Poison Plot]! Need another [Defense] to block",
-                }))
+                local m = local_mgr.bc("prompt_jafar_poison_plot")
+                m.attacker = action.attacker_id
+                m.target = action.target_id
+                m.damage = action.damage
+                dispatcher.broadcast_message(105, nk.json_encode(m))
                 return
             end
 
@@ -1175,11 +1170,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
                 action.deadline = os.time() + 15
 
                 local next_id = action.is_attackers_turn and action.attacker_id or action.target_id
-                dispatcher.broadcast_message(105, nk.json_encode({
-                    event = "duel_require_attack",
-                    target_id = next_id,
-                    msg = "Duel! Play [Attack] or forfeit",
-                }))
+                local m = local_mgr.bc("prompt_duel_forfeit")
+                m.event = "duel_require_attack"
+                m.target_id = next_id
+                dispatcher.broadcast_message(105, nk.json_encode(m))
                 return
             end
         end
@@ -1335,11 +1329,10 @@ function M.handle_response(dispatcher, state, player_id, payload)
                         }
                         local target_p = state.players[action.target_id]
                         if target_p and state.presences[action.target_id] then
-                            dispatcher.broadcast_message(106, nk.json_encode({
-                                event = "borrow_weapon_choice",
-                                msg = "Play [Attack] or hand over your weapon?",
-                                attack_target = chosen,
-                            }), {state.presences[action.target_id]})
+                            local m = local_mgr.bc("prompt_borrow_weapon_choice")
+                            m.event = "borrow_weapon_choice"
+                            m.attack_target = chosen
+                            dispatcher.broadcast_message(106, nk.json_encode(m), {state.presences[action.target_id]})
                         end
                         M.broadcast_update(dispatcher, state)
                         return
@@ -1595,11 +1588,10 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id, d
             damage      = damage or 1,
             deadline    = os.time() + 15,
         }
-        dispatcher.broadcast_message(101, nk.json_encode({
-            type = "weapon_skill",
-            skill = "chuangshi_fu",
-            description = "Discard 2 cards to force hit?"
-        }), {state.presences[attacker_id]})
+        local m = local_mgr.bc("prompt_weapon_force_hit")
+        m.type = "weapon_skill"
+        m.skill = "chuangshi_fu"
+        dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[attacker_id]})
         return
     end
 
@@ -1618,11 +1610,10 @@ function M.handle_defense_success(dispatcher, state, attacker_id, defender_id, d
                 target_id   = defender_id,
                 deadline    = os.time() + 15,
             }
-            dispatcher.broadcast_message(101, nk.json_encode({
-                type = "weapon_skill",
-                skill = "qinglong_dao",
-                description = "Play [Attack] to pursue the same target?"
-            }), {state.presences[attacker_id]})
+            local m = local_mgr.bc("prompt_weapon_pursue")
+            m.type = "weapon_skill"
+            m.skill = "qinglong_dao"
+            dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[attacker_id]})
             return
         end
     end
@@ -1927,11 +1918,10 @@ function M.notify_counter_target(dispatcher, state)
 
     local presence = state.presences[target_id]
     if not presence then return end
-    dispatcher.broadcast_message(105, nk.json_encode({
-        type = "counter_opportunity",
-        target = target_id,
-        msg = "Use [Counterspell] to counter?"
-    }), {presence})
+    local m = local_mgr.bc("prompt_counterspell_counter")
+    m.type = "counter_opportunity"
+    m.target = target_id
+    dispatcher.broadcast_message(105, nk.json_encode(m), {presence})
 end
 
 return M

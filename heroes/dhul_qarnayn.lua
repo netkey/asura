@@ -25,15 +25,14 @@ local function _offer_skills(dispatcher, state, player_id, p)
         wall_count = p.dhul_wall_count,
         deadline   = os.time() + 15,
     }
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type = "skill_choice",
-        skill = "zhu_bi_yuan_jiang",
-        description = "Choose a skill or skip",
-        can_wall   = can_wall,
-        can_west   = can_west,
-        can_east   = can_east,
-        wall_count = p.dhul_wall_count,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_dhul_qarnayn_skill_choose")
+    m.type = "skill_choice"
+    m.skill = "zhu_bi_yuan_jiang"
+    m.can_wall   = can_wall
+    m.can_west   = can_west
+    m.can_east   = can_east
+    m.wall_count = p.dhul_wall_count
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 end
 
 -- 准备阶段：从弃牌堆回收1张牌铸为壁垒（不占出牌阶段次数）
@@ -119,12 +118,11 @@ function M.on_attack_resolved(dispatcher, state, attacker_id)
         deadline   = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "yuan_jiang_west",
-        description = "[Far-Reach West] Choose an extra attack target",
-        targets     = targets,
-    }), {state.presences[attacker_id]})
+    local m = local_mgr.bc("skill_dhul_qarnayn_west_target")
+    m.type    = "skill_choice"
+    m.skill   = "yuan_jiang_west"
+    m.targets = targets
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[attacker_id]})
     return true
 end
 
@@ -160,12 +158,11 @@ function M.on_trick_resolved(dispatcher, state, player_id, subtype)
         deadline    = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "yuan_jiang_east",
-        description = "[Far-Reach East] Choose an extra trick target",
-        targets     = targets,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_dhul_qarnayn_east_target")
+    m.type    = "skill_choice"
+    m.skill   = "yuan_jiang_east"
+    m.targets = targets
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
     return true
 end
 

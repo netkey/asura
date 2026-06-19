@@ -26,11 +26,10 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         deadline  = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "song_ci",
-        description = "Activate [Song Ci] to draw 4 cards, then give 1 hand card to another character?",
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_enheduanna_song_ci_prompt")
+    m.type  = "skill_choice"
+    m.skill = "song_ci"
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end
@@ -76,13 +75,12 @@ function M.on_response(dispatcher, state, player_id, payload)
             deadline   = os.time() + 15,
         }
 
-        dispatcher.broadcast_message(101, nk.json_encode({
-            type        = "skill_choice",
-            skill       = "song_ci_give",
-            description = "Select 1 hand card to give to another character",
-            hand_cards  = hand_cards,
-            targets     = targets,
-        }), {state.presences[player_id]})
+        local m = local_mgr.bc("skill_enheduanna_song_ci_give")
+        m.type       = "skill_choice"
+        m.skill      = "song_ci_give"
+        m.hand_cards = hand_cards
+        m.targets    = targets
+        dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
         rules.broadcast_update(dispatcher, state)
 

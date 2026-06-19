@@ -31,12 +31,11 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         deadline  = os.time() + 20,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "xing_xiang",
-        description = string.format("[Xing Xiang]: Peek at top %d card(s) of deck, reorder and put back, then draw 2", #cards),
-        cards       = cards,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_hakim_xing_xiang_prompt", { count = #cards })
+    m.type  = "skill_choice"
+    m.skill = "xing_xiang"
+    m.cards = cards
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end

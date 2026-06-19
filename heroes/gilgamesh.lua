@@ -25,12 +25,11 @@ function M.on_turn_end(dispatcher, state, player_id)
         deadline  = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "bu_xiu",
-        description = "Discard 1 card to activate [Bu Xiu] and restore 1 HP?",
-        cards       = cards,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_gilgamesh_bu_xiu_prompt")
+    m.type  = "skill_choice"
+    m.skill = "bu_xiu"
+    m.cards = cards
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end

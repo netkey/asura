@@ -33,12 +33,11 @@ function M.on_draw_phase_start(dispatcher, state, player_id)
         deadline  = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "suan_fa",
-        description = "Arrange the top 4 cards in any order, then choose 2 to take into hand",
-        cards       = top_cards,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_al_khwarizmi_algorithm_prompt")
+    m.type  = "skill_choice"
+    m.skill = "suan_fa"
+    m.cards = top_cards
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end

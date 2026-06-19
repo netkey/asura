@@ -30,12 +30,11 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         deadline    = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "yi_dian",
-        description = "Discard 1 heart card to activate [Canon of Medicine: Self-Diagnosis] and recover 1 HP?",
-        heart_cards = heart_cards,
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_avicenna_yi_dian_prompt")
+    m.type        = "skill_choice"
+    m.skill       = "yi_dian"
+    m.heart_cards = heart_cards
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
 
     return true
 end

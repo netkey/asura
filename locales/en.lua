@@ -111,4 +111,38 @@ return {
 
   -- ========== 对局消息 ==========
   match_discard_phase            = "{username} discard phase: {count} cards ({card_list})",
+match_discard_required         = "{username} must discard {count} card(s)",
+match_server_shutdown_hard     = "Server maintenance: this game will end in {seconds} seconds",
+match_server_shutdown_soft     = "Server maintenance: game will end in {seconds} seconds",
+
+-- ========== 交互提示 ==========
+prompt_under_attack            = "Under attack! Play [Defense] or take damage",
+prompt_duel_require_attack     = "Duel! Play [Attack] or take 1 damage",
+prompt_duel_forfeit            = "Duel! Play [Attack] or forfeit",
+prompt_aoe                     = "Under AOE! Play {required_name} or take damage",
+prompt_fire_guess              = "Guess suit (HEART/SPADE/CLUB/DIAMOND)",
+prompt_jafar_poison_plot       = "Jafar's [Poison Plot]! Need another [Defense] to block",
+prompt_borrow_weapon_choice    = "Play [Attack] or hand over your weapon?",
+prompt_counterspell_counter    = "Use [Counterspell] to counter?",
+prompt_weapon_force_hit        = "Discard 2 cards to force hit?",
+prompt_weapon_pursue           = "Play [Attack] to pursue the same target?",
+
+-- ========== 英雄技能交互提示 ==========
+skill_al_biruni_measure_prompt     = "[Measurement]: Look at top {count} cards, pick 2 to hand, discard the rest",
+skill_al_khwarizmi_algorithm_prompt = "Arrange the top 4 cards in any order, then choose 2 to take into hand",
+skill_alibaba_an_hao_prompt        = "Defense successful! Activate [Secret Signal] to counter the attacker?",
+skill_avicenna_yi_dian_prompt      = "Discard 1 heart card to activate [Canon of Medicine: Self-Diagnosis] and recover 1 HP?",
+skill_dhul_qarnayn_skill_choose    = "Choose a skill or skip",
+skill_dhul_qarnayn_west_target     = "[Far-Reach West] Choose an extra attack target",
+skill_dhul_qarnayn_east_target     = "[Far-Reach East] Choose an extra trick target",
+skill_enheduanna_song_ci_prompt    = "Activate [Song Ci] to draw 4 cards, then give 1 hand card to another character?",
+skill_enheduanna_song_ci_give      = "Select 1 hand card to give to another character",
+skill_gilgamesh_bu_xiu_prompt      = "Discard 1 card to activate [Bu Xiu] and restore 1 HP?",
+skill_hakim_xing_xiang_prompt      = "[Xing Xiang]: Peek at top {count} card(s) of deck, reorder and put back, then draw 2",
+skill_harun_caliph_decree_prompt   = "Activate Caliph's Decree? Choose a player: discard 1 card or take 1 damage",
+skill_harun_caliph_decree_on_target = "{username} activated Caliph's Decree on you, choose: discard 1 card or take 1 damage",
+skill_ibn_battuta_journey_prompt   = "Discard 1 card to activate [Journey] and draw the top card from the discard pile?",
+skill_rumi_whirl_prompt            = "Activate [Whirl]: discard all {hand_count} cards, draw {hand_count} new cards?",
+skill_scheherazade_qian_ye_prompt  = "{username} dealt {damage} damage to you! Activate [Thousand Nights]? Discard 1 card and choose 1 of their cards to discard.",
+skill_suleiman_decree_prompt       = "Activate [Decree]? Choose a target and block a card type",
 }

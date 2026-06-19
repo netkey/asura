@@ -36,13 +36,12 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         deadline    = os.time() + 15,
     }
 
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type        = "skill_choice",
-        skill       = "chi_ling",
-        description = "Activate [Decree]? Choose a target and block a card type",
-        targets     = targets,
-        block_types = block_types,
-    }), { state.presences[player_id] })
+    local m = local_mgr.bc("skill_suleiman_decree_prompt")
+    m.type        = "skill_choice"
+    m.skill       = "chi_ling"
+    m.targets     = targets
+    m.block_types = block_types
+    dispatcher.broadcast_message(101, nk.json_encode(m), { state.presences[player_id] })
 
     return true
 end

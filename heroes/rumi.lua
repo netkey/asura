@@ -18,12 +18,10 @@ function M.on_play_phase_start(dispatcher, state, player_id)
         deadline = os.time() + 15,
         description = "Activate [Whirl], discard all to draw equal?",
     }
-    dispatcher.broadcast_message(101, nk.json_encode({
-        type = "skill_choice",
-        skill = "xuan_hui",
-        description = string.format("Activate [Whirl]: discard all %d cards, draw %d new cards?",
-            #player.hand, #player.hand)
-    }), {state.presences[player_id]})
+    local m = local_mgr.bc("skill_rumi_whirl_prompt", { hand_count = #player.hand })
+    m.type = "skill_choice"
+    m.skill = "xuan_hui"
+    dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
     return true
 end
 
