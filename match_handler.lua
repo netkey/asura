@@ -423,7 +423,14 @@ local function auto_resolve_pending(dispatcher, state)
         local duel_id = act.is_attackers_turn and act.attacker_id or act.target_id
         rules.handle_response(dispatcher, state, duel_id, { confirm = false })
     elseif act.type == "WAITING_FOR_COUNTER" then
-        rules.handle_response(dispatcher, state, act.current_target, { confirm = false })
+        -- 并行模式：超时后所有未 pass 玩家自动 pass
+        -- handle_response 内部会检查 in_chain + responded，重复调用无害
+        for _, uid in ipairs(act.remaining_order) do
+            if not act.responded[uid] then
+                rules.handle_response(dispatcher, state, uid, { confirm = false })
+            end
+            if not state.pending_action then break end
+        end
     elseif act.type == "WAITING_FOR_BORROW_WEAPON" then
         rules.handle_response(dispatcher, state, act.target_id, { confirm = false })
     elseif act.type == "WAITING_FOR_FIRE_GUESS" then

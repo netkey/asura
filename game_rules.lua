@@ -756,8 +756,16 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
         elseif pa.type == "WAITING_FOR_TRICK_SELECT" and pa.source_id == player_id then
             blocked = true
         elseif pa.type == "WAITING_FOR_COUNTER" then
-            if pa.current_target == player_id or pa.caster_id == player_id then
+            if pa.caster_id == player_id then
                 blocked = true
+            else
+                -- 在询问列表中且尚未 pass 的玩家被阻塞（防止出其他牌）
+                for _, uid in ipairs(pa.remaining_order) do
+                    if uid == player_id and not pa.responded[uid] then
+                        blocked = true
+                        break
+                    end
+                end
             end
         elseif pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == player_id then
             blocked = true
@@ -895,12 +903,12 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
                 type = "WAITING_FOR_COUNTER",
                 caster_id = player_id,
                 remaining_order = remaining,
-                current_idx = 1,
-                current_target = remaining[1],
+                responded = {},
                 counter_depth = 0,
+                round = 0,
                 deadline = os.time() + 15,
             }
-            M.notify_counter_target(dispatcher, state)
+            M.notify_counter_all(dispatcher, state)
         end
         M.broadcast_update(dispatcher, state)
         return true
@@ -928,6 +936,14 @@ function M.handle_play_card(dispatcher, state, player_id, payload)
 end
 
 -- 处决濒死玩家
+-- 检查 counter 链中所有存活玩家是否均已 pass
+local function counter_all_responded(action)
+    for _, uid in ipairs(action.remaining_order) do
+        if not action.responded[uid] then return false end
+    end
+    return true
+end
+
 local function execute_death(dispatcher, state, target_id, source_id)
     local target = state.players[target_id]
     local hero_mgr = require("hero_manager")
@@ -959,7 +975,6 @@ local function execute_death(dispatcher, state, target_id, source_id)
         -- 类型 1：死者是当前响应者 → 自动确认失败，推进链
         if (pa.type == "WAITING_FOR_DEFENSE" and pa.target_id == target_id)
             or (pa.type == "WAITING_FOR_AOE" and pa.current_target == target_id)
-            or (pa.type == "WAITING_FOR_COUNTER" and pa.current_target == target_id)
             or (pa.type == "WAITING_FOR_DUEL"
                 and (pa.attacker_id == target_id or pa.target_id == target_id))
             or (pa.type == "WAITING_FOR_BORROW_WEAPON" and pa.target_id == target_id)
@@ -979,28 +994,36 @@ local function execute_death(dispatcher, state, target_id, source_id)
                 state.pending_action = nil
                 M.broadcast_update(dispatcher, state)
             end
-        -- 类型 3：死者在 COUNTER 链中但不是当前节点 → 从链中移除
+        -- 类型 3：死者在 COUNTER 链中 → 自动 pass（如尚未响应）并从链中移除
         elseif pa.type == "WAITING_FOR_COUNTER" and pa.remaining_order then
-            local removed = false
-            local new_order = {}
-            for i, uid in ipairs(pa.remaining_order) do
-                if uid == target_id then
-                    removed = true
-                else
-                    table.insert(new_order, uid)
-                end
+            -- 如果死者尚未 pass，先代为 pass（可能触发链结束）
+            if not pa.responded[target_id] then
+                M.handle_response(dispatcher, state, target_id, {confirm = false})
             end
-            if removed then
-                pa.remaining_order = new_order
-                if #new_order == 0 then
-                    -- 链中已无存活玩家，结束窗口
-                    state.pending_action = nil
-                    local pt = state.pending_trick
-                    state.pending_trick = nil
-                    if pt and pt.card then
-                        table.insert(state.discard_pile, pt.card)
+            -- 从链中移除死者（handle_response 可能已将链结束，需重判）
+            if state.pending_action == pa then
+                local removed = false
+                local new_order = {}
+                for i, uid in ipairs(pa.remaining_order) do
+                    if uid == target_id then
+                        removed = true
+                    else
+                        table.insert(new_order, uid)
                     end
-                    M.broadcast_update(dispatcher, state)
+                end
+                if removed then
+                    pa.remaining_order = new_order
+                    pa.responded[target_id] = nil
+                    if #new_order == 0 then
+                        -- 链中已无存活玩家，结束窗口
+                        state.pending_action = nil
+                        local pt = state.pending_trick
+                        state.pending_trick = nil
+                        if pt and pt.card then
+                            table.insert(state.discard_pile, pt.card)
+                        end
+                        M.broadcast_update(dispatcher, state)
+                    end
                 end
             end
         -- 类型 4：死者是 pending_action 发起者（hero-specific 技能如 HAKIM_XING_XIANG/SCHEHERAZADE_QIANYE 等）
@@ -1361,12 +1384,21 @@ function M.handle_response(dispatcher, state, player_id, payload)
             hero_mgr.trigger("on_trick_resolved", dispatcher, state, action.source_id, action.subtype)
         end
 
-    -- ==================== 无懈可击窗口 ====================
+    -- ==================== 无懈可击窗口（并行模式）====================
     elseif action.type == "WAITING_FOR_COUNTER" then
-        if action.remaining_order[action.current_idx] ~= player_id then return end
+        -- 守卫：玩家必须在询问列表中且本轮尚未 pass
+        local in_chain = false
+        for _, uid in ipairs(action.remaining_order) do
+            if uid == player_id then in_chain = true; break end
+        end
+        if not in_chain then return end
+        if action.responded[player_id] then return end
+        -- 拒绝上一轮的 stale 响应（未收到新一轮通知就发出的 pass/counterspell）
+        if type(payload.round) == "number" and payload.round ~= action.round then return end
 
         if payload.confirm == true and type(payload.card_id) == "string" then
             local p = state.players[player_id]
+            local card_found = false
             for i, c in ipairs(p.hand) do
                 if c.id == payload.card_id and c.type == "INSTANT_TRICK" and c.subtype == "counterspell" then
                     table.remove(p.hand, i)
@@ -1375,23 +1407,26 @@ function M.handle_response(dispatcher, state, player_id, payload)
                     dispatcher.broadcast_message(11, nk.json_encode(local_mgr.bc("game_use_counterspell", {
                         username = p.username,
                     })))
+                    card_found = true
                     break
                 end
             end
+            if card_found then
+                -- 进入新轮次：清空已 pass 列表，重置共享 deadline，重通知所有人
+                action.round = action.round + 1
+                action.responded = {}
+                action.deadline = os.time() + 15
+                M.notify_counter_all(dispatcher, state)
+                M.broadcast_update(dispatcher, state)
+                return
+            end
+            -- card_id 无效：静默忽略，不推进链（等待玩家重新响应或超时）
         end
 
-        -- 推进到下一位（跳过已死亡玩家，每人浪费 15s）
-        repeat
-            action.current_idx = action.current_idx + 1
-        until action.current_idx > #action.remaining_order
-            or (state.players[action.remaining_order[action.current_idx]]
-                and state.players[action.remaining_order[action.current_idx]].health > 0)
-        if action.current_idx <= #action.remaining_order then
-            action.current_target = action.remaining_order[action.current_idx]
-            action.deadline = os.time() + 15
-            M.notify_counter_target(dispatcher, state)
-        else
-            -- 窗口结束或无存活目标
+        action.responded[player_id] = true
+
+        if counter_all_responded(action) then
+            -- 窗口结束
             state.pending_action = nil
             if action.counter_depth % 2 == 1 then
                 -- 奇数 → 被无懈可击抵消
@@ -1909,19 +1944,23 @@ function M.resolve_pending_trick(dispatcher, state)
     end
 end
 
--- 通知当前玩家回复是否使用无懈可击
-function M.notify_counter_target(dispatcher, state)
+-- 通知所有待响应玩家：是否使用无懈可击（并行广播）
+function M.notify_counter_all(dispatcher, state)
     local action = state.pending_action
     if not action or action.type ~= "WAITING_FOR_COUNTER" then return end
-    local target_id = action.current_target
-    if not target_id then return end
 
-    local presence = state.presences[target_id]
-    if not presence then return end
-    local m = local_mgr.bc("prompt_counterspell_counter")
-    m.type = "counter_opportunity"
-    m.target = target_id
-    dispatcher.broadcast_message(105, nk.json_encode(m), {presence})
+    for _, uid in ipairs(action.remaining_order) do
+        if not action.responded[uid] then
+            local presence = state.presences[uid]
+            if presence then
+                local m = local_mgr.bc("prompt_counterspell_counter")
+                m.type = "counter_opportunity"
+                m.target = uid
+                m.round = action.round
+                dispatcher.broadcast_message(105, nk.json_encode(m), {presence})
+            end
+        end
+    end
 end
 
 return M

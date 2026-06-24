@@ -305,9 +305,19 @@ local function ai_handle_pending(state)
             end
 
         elseif action.type == "WAITING_FOR_COUNTER" then
-            local p = state.players[action.current_target]
-            if not p then state.pending_action = nil; break end
-            rules.handle_response(state._dispatcher, state, action.current_target, {confirm=false})
+            -- 并行模式：找第一个未 pass 的玩家代为 pass
+            local target_id
+            for _, uid in ipairs(action.remaining_order) do
+                if not action.responded[uid] then
+                    target_id = uid
+                    break
+                end
+            end
+            if not target_id then
+                state.pending_action = nil
+                break
+            end
+            rules.handle_response(state._dispatcher, state, target_id, {confirm=false, round=action.round})
 
         elseif action.type == "WAITING_FOR_BORROW_WEAPON" then
             rules.handle_response(state._dispatcher, state, action.target_id, {confirm=false})
