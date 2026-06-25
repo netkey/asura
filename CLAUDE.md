@@ -38,7 +38,11 @@ asura/
 ├── skin_catalog.lua            # 皮肤注册表
 ├── daily_task_manager.lua      # 每日任务系统（UTC+3 刷新，胜场→碎片）
 ├── fragment_manager.lua        # 英雄碎片系统（兑换/转换/赠送）
-├── achievement_manager.lua     # 成就系统
+├── localization_manager.lua     # 多语言本地化管理器（get_bundle/bc 广播辅助）
+├── locales/                     # 本地化模板
+│   ├── en.lua                   # 英语模板（135 条 broadcast key）
+│   ├── ar.lua                   # 阿语模板（待翻译，fallback 到 en）
+│   └── card_names.lua           # 卡牌/技能/英雄名查表
 ├── demo_concurrent.lua         # 本地并发测试（mock Nakama，10局随机英雄）。⚠️ 部署时被排除
 ├── demo.lua                    # ⚠️ 开发/测试辅助文件。CI 部署时自动清理（Nakama 加载此文件会导致崩溃）
 ├── heroes/                     # 英雄技能定义 (30 个英雄)
@@ -102,7 +106,7 @@ asura/
 | ARMOR | 3 | 八卦阵/仁王盾/藤甲 |
 | HORSE | 8 | 进攻马(×4)+防守马(×4)，影响攻击距离 |
 
-> 内部 type 不变，`card.name` 为大中东主题名（如 WINE→沙漠之心）。卡牌名中东本土化待办见 `project_backlog.md`。
+> 内部 type 不变，`card.name` 为大中东主题名（如 WINE→沙漠之心）。卡牌名已全量中东本土化（card_deck.lua 108 张英文命名），阿语翻译见 `locales/ar.lua`。
 
 ## 英雄列表
 
@@ -230,7 +234,7 @@ Nakama Lua 无 Prometheus HTTP 接口，使用 `ops/matches` 存储记录指标�
 `on_response` **所有分支**（含失败/校验不通过/超时）必须调用 `broadcast_update`，否则客户端卡死在假死循环。不要在每个成功分支里单独调用，放在块外统一调用。
 
 ### 7. pending_action 与死亡玩家
-`pending_action` 涉及已死亡玩家时必须清理并推进链。`auto_defend` 对 dead target 不能静默 return，必须 `handle_response` 推进链。`WAITING_FOR_COUNTER` 遍历时跳过 `health<=0` 的玩家，避免每死者空耗 15s。
+`pending_action` 涉及已死亡玩家时必须清理并推进链。`auto_defend` 对 dead target 不能静默 return，必须 `handle_response` 推进链。`WAITING_FOR_COUNTER` 并行模式：`remaining_order` 构建时过滤 `health<=0`，`execute_death` 类型 3 自动 pass 并从链中移除死者。`round` 计数器防止 stale 响应污染新轮次。
 
 ### 8. 并发安全 — OCC 存储
 `find_or_create_match` 等竞态场景用 `nk.storage_write` 的 OCC 版本控制替代 `match_list` 二次查询（TOCTOU）。
@@ -260,5 +264,5 @@ Five canonical triage labels with default names. See `docs/agents/triage-labels.
 
 ---
 
-**最后更新**: 2026-06-19
-**版本**: 0.10.0
+**最后更新**: 2026-06-24
+**版本**: 0.11.0
