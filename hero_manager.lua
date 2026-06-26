@@ -38,13 +38,20 @@ local heroes = {
 
 function M.trigger(hook_name, dispatcher, state, player_id, ...)
     if not player_id or not state.players[player_id] then return false end
-    local hero_id = state.players[player_id].hero
-    local hero_mod = heroes[hero_id]
+    local p = state.players[player_id]
+    local hero_mod = heroes[p.hero]
+    local triggered = false
     if hero_mod and hero_mod[hook_name] then
-        -- 执行钩子函数
-        return hero_mod[hook_name](dispatcher, state, player_id, ...)
+        triggered = hero_mod[hook_name](dispatcher, state, player_id, ...)
     end
-    return false
+    -- 主公技：身份为 MONARCH 时，有 lord_skill 的英雄额外触发对应钩子
+    if hero_mod and hero_mod.lord_skill and p.role == "MONARCH" then
+        local lord_fn = hero_mod.lord_skill[hook_name]
+        if lord_fn then
+            triggered = lord_fn(dispatcher, state, player_id, ...) or triggered
+        end
+    end
+    return triggered
 end
 
 

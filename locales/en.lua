@@ -102,6 +102,7 @@ return {
   skill_nizamulmulk_statecraft   = "{username} activates Statecraft, {target} was forced to discard 1 card!",
   skill_rumi_whirl               = "{username} activated Whirl",
   skill_saladin_hold_fast        = "{username} activated Hold Fast, suffered {count} damage, drew {count} cards",
+  skill_saladin_lord_sovereign   = "{username} activated Sultan's Authority, drew 1 additional card",
   skill_scheherazade_thousand_nights = "{username} activated Thousand Nights, discarded 1 card and forced {target} to discard {card_id}!",
   skill_sinbad_seven_voyages     = "{username} activated Seven Voyages ({current}/{max})",
   skill_suleiman_decree          = "{username} activated Decree",

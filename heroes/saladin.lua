@@ -38,4 +38,22 @@ function M.on_damaged(dispatcher, state, player_id, amount, source_id)
     return false  -- 不挂起游戏流程
 end
 
+-- 主公技：【君权】— 受到伤害时额外摸 1 张牌（与坚守叠加，共摸 2 张/每点伤害）
+M.lord_skill = {
+    on_damaged = function(dispatcher, state, player_id, amount, source_id)
+        local player = state.players[player_id]
+        if player.hero ~= "saladin" or player.health <= 0 then return false end
+        local rules = require("game_rules")
+        rules.draw_cards(state, player_id, 1)
+        local msg = local_mgr.bc("skill_saladin_lord_sovereign", {
+            username = player.username,
+        })
+        msg.hero = "saladin"
+        msg.skill = "lord_skill"
+        dispatcher.broadcast_message(11, nk.json_encode(msg))
+        rules.broadcast_update(dispatcher, state)
+        return false
+    end,
+}
+
 return M

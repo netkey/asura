@@ -506,16 +506,26 @@ end
 -- ==========================================
 
 -- 座位距离（双向最短路径）
+-- 计算两个存活玩家之间的座次距离（跳过已阵亡玩家重排座序）
 function M.seat_distance(state, a_id, b_id)
     if a_id == b_id then return 0 end
-    local a_seat, b_seat
-    for i, uid in ipairs(state.presence_ids) do
-        if uid == a_id then a_seat = i end
-        if uid == b_id then b_seat = i end
+    -- 只在存活玩家之间计算距离
+    local alive = {}
+    for _, uid in ipairs(state.presence_ids) do
+        local p = state.players[uid]
+        if p and p.health > 0 then
+            table.insert(alive, uid)
+        end
     end
-    if not a_seat or not b_seat then return 99 end
-    local n = #state.presence_ids
-    local diff = math.abs(a_seat - b_seat)
+    local a_pos, b_pos
+    for i, uid in ipairs(alive) do
+        if uid == a_id then a_pos = i end
+        if uid == b_id then b_pos = i end
+    end
+    if not a_pos or not b_pos then return 99 end
+    local n = #alive
+    if n <= 1 then return 99 end
+    local diff = math.abs(a_pos - b_pos)
     return math.min(diff, n - diff)
 end
 

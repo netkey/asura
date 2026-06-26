@@ -25,7 +25,7 @@ local function trigger_phase_hook(dispatcher, state, uid, hook_name, continuatio
 end
 
 -- 游戏状态定义
-local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2 }
+local STATE = { WAITING = 0, PLAYING = 1, ENDED = 2, HERO_SELECT = 3 }
 
 -- 结构化日志：附加 match_id/模块上下文
 local function log_info(state, msg)
@@ -211,45 +211,8 @@ function M.match_join(context, dispatcher, tick, state, presences)
             if #fe_objects > 0 then free_events = fe_objects[1].value or {} end
 
             -- 从 join 时的 metadata 读取英雄选择，未携带则默认阿拉丁
-            local requested = state.pending_heroes[p.user_id]
-            state.pending_heroes[p.user_id] = nil
-            local want_hero = "aladdin"
-            if type(requested) == "string" and catalog.HEROES[requested] then
-                if unlocked_heroes[requested] then
-                    want_hero = requested
-                else
-                    -- 限时免费活动期间无需购买也可使用
-                    local ev = free_events[requested]
-                    if ev then
-                        local now = os.time()
-                        if now >= ev.start_time and now <= ev.end_time then
-                            want_hero = requested
-                        end
-                    end
-                end
-                if want_hero ~= requested then
-                    log_warn(state, "玩家 " .. p.username .. " 请求英雄 " .. tostring(requested) .. " 不可用，重置为阿拉丁")
-                end
-            end
-
-            -- 从 join 时的 metadata 读取皮肤选择，校验归属和拥有权
-            local want_skin_id = state.pending_skins[p.user_id]
-            state.pending_skins[p.user_id] = nil
-            local skin_id = nil  -- nil = 默认皮肤
-            if type(want_skin_id) == "string" and skin_catalog.exists(want_skin_id) then
-                local skin_info = skin_catalog.SKINS[want_skin_id]
-                -- 皮肤必须属于当前选择的英雄
-                if skin_info.hero_id == want_hero then
-                    -- 默认皮肤无需拥有权检查，付费皮肤需已购买
-                    if skin_info.is_default or owned_skin_set[want_skin_id] then
-                        skin_id = want_skin_id
-                    else
-                        log_warn(state, "玩家 " .. p.username .. " 未拥有皮肤 " .. want_skin_id .. "，回退默认皮肤")
-                    end
-                else
-                    log_warn(state, "皮肤 " .. want_skin_id .. " 不属于英雄 " .. want_hero .. "，回退默认皮肤")
-                end
-            end
+            -- 英雄在分身份后通过 op=6 选择，此处仅占位（nil=待选）
+            -- 皮肤同理，选将完成后通过 op=6 或默认皮肤渲染
 
             local ph = state.config.match.player_health
             state.players[p.user_id] = {
@@ -257,10 +220,10 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 username = p.username,
                 health = ph,
                 max_health = ph,
-                seat_idx = #state.presence_ids - 1,  -- 座位号（0-indexed），整局不变
+                seat_idx = #state.presence_ids - 1,
                 hand = {},
-                hero = want_hero,
-                skin_id = skin_id,                   -- 选择的皮肤（nil=默认）
+                hero = nil,      -- 待选（HERO_SELECT 阶段通过 op=6 选定）
+                skin_id = nil,
                 role = "NONE",        -- pvp 模式为 "NONE"，identity 模式后续覆写
                 judgments = {},
                 equipment = {
@@ -273,6 +236,8 @@ function M.match_join(context, dispatcher, tick, state, presences)
                 attacks_this_turn = 0,
                 damage_dealt = 0,
                 damage_received = 0,
+                _unlocked_heroes = unlocked_heroes,  -- 缓存：选将时验证归属用
+                _free_events = free_events,          -- 缓存：限免窗口
             }
             -- 写入等待中状态，好友列表可查
             write_user_status(p.user_id, context.match_id, "waiting",
@@ -285,65 +250,107 @@ function M.match_join(context, dispatcher, tick, state, presences)
     -- 检查是否达到设定的最大人数
     local current_count = #state.presence_ids
     if state.status == STATE.WAITING and current_count >= state.max_players then
-        state.status = STATE.PLAYING
-        metric_inc("matches_started")
-
-
-		-- 【核心修改：更新房间标签】
-        -- 将 open 设为 0，这样 match_list 的查询语句 +label.open:1 就搜不到这个房间了
-        local new_label = {
-            mode        = state.mode,
-            open        = 0,
-            max         = state.max_players,
-            spectatable = 1,  -- 对局开始后允许旁观者加入
-            status      = "playing",
-            players     = #state.presence_ids,
-            started_at  = os.time(),
-        }
-        dispatcher.match_label_update(nk.json_encode(new_label))
-
-		-- 随机分配英雄（从 hero_catalog 动态取，避免双维护）
-		local hero_list = {}
-        for id in pairs(catalog.HEROES) do
-            table.insert(hero_list, id)
-        end
-        for _, p in pairs(state.players) do
-            -- 保留玩家在 join 时自选的英雄；未选择或选择无效则随机分配
-            if not p.hero or not catalog.HEROES[p.hero] then
-                p.hero = hero_list[math.random(#hero_list)]
-                p.skin_id = nil  -- 英雄被重分配，重置为默认皮肤
-            end
-            -- 自选英雄不变时，skin_id 已在 match_join 中校验完毕，无需改动
-        end
-        -- 身份分配（pvp 模式跳过，identity 模式按角色分配）
+        -- 角色分配（pvp 模式跳过，identity 模式按角色分配）
         local roles = assign_roles(current_count, state.mode)
         for i, uid in ipairs(state.presence_ids) do
             local p = state.players[uid]
             if roles[i] then
                 p.role = roles[i]
                 if p.role == "MONARCH" then
-                    local mh = state.config.match.monarch_health
-                    p.health = mh
-                    p.max_health = mh
-                    state.current_turn_id = uid
+                    state.monarch_id = uid
                 end
             end
         end
-        -- pvp 模式无主公，第一个加入的玩家先手
-        if state.mode == "pvp" and not state.current_turn_id then
-            state.current_turn_id = state.presence_ids[1]
-        end
 
-        -- 所有玩家状态升级为 playing，好友可进入观战
+        -- 进入选将阶段
+        state.status = STATE.HERO_SELECT
+        state.hero_select_deadline = os.time() + 15
+        state.hero_select_monarch_done = (state.mode == "pvp")  -- pvp 无需主公先选
+        metric_inc("matches_started")
+
+        -- 更新房间标签
+        local new_label = {
+            mode        = state.mode,
+            open        = 0,
+            max         = state.max_players,
+            spectatable = 0,
+            status      = "hero_select",
+            players     = current_count,
+            started_at  = os.time(),
+        }
+        dispatcher.match_label_update(nk.json_encode(new_label))
+
+        -- 所有玩家状态升级为 hero_select
         for _, uid in ipairs(state.presence_ids) do
-            write_user_status(uid, context.match_id, "playing",
+            write_user_status(uid, context.match_id, "hero_select",
                 state.mode, current_count, state.max_players)
         end
 
-        rules.start_game(dispatcher, state)
-        M.do_judgment_and_draw_phase(dispatcher, state)
+        -- 向每个玩家广播身份信息（主公公开，其他人私密）
+        if state.mode == "identity" then
+            for _, uid in ipairs(state.presence_ids) do
+                local pres = state.presences[uid]
+                local pdata = state.players[uid]
+                if pres and pdata then
+                    local role_msg = {
+                        type = "role_assigned",
+                        role = pdata.role,
+                        monarch_id = state.monarch_id,
+                    }
+                    dispatcher.broadcast_message(11, nk.json_encode(role_msg), {pres})
+                end
+            end
+        end
+
         rules.broadcast_update(dispatcher, state)
-        log_info(state, "对局正式启动！总人数：" .. current_count)
+        log_info(state, string.format("进入选将阶段，%d 人，模式: %s", current_count, state.mode))
+    end
+
+    -- 选将完成 → 进入 PLAYING
+    if state.status == STATE.HERO_SELECT then
+        local all_picked = true
+        for _, p in pairs(state.players) do
+            if not p.hero or not catalog.HEROES[p.hero] then
+                all_picked = false
+                break
+            end
+        end
+        if all_picked then
+            state.status = STATE.PLAYING
+
+            -- 设置主公血量 + 先手
+            if state.monarch_id then
+                local monarch = state.players[state.monarch_id]
+                local mh = state.config.match.monarch_health
+                monarch.health = mh
+                monarch.max_health = mh
+                state.current_turn_id = state.monarch_id
+            elseif state.mode == "pvp" then
+                state.current_turn_id = state.presence_ids[1]
+            end
+
+            -- 更新标签为 playing
+            local new_label = {
+                mode        = state.mode,
+                open        = 0,
+                max         = state.max_players,
+                spectatable = 1,
+                status      = "playing",
+                players     = #state.presence_ids,
+                started_at  = os.time(),
+            }
+            dispatcher.match_label_update(nk.json_encode(new_label))
+
+            for _, uid in ipairs(state.presence_ids) do
+                write_user_status(uid, context.match_id, "playing",
+                    state.mode, current_count, state.max_players)
+            end
+
+            rules.start_game(dispatcher, state)
+            M.do_judgment_and_draw_phase(dispatcher, state)
+            rules.broadcast_update(dispatcher, state)
+            log_info(state, "对局正式启动！总人数：" .. current_count)
+        end
     end
     return state
 end
@@ -585,7 +592,65 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     state._turn_depth = 0
 
     -- ==========================================
-    -- 0. 等待超时清理（5分钟无满员自动解散）
+    -- 0. 选将阶段超时逻辑
+    -- ==========================================
+    if state.status == STATE.HERO_SELECT then
+        local all_picked = true
+        for _, p in pairs(state.players) do
+            if not p.hero or not catalog.HEROES[p.hero] then
+                all_picked = false
+                break
+            end
+        end
+        if not all_picked and state.hero_select_deadline and os.time() > state.hero_select_deadline then
+            -- 超时：未选将的玩家随机分配（优先 aladdin 免费英雄）
+            local fallback = { "aladdin" }
+            for hid in pairs(catalog.HEROES) do
+                if hid ~= "aladdin" then table.insert(fallback, hid) end
+            end
+            for _, p in pairs(state.players) do
+                if not p.hero or not catalog.HEROES[p.hero] then
+                    p.hero = fallback[math.random(#fallback)]
+                    p.skin_id = nil
+                end
+            end
+            log_info(state, "选将超时，未选玩家随机分配英雄")
+            all_picked = true
+        end
+        if all_picked then
+            -- 过渡到 PLAYING
+            state.status = STATE.PLAYING
+            -- 设置主公血量 + 先手
+            if state.monarch_id then
+                local monarch = state.players[state.monarch_id]
+                local mh = state.config.match.monarch_health
+                monarch.health = mh
+                monarch.max_health = mh
+                state.current_turn_id = state.monarch_id
+            elseif state.mode == "pvp" then
+                state.current_turn_id = state.presence_ids[1]
+            end
+            -- 更新标签
+            local new_label = {
+                mode = state.mode, open = 0,
+                max = state.max_players, spectatable = 1,
+                status = "playing", players = #state.presence_ids,
+                started_at = os.time(),
+            }
+            dispatcher.match_label_update(nk.json_encode(new_label))
+            for _, uid in ipairs(state.presence_ids) do
+                write_user_status(uid, context.match_id, "playing",
+                    state.mode, #state.presence_ids, state.max_players)
+            end
+            rules.start_game(dispatcher, state)
+            M.do_judgment_and_draw_phase(dispatcher, state)
+            rules.broadcast_update(dispatcher, state)
+            log_info(state, "选将完成，对局正式启动！")
+        end
+    end
+
+    -- ==========================================
+    -- 0b. 等待超时清理（5分钟无满员自动解散）
     -- ==========================================
     if state.status == STATE.WAITING and os.time() - (state.waiting_since or 0) > 300 then
         log_info(state, "房间等待超时，自动解散")
@@ -728,6 +793,45 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         if not ok or type(payload) ~= "table" then goto continue end
         local uid = message.sender.user_id
         if not state.players[uid] or (state.status == STATE.PLAYING and state.players[uid].health <= 0) then goto continue end
+
+        -- 选将阶段：处理 op=6 英雄选择
+        if state.status == STATE.HERO_SELECT and message.op_code == 6 then
+            local hero_id = payload.hero_id
+            if type(hero_id) ~= "string" or not catalog.HEROES[hero_id] then goto continue end
+            -- 主公先选（未完成前非主公玩家不可选）
+            if not state.hero_select_monarch_done and uid ~= state.monarch_id then
+                goto continue
+            end
+            local p = state.players[uid]
+            if p.hero then goto continue end -- 已选过，忽略重复
+            -- 验证英雄归属（购买池/限免）—— demo 模式跳过
+            if not state._demo_mode then
+                local allowed = p._unlocked_heroes and p._unlocked_heroes[hero_id]
+                if not allowed and p._free_events then
+                    local ev = p._free_events[hero_id]
+                    if ev then
+                        local now = os.time()
+                        allowed = now >= ev.start_time and now <= ev.end_time
+                    end
+                end
+                if not allowed then
+                    log_warn(state, string.format("玩家 %s 英雄 %s 不可用（未购买/限免过期）",
+                        p.username, hero_id))
+                    goto continue
+                end
+            end
+            p.hero = hero_id
+            p.skin_id = nil
+            -- 主公选完 → 解除其他人选将限制
+            if uid == state.monarch_id then
+                state.hero_select_monarch_done = true
+                log_info(state, string.format("主公 %s 选定英雄: %s", p.username, hero_id))
+            else
+                log_info(state, string.format("玩家 %s 选定英雄: %s", p.username, hero_id))
+            end
+            rules.broadcast_update(dispatcher, state)
+            goto continue
+        end
 
         -- 当前回合玩家有任何动作，重置计时器和连续托管计数
         -- 非当前回合玩家（如防御响应）不重置，由 pending_action.deadline 独立计时
@@ -1020,6 +1124,14 @@ function M.match_leave(context, dispatcher, tick, state, presences)
                         break
                     end
                 end
+            elseif state.status == STATE.HERO_SELECT then
+                -- 选将阶段掉线：随机分配英雄防止卡死
+                local pdata = state.players[p.user_id]
+                if pdata and (not pdata.hero or not catalog.HEROES[pdata.hero]) then
+                    pdata.hero = "aladdin"
+                    pdata.skin_id = nil
+                end
+                state.presences[p.user_id] = nil
             else
                 -- 游戏中掉线：清理 presence 避免向过期引用发广播，保留 players 供重连
                 state.presences[p.user_id] = nil
@@ -1159,15 +1271,12 @@ function M.match_join_attempt(context, dispatcher, tick, state, presence, metada
         return state, true
     end
 
-    -- 如果是新玩家想中途加入已开始的游戏，拒绝
-    if state.status == STATE.PLAYING then
+    -- 如果是新玩家想中途加入已开始或选将中的游戏，拒绝
+    if state.status == STATE.PLAYING or state.status == STATE.HERO_SELECT then
         return state, false, "对局已开始，无法中途加入"
     end
 
-    -- 记录客户端期望的英雄和皮肤（match_join 消费）
-    if metadata and type(metadata.hero_id) == "string" then
-        state.pending_heroes[presence.user_id] = metadata.hero_id
-    end
+    -- 记录客户端期望的皮肤（英雄在分身份后通过 op=6 选择，不再此处预存）
     if metadata and type(metadata.skin_id) == "string" then
         state.pending_skins[presence.user_id] = metadata.skin_id
     end

@@ -570,9 +570,25 @@ for i, cfg in ipairs(MATCH_CONFIGS) do
         state._dispatcher = disp
     end
 
+    -- 模拟选将流程：设置所有英雄 → 跳过 HERO_SELECT 直接进入 PLAYING
+    state._demo_mode = true
     for _, pc in ipairs(plist) do
         state.players[pc.id].hero = pc.hero
     end
+    -- 触发 PLAYING 过渡（demo 不走 match_loop 的 HERO_SELECT 超时逻辑）
+    state.status = 1  -- STATE.PLAYING
+    if state.monarch_id then
+        local monarch = state.players[state.monarch_id]
+        local mh = state.config.match.monarch_health
+        monarch.health = mh
+        monarch.max_health = mh
+        state.current_turn_id = state.monarch_id
+    elseif #plist == 2 then
+        state.current_turn_id = state.presence_ids[1]
+    end
+    rules.start_game(disp, state)
+    handler.do_judgment_and_draw_phase(disp, state)
+    rules.broadcast_update(disp, state)
 
     matches[i] = {state=state, dispatcher=disp, label=label, winner=nil, turns=0, crashed=false, plist=plist}
 end
