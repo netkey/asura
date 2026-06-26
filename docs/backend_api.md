@@ -1,6 +1,6 @@
 # Asura 后端接口文档
 
-> 版本：v0.10.0 · 最后更新：2026-06-19  
+> 版本：v0.11.0 · 最后更新：2026-06-26  
 > 服务端框架：Nakama (Lua Runtime)  
 > 所有 RPC 均通过 Nakama 客户端 SDK 调用，需携带有效的用户 Token。
 
@@ -92,7 +92,8 @@
 |--------|------|-------------|
 | `3` | 出牌 | `{"card_id":"c_001","target_id":"user-uuid"}` |
 | `4` | 手动结束回合 | `{}` |
-| `5` | 防御/AOE/救援 响应 | `{"confirm":true}` 或 `{"confirm":true,"card_id":"c_002"}` |
+| `5` | 防御/AOE/救援 响应 | `{"confirm":true,"round":0}` 或 `{"confirm":true,"card_id":"c_002"}` |
+| `6` | 选将（HERO_SELECT 阶段）| `{"hero_id":"saladin"}` |
 
 **OpCode 5 详细说明：**
 
@@ -105,7 +106,8 @@
 | 救援（出桃/酒）| `WAITING_FOR_RESCUE` | `{"confirm":true,"card_id":"c_002"}` |
 | 放弃救援 | `WAITING_FOR_RESCUE` | `{"confirm":false}` |
 | 决斗出【杀】 | `WAITING_FOR_DUEL` | `{"confirm":true,"card_id":"c_002"}` 或 `{"confirm":false}` |
-| 无懈可击响应 | `WAITING_FOR_COUNTER` | `{"confirm":true,"card_id":"c_002"}`（无懈可击）或 `{"confirm":false}` |
+| 无懈可击响应 | `WAITING_FOR_COUNTER` | `{"confirm":true,"card_id":"c_002","round":0}`（无懈可击）或 `{"confirm":false,"round":0}` |
+> **无懈可击并行模式**（v0.11.0+）：所有存活玩家同时收到无懈可击询问（OpCode 105 带 `round` 字段），共享同一个 15s deadline。有人打出无懈可击 → round 递增 → 新一轮通知所有人。所有人都 pass 或超时 → 按 `counter_depth` 奇偶判定牌是否生效。客户端发 OpCode 5 时须回传 `round`，服务端拒绝 `round` 不匹配的 stale 响应。
 | 过河拆桥/顺手牵羊选牌 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"card_id":"c_07"}` 或 `{"confirm":false}`（随机） |
 | 借刀杀人选攻击目标 | `WAITING_FOR_TRICK_SELECT` | `{"confirm":true,"target_id":"uid"}` 或 `{"confirm":false}` |
 | 借刀杀人出杀或交武器 | `WAITING_FOR_BORROW_WEAPON` | `{"confirm":true,"card_id":"c_02"}`（出杀）或 `{"confirm":false}`（交武器） |
@@ -134,6 +136,7 @@
 
 | OpCode | 接收方 | 触发时机 | Payload 示例 |
 |--------|--------|---------|-------------|
+| `11` | 单个玩家（私密） | 身份分配后（HERO_SELECT 阶段开始时），告知玩家自己的角色和主公 ID | `{"type":"role_assigned","role":"MONARCH","monarch_id":"user-uuid"}` |
 | `101` | 技能使用者或目标玩家 | 英雄技能询问，如苏莱曼【敕令】、哈伦【哈里发令】、阿里巴巴【暗号】 | `{"type":"skill_choice","skill":"chi_ling","template":"skill_suleiman_decree_prompt","params":{},"content":"Activate [Decree]? Choose a target and block a card type","targets":[...],"block_types":[{"type":"ATTACK","label":"攻击"},{"type":"HEAL","label":"治疗"}]}` |
 | `106` | 锦囊使用者或技能目标 | 锦囊牌选牌/选目标的私有信息 / 弃牌阶段选牌 | 过河拆桥/顺手牵羊: `{"event":"pick_target_card","target_id":"uid","hand":[...],"equipment":...,"purpose":"discard\|steal"}` / 借刀杀人: `{"event":"choose_attack_target","valid_targets":[...],"purpose":"borrow_weapon"}` / 火攻: `{"event":"fire_guess","target_hand":"HEART","template":"prompt_fire_guess","content":"Guess suit..."}` / 弃牌: `{"event":"discard_required","player_id":"uid","discard_count":2,"template":"match_discard_required","params":{"username":"foo","count":2},"content":"foo must discard 2 card(s)"}` |
 
@@ -410,6 +413,30 @@ end
 {"match_id": "uuid.nakama.xxx"}
 ```
 
+#### 对局流程（v0.11.0+ 选将流程）
+
+身份局（5 人）：
+```
+WAITING → 房间满5人 → 角色分配 → HERO_SELECT（15s 超时）
+  → 主公收到 OpCode 11 role_assigned（role=MONARCH + monarch_id）
+  → 其他人收到 OpCode 11 role_assigned（role=REBEL/MINISTER/TRAITOR + monarch_id）
+  → 主公发 OpCode 6 选将 → 主公选定（广播 OpCode 10 更新）
+  → 其他人发 OpCode 6 选将（并发，共享 15s deadline）
+  → 所有人选定或超时 → PLAYING → start_game
+```
+
+PVP（2 人）：
+```
+WAITING → 房间满2人 → HERO_SELECT（无角色分配）
+  → 两人发 OpCode 6 选将（并发，15s 超时）
+  → 超时随机分 aladdin → PLAYING → start_game
+```
+
+> **选将超时**：15s 内未选将在 `match_loop` 中随机分配英雄（优先 aladdin）。
+> **掉线处理**：选将阶段掉线者自动分配 aladdin 并清空 presence，避免卡死。
+> **英雄归属验证**：OpCode 6 会验证 hero_id 是否在玩家的 unlocked_heroes（join 时从 storage 缓存）或限免活动窗口中。不在则拒绝选将。
+> **match_join_attempt 变更**（v0.11.0+）：不再预存 `hero_id`（选将延迟到分身份后），仅预存 `skin_id`。
+
 ---
 
 ### 3.2 英雄系统
@@ -555,7 +582,7 @@ CDN模式：   asset_url 非 null 时从该地址下载资源包（当前均为 
 {"success": false, "error": "insufficient_gold | already_owned | skin_not_found | default_skin | conflict_retry | too_many_requests"}
 ```
 
-> **皮肤选择时机**：皮肤在 `match_join` 时选择（见 [匹配系统](#31-匹配系统)），不通过独立 RPC 装备。客户端从 `get_my_skins` 获取已拥有皮肤列表，选择英雄时一并传入 `skin_id`。
+> **皮肤选择时机**：皮肤在选将阶段（OpCode 6）时指定 `skin_id`（可选），不通过独立 RPC 装备。选将完成后从 `pending_skins` 读取。
 
 ---
 

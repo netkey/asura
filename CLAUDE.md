@@ -264,5 +264,5 @@ Five canonical triage labels with default names. See `docs/agents/triage-labels.
 
 ---
 
-**最后更新**: 2026-06-24
+**最后更新**: 2026-06-26
 **版本**: 0.11.0
