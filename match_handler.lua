@@ -591,6 +591,38 @@ function M.match_loop(context, dispatcher, tick, state, messages)
     -- 每个 tick 开始时重置 next_turn 递归深度计数器
     state._turn_depth = 0
 
+    -- 将个人英雄池（已购买 + 限免）展开为可选列表，跳过已被占的英雄
+    -- 池空时回退到全局 catalog（仍避重复），最后一搏硬填 aladdin
+    local function build_hero_candidates(pdata, used_set)
+        local available, seen = {}, {}
+        for hid in pairs(pdata._unlocked_heroes or {}) do
+            if catalog.HEROES[hid] and not used_set[hid] then
+                available[#available + 1] = hid
+                seen[hid] = true
+            end
+        end
+        if pdata._free_events then
+            for hid, ev in pairs(pdata._free_events) do
+                if catalog.HEROES[hid] and not used_set[hid] and not seen[hid] then
+                    local now = os.time()
+                    if now >= ev.start_time and now <= ev.end_time then
+                        available[#available + 1] = hid
+                        seen[hid] = true
+                    end
+                end
+            end
+        end
+        if #available == 0 then
+            for hid in pairs(catalog.HEROES) do
+                if not used_set[hid] then
+                    available[#available + 1] = hid
+                end
+            end
+            if #available == 0 then available = {"aladdin"} end
+        end
+        return available
+    end
+
     -- ==========================================
     -- 0. 选将阶段超时逻辑
     -- ==========================================
@@ -603,19 +635,35 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             end
         end
         if not all_picked and state.hero_select_deadline and os.time() > state.hero_select_deadline then
-            -- 超时：未选将的玩家随机分配（优先 aladdin 免费英雄）
-            local fallback = { "aladdin" }
-            for hid in pairs(catalog.HEROES) do
-                if hid ~= "aladdin" then table.insert(fallback, hid) end
-            end
-            for _, p in pairs(state.players) do
-                if not p.hero or not catalog.HEROES[p.hero] then
-                    p.hero = fallback[math.random(#fallback)]
-                    p.skin_id = nil
+            -- 主公未选 → 从主公个人英雄池随机选
+            if not state.hero_select_monarch_done and state.monarch_id then
+                local monarch = state.players[state.monarch_id]
+                if monarch and (not monarch.hero or not catalog.HEROES[monarch.hero]) then
+                    local available = build_hero_candidates(monarch, {})
+                    monarch.hero = available[math.random(#available)]
+                    monarch.skin_id = nil
+                    log_info(state, string.format("主公选将超时，自动分配 %s", monarch.hero))
                 end
+                state.hero_select_monarch_done = true
+                state.hero_select_deadline = os.time() + 15
+                rules.broadcast_update(dispatcher, state)
+            else
+                -- 其他人超时：从各人英雄池随机选（避开已被占的）
+                local used = {}
+                for _, p in pairs(state.players) do
+                    if p.hero then used[p.hero] = true end
+                end
+                for _, p in pairs(state.players) do
+                    if not p.hero or not catalog.HEROES[p.hero] then
+                        local available = build_hero_candidates(p, used)
+                        p.hero = available[math.random(#available)]
+                        used[p.hero] = true
+                        p.skin_id = nil
+                    end
+                end
+                log_info(state, "选将超时，未选玩家从个人英雄池随机分配")
+                all_picked = true
             end
-            log_info(state, "选将超时，未选玩家随机分配英雄")
-            all_picked = true
         end
         if all_picked then
             -- 过渡到 PLAYING
@@ -830,9 +878,10 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             end
             p.hero = hero_id
             p.skin_id = nil
-            -- 主公选完 → 解除其他人选将限制
+            -- 主公选完 → 解除其他人选将限制 + 重置15s倒计时
             if uid == state.monarch_id then
                 state.hero_select_monarch_done = true
+                state.hero_select_deadline = os.time() + 15
                 log_info(state, string.format("主公 %s 选定英雄: %s", p.username, hero_id))
             else
                 log_info(state, string.format("玩家 %s 选定英雄: %s", p.username, hero_id))

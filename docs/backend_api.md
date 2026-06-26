@@ -417,12 +417,12 @@ end
 
 身份局（5 人）：
 ```
-WAITING → 房间满5人 → 角色分配 → HERO_SELECT（15s 超时）
-  → 主公收到 OpCode 11 role_assigned（role=MONARCH + monarch_id）
-  → 其他人收到 OpCode 11 role_assigned（role=REBEL/MINISTER/TRAITOR + monarch_id）
-  → 主公发 OpCode 6 选将 → 主公选定（广播 OpCode 10 更新）
-  → 其他人发 OpCode 6 选将（并发，共享 15s deadline）
-  → 所有人选定或超时 → PLAYING → start_game
+WAITING → 房间满5人 → 角色分配 → HERO_SELECT
+	  → 主公收到 OpCode 11 role_assigned（15s 独立倒计时）
+	  → 其他人收到 OpCode 11 role_assigned（此时被阻塞，不能选将）
+	  → 主公发 OpCode 6 选将 → 主公选定（广播 OpCode 10）→ 解锁其他人 + 刷新 15s
+	  → 其他人发 OpCode 6 选将（并发，共享 15s）
+	  → 所有人选定或超时 → PLAYING → start_game
 ```
 
 PVP（2 人）：
@@ -432,9 +432,13 @@ WAITING → 房间满2人 → HERO_SELECT（无角色分配）
   → 超时随机分 aladdin → PLAYING → start_game
 ```
 
-> **选将超时**：15s 内未选将在 `match_loop` 中随机分配英雄（优先 aladdin）。
+> **选将超时（两阶段）**：
+> 1. 主公 15s 未选 → 从个人英雄池（`_unlocked_heroes` + 限免 `_free_events`）随机分配 → 解锁其他人 + 刷新 15s
+> 2. 其他人 15s 未选 → 同上，各人从自己的英雄池随机分配，**避开已被选的英雄**
+>
+> **重复检查**：OpCode 6 会遍历所有已选玩家，若 `hero_id` 已被他人选定则拒绝（同一对局英雄唯一）。
+> **归属验证**：OpCode 6 会验证 `hero_id` 在玩家的 `_unlocked_heroes`（join 时从 storage 缓存）或限免活动窗口中。不在则拒绝。
 > **掉线处理**：选将阶段掉线者自动分配 aladdin 并清空 presence，避免卡死。
-> **英雄归属验证**：OpCode 6 会验证 hero_id 是否在玩家的 unlocked_heroes（join 时从 storage 缓存）或限免活动窗口中。不在则拒绝选将。
 > **match_join_attempt 变更**（v0.11.0+）：不再预存 `hero_id`（选将延迟到分身份后），仅预存 `skin_id`。
 
 ---
