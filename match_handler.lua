@@ -820,6 +820,14 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                     goto continue
                 end
             end
+            -- 重复检查：同一对局每个英雄只能被选一次
+            for _, op in pairs(state.players) do
+                if op ~= p and op.hero == hero_id then
+                    log_warn(state, string.format("玩家 %s 英雄 %s 已被 %s 选定，拒绝",
+                        p.username, hero_id, op.username))
+                    goto continue
+                end
+            end
             p.hero = hero_id
             p.skin_id = nil
             -- 主公选完 → 解除其他人选将限制
