@@ -24,3 +24,7 @@ jobs:
 
       - name: Luacheck lint
         run: luacheck --no-color .
+
+      - name: Regression tests
+        run: |
+          for t in tests/*_test.lua; do lua5.4 "$t" || exit 1; done
