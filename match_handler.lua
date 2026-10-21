@@ -5,8 +5,6 @@ local rules     = require("game_rules")
 local config    = require("game_config")
 local local_mgr = require("localization_manager")
 local season_mgr = require("season_manager")
-local skin_catalog  = require("skin_catalog")
-local local_mgr = require("localization_manager")
 
 local M = {}
 
@@ -188,20 +186,14 @@ function M.match_join(context, dispatcher, tick, state, presences)
             -- 正常加入逻辑（第一次进入房间）
             table.insert(state.presence_ids, p.user_id)
 
-            -- 读取英雄库存 + 已购皮肤
+            -- 读取英雄库存
             local unlocked_heroes = { aladdin = true }
-            local owned_skins     = {}
             local inv_objects = nk.storage_read({
                 { collection = "hero_inventory", key = "unlocked_heroes", user_id = p.user_id },
-                { collection = "skin_inventory", key = "owned_skins",     user_id = p.user_id },
             })
             for _, obj in ipairs(inv_objects) do
                 if obj.key == "unlocked_heroes" then unlocked_heroes = obj.value end
-                if obj.key == "owned_skins"     then owned_skins     = obj.value end
             end
-            -- owned_skins 是数组，转为 set 方便 O(1) 查询
-            local owned_skin_set = {}
-            for _, sid in ipairs(owned_skins) do owned_skin_set[sid] = true end
 
             -- 读取全局限时免费活动（user_id=nil，独立调用）
             local free_events = {}
