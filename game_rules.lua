@@ -1774,15 +1774,76 @@ end
 -- ==========================================
 -- 7. 状态广播（身份迷雾版）
 -- ==========================================
+local function visible_role(state, p)
+    if p.role == "MONARCH" or p.health <= 0 or state.status == 2 then
+        return p.role
+    end
+    return "UNKNOWN"
+end
+
+local function pending_summary(state)
+    return state.pending_action and {
+        type = state.pending_action.type,
+        deadline = state.pending_action.deadline,
+    } or nil
+end
+
+local function public_others(state, viewer_id)
+    local others = {}
+    for other_id, other_p in pairs(state.players) do
+        if other_id ~= viewer_id then
+            table.insert(others, {
+                id         = other_id,
+                username   = other_p.username,
+                hp         = other_p.health,
+                max_health = other_p.max_health,
+                hand_count = #other_p.hand,
+                hero       = other_p.hero,
+                role       = visible_role(state, other_p),
+                equipment  = other_p.equipment,
+                skin_id    = other_p.skin_id,
+                seat_idx   = other_p.seat_idx,
+            })
+        end
+    end
+    return others
+end
+
+-- 观战者只拿公开信息：观战者身份不可验证（小号即可观战对手），
+-- 进行中下发目标手牌/隐藏身份等于给场外报点。目标阵亡或对局结束后信息已无竞技价值，解锁完整视野。
+function M.spectator_view(state, target_id)
+    local t = state.players[target_id]
+    if not t then return nil end
+    local me = {
+        hp              = t.health,
+        max_health      = t.max_health,
+        hero            = t.hero,
+        role            = visible_role(state, t),
+        hand_count      = #t.hand,
+        equipment       = t.equipment,
+        delayed_effects = t.delayed_effects,
+        weapon_buff     = t.weapon_buff,
+        skin_id         = t.skin_id,
+        seat_idx        = t.seat_idx,
+    }
+    if t.health <= 0 or state.status == 2 then
+        me.hand = t.hand
+    end
+    return {
+        is_spectator = true,
+        current_turn = state.current_turn_id,
+        pending      = pending_summary(state),
+        me           = me,
+        others       = public_others(state, target_id),
+    }
+end
+
 function M.broadcast_update(dispatcher, state)
     for uid, presence in pairs(state.presences) do
         local p_data = state.players[uid]
         local payload = {
             current_turn = state.current_turn_id,
-            pending = state.pending_action and {
-                type = state.pending_action.type,
-                deadline = state.pending_action.deadline,
-            } or nil,
+            pending = pending_summary(state),
             me = {
                 hand              = p_data.hand,
                 hp                = p_data.health,
@@ -1797,42 +1858,14 @@ function M.broadcast_update(dispatcher, state)
                 attacks_this_turn = p_data.attacks_this_turn or 0,
                 wine_used_this_turn = p_data.wine_used_this_turn or false,
             },
-            others = {}
+            others = public_others(state, uid),
         }
-        for other_id, other_p in pairs(state.players) do
-            if other_id ~= uid then
-                local visible_role = "UNKNOWN"
-                if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == 2 then
-                    visible_role = other_p.role
-                end
-
-                table.insert(payload.others, {
-                    id         = other_id,
-                    username   = other_p.username,
-                    hp         = other_p.health,
-                    max_health = other_p.max_health,
-                    hand_count = #other_p.hand,
-                    hero       = other_p.hero,
-                    role       = visible_role,
-                    equipment  = other_p.equipment,
-                    skin_id    = other_p.skin_id,
-                    seat_idx   = other_p.seat_idx,
-                })
-            end
-        end
         dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
 
         if state.spectators then
             for _, spec in pairs(state.spectators) do
                 if spec.target_player_id == uid then
-                    local spec_payload = {
-                        is_spectator    = true,
-                        current_turn    = payload.current_turn,
-                        pending         = payload.pending,
-                        me              = payload.me,
-                        others          = payload.others,
-                    }
-                    dispatcher.broadcast_message(10, nk.json_encode(spec_payload), {spec.presence})
+                    dispatcher.broadcast_message(10, nk.json_encode(M.spectator_view(state, uid)), {spec.presence})
                 end
             end
         end

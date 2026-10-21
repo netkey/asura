@@ -389,7 +389,7 @@ end
 
 | 场景 | 额外字段 |
 |------|---------|
-| 旁观者 | `"is_spectator": true`，视野与目标玩家完全一致 |
+| 旁观者 | `"is_spectator": true`。对局进行中且目标存活时仅含公开信息：`me` 无 `hand`（改给 `hand_count`），`me.role` 按身份迷雾规则（非主公为 `"UNKNOWN"`），无 `attacks_this_turn`/`wine_used_this_turn`；目标阵亡或对局结束后 `me` 补齐 `hand` 与真实 `role`。`others` 与玩家视角同口径。防小号观战场外报点 |
 | 断线重连 | `"is_reconnect": true`，包含完整战场快照 |
 
 ---
