@@ -20,7 +20,8 @@ jobs:
 
       - name: Lua syntax check (luac -p)
         run: |
-          find . -name '*.lua' -not -path './.git/*' -exec luac5.4 -p {} \;
+          # -exec {} \; 不传递子进程退出码，语法错误也会绿；xargs 任一失败即非零
+          find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac5.4 -p
 
       - name: Luacheck lint
         run: luacheck --no-color .
