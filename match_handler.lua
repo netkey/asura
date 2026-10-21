@@ -1216,51 +1216,9 @@ function M.match_leave(context, dispatcher, tick, state, presences)
     return state
 end
 
--- 辅助函数：向旁观者同步当前战场（与目标玩家完全相同的视野）
--- 旁观者使用 OpCode 10，payload 格式与普通玩家一致
 function M.send_spectator_state(dispatcher, state, presence, target_player_id)
-    local target = state.players[target_player_id]
-    if not target then return end
-
-    local payload = {
-        is_spectator = true,
-        current_turn = state.current_turn_id,
-        pending      = state.pending_action and {
-            type     = state.pending_action.type,
-            deadline = state.pending_action.deadline,
-        } or nil,
-        me = {  -- 旁观者"以目标视角"看自己
-            hand            = target.hand,
-            hp              = target.health,
-            role            = target.role,
-            hero            = target.hero,
-            seat_idx        = target.seat_idx,
-            equipment       = target.equipment,
-            delayed_effects = target.delayed_effects,
-            weapon_buff     = target.weapon_buff,
-            skin_id         = target.skin_id,
-        },
-        others = {},
-    }
-    for other_id, other_p in pairs(state.players) do
-        if other_id ~= target_player_id then
-            -- 与目标玩家视角相同的迷雾规则
-            local visible_role = "UNKNOWN"
-            if other_p.role == "MONARCH" or other_p.health <= 0 or state.status == STATE.ENDED then
-                visible_role = other_p.role
-            end
-            table.insert(payload.others, {
-                id         = other_id,
-                username   = other_p.username,
-                hp         = other_p.health,
-                hand_count = #other_p.hand,
-                hero       = other_p.hero,
-                role       = visible_role,
-                equipment  = other_p.equipment,
-                skin_id    = other_p.skin_id,
-            })
-        end
-    end
+    local payload = rules.spectator_view(state, target_player_id)
+    if not payload then return end
     dispatcher.broadcast_message(10, nk.json_encode(payload), {presence})
 end
 
