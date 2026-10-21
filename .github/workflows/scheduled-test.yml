@@ -17,6 +17,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.4
 
-      - name: Run 10-game random test
-        run: lua5.4 demo_concurrent.lua
+      # 模拟是确定性的：固定 seed 重跑没有新信息，按时间换 seed 探索新局面。失败时用打印的 seed 本地复现
+      - name: Run 1000-game simulation with fresh seed
+        run: |
+          SEED=$(date -u +%Y%m%d%H)
+          echo "seed=$SEED  (repro: lua5.4 demo_concurrent.lua --games 1000 --seed $SEED)"
+          lua5.4 demo_concurrent.lua --games 1000 --seed "$SEED"
         timeout-minutes: 5

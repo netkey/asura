@@ -29,3 +29,11 @@ jobs:
       - name: Regression tests
         run: |
           for t in tests/*_test.lua; do lua5.4 "$t" || exit 1; done
+
+      # 门禁：崩溃 / AI 遇到未知 pending / 未结束率 >5% 即失败；两次运行 digest 不同 = 引入了不确定性
+      - name: Simulation gate (200 games, deterministic)
+        run: |
+          lua5.4 demo_concurrent.lua | tee sim1.txt
+          lua5.4 demo_concurrent.lua > sim2.txt
+          d1=$(grep '^digest=' sim1.txt); d2=$(grep '^digest=' sim2.txt)
+          [ "$d1" = "$d2" ] || { echo "FAIL nondeterministic: $d1 vs $d2"; exit 1; }

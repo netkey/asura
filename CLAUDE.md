@@ -43,7 +43,7 @@ asura/
 │   ├── en.lua                   # 英语模板（135 条 broadcast key）
 │   ├── ar.lua                   # 阿语模板（待翻译，fallback 到 en）
 │   └── card_names.lua           # 卡牌/技能/英雄名查表
-├── demo_concurrent.lua         # 本地并发测试（mock Nakama，10局随机英雄）。⚠️ 部署时被排除
+├── demo_concurrent.lua         # AI 对战模拟 harness（mock Nakama，经 match_loop 真实路径，确定性）。⚠️ 部署时被排除
 ├── demo.lua                    # ⚠️ 开发/测试辅助文件。CI 部署时自动清理（Nakama 加载此文件会导致崩溃）
 ├── heroes/                     # 英雄技能定义 (30 个英雄)
 │   ├── *.lua + *.md            # 每个英雄一个 lua（技能逻辑）+ md（设计说明）
@@ -58,7 +58,7 @@ asura/
 ├── .github/workflows/          # CI/CD 工作流
 │   ├── ci.yml                  # lint（luacheck + luac -p）
 │   ├── deploy.yml              # 推送到 VPS 自动部署（self-hosted runner）
-│   └── scheduled-test.yml      # 每日 10 局随机测试（UTC 2:00/14:00）
+│   └── scheduled-test.yml      # 每日 2 次 1000 局模拟，按时间换 seed（UTC 2:00/14:00）
 ├── .luacheckrc                 # luacheck 配置（忽略 Nakama 回调模式误报）
 ├── docker-compose.yml          # 生产配置（Postgres 15 + Nakama，自定义镜像 ghcr.io/netkey/asura）
 ├── CLAUDE.md                   # 项目配置（本文件）
@@ -195,8 +195,10 @@ GitHub Actions self-hosted runner 在 VPS 上运行，`push 到 main` 时自动�
 
 ### 本地测试
 ```bash
-# 10 局随机英雄并发测试（mock Nakama，无需启动容器）
+# AI 对战模拟（mock Nakama，无需启动容器）：默认 200 局门禁；失败条件 = 崩溃 / 未知 pending / 未结束率 >5%
 lua5.4 demo_concurrent.lua
+lua5.4 demo_concurrent.lua --games 1000            # 平衡回测：英雄胜率(Wilson CI)/阵营胜率/技能覆盖
+lua5.4 demo_concurrent.lua --seed 1000 --game 37 -v  # 单局复现（同 seed 结果逐字节一致，见 digest）
 
 # Lint 检查
 luacheck --no-color .
