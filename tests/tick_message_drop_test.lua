@@ -81,7 +81,7 @@ end
 
 print("case 1: 摸牌衔接 tick 内出【杀】— 当 tick 生效")
 do
-    local state, p1, p2 = new_pvp()
+    local state, p1 = new_pvp()
     p1.hand = { card("ATK1", "ATTACK") }
     state.pending_draw_continuation = true
     tick(state, { op("p1", 3, { card_id = "ATK1", target_id = "p2" }) })

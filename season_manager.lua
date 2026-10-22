@@ -234,7 +234,7 @@ function M.record_match(nk, state, winner)
             state.mode, winner, is_win, turns, delta, updated.rating)
 
         -- 每日任务：胜场计数
-        if is_win then daily_mgr.on_match_win(nk, uid, p.username) end
+        if is_win then daily_mgr.on_match_win(uid, p.username) end
 
         -- 成就检查（每场结算后触发）
         ach_mgr.check_and_award(nk, uid, p.username, updated, {
