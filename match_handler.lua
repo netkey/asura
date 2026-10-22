@@ -895,9 +895,12 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             state.players[uid]._no_attack_count = 0
         end
 
-        -- 情况 A：处理挂起的技能响应（如哈基姆、阿拉丁）或弃牌选择
-        if state.pending_action and state.pending_action.player_id == uid then
-            if state.pending_action.type == "WAITING_FOR_DISCARD" then
+        -- 情况 A：处理挂起的英雄技能响应（如哈基姆、阿拉丁）或弃牌选择
+        -- 只认带 hero_id 的 pending 为英雄技能；武器询问（青龙偃月刀/贯石斧）也有 player_id，
+        -- 但由 rules.handle_response 处理，走情况 B 的 op 5，否则 hero_mgr 查不到模块会静默丢弃
+        local pa = state.pending_action
+        if pa and pa.player_id == uid and (pa.type == "WAITING_FOR_DISCARD" or pa.hero_id) then
+            if pa.type == "WAITING_FOR_DISCARD" then
                 M.handle_discard_response(dispatcher, state, uid, payload)
             else
                 hero_mgr.handle_response(dispatcher, state, uid, payload)
