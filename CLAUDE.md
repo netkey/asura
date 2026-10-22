@@ -195,7 +195,7 @@ GitHub Actions self-hosted runner 在 VPS 上运行，`push 到 main` 时自动�
 
 ### 本地测试
 ```bash
-# AI 对战模拟（mock Nakama，无需启动容器）：默认 200 局门禁；失败条件 = 崩溃 / 未知 pending / 未结束率 >5%
+# AI 对战模拟（mock Nakama，无需启动容器）：默认 200 局门禁；失败条件 = 崩溃 / 未知 pending / 服务端忽略响应 / 未结束率 >5%
 lua5.4 demo_concurrent.lua
 lua5.4 demo_concurrent.lua --games 1000            # 平衡回测：英雄胜率(Wilson CI)/阵营胜率/技能覆盖
 lua5.4 demo_concurrent.lua --seed 1000 --game 37 -v  # 单局复现（同 seed 结果逐字节一致，见 digest）
