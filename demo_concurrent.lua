@@ -84,6 +84,7 @@ package.path = root .. "/?.lua;" .. package.path
 local handler = require("match_handler")
 local rules   = require("game_rules")
 local catalog = require("hero_catalog")
+local hero_mgr = require("hero_manager")
 
 local STATUS_PLAYING, STATUS_HERO_SELECT = 1, 3
 local MAX_TURNS = 300        -- 超过视为未分胜负（5 人局 = 60 轮）
@@ -296,10 +297,9 @@ local function ai_pending(g, state)
         local rid = a.rescuers and a.rescuers[a.current_rescuer_idx]
         local r = rid and P[rid]
         if not r then return {} end
-        local is_self = rid == a.dying_player_id
+        -- 与 rules.handle_response 同口径：只有【桃】或英雄技能允许的牌能救人（酒不能）
         local c = wants_rescue(state, rid, a.dying_player_id) and find_card(r.hand, function(x)
-            return x.type == "HEAL" or (is_self and x.type == "WINE")
-                or (x.suit == "HEART" and r.hero == "avicenna")
+            return x.type == "HEAL" or hero_mgr.can_rescue_with(r.hero, x)
         end)
         return one(rid, { confirm = c and true or false, card_id = c and c.id or nil })
     elseif t == "WAITING_FOR_COUNTER" then
@@ -699,7 +699,7 @@ print(string.format("\nskill coverage: %d/%d heroes triggered%s", triggered_n, p
     #silent > 0 and ("  never: " .. table.concat(silent, ",")) or ""))
 
 for _, t in ipairs(sorted_keys(S.ignored)) do
-    print(string.format("WARN server ignored AI response to %s ×%d (resolved by deadline)", t, S.ignored[t]))
+    print(string.format("FAIL server ignored AI response to %s ×%d (resolved by deadline)", t, S.ignored[t]))
 end
 for _, t in ipairs(sorted_keys(S.unknown)) do
     print(string.format("FAIL unknown pending_action %s ×%d (AI 无对应响应)", t, S.unknown[t]))
@@ -707,7 +707,9 @@ end
 for _, c in ipairs(S.crashes) do print("FAIL crash " .. c) end
 print(string.format("digest=%08x", digest))
 
-local failed = #S.crashes > 0 or next(S.unknown) ~= nil or unfinished_rate > OPT.max_unfinished
+-- 服务端静默丢弃客户端响应（濒死自救、武器询问都曾如此）也算失败
+local failed = #S.crashes > 0 or next(S.unknown) ~= nil or next(S.ignored) ~= nil
+    or unfinished_rate > OPT.max_unfinished
 if unfinished_rate > OPT.max_unfinished then
     print(string.format("FAIL unfinished rate %.1f%% > %.1f%%", unfinished_rate * 100, OPT.max_unfinished * 100))
 end
