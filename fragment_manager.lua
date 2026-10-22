@@ -2,6 +2,7 @@
 -- 碎片类型：专属碎片（hero_id）+ 通用碎片（"universal"）
 -- 兑换比例：30 专属碎片 = 1 英雄；通用碎片可 1:1 替代任意专属缺口
 -- 存储：fragment_inventory / fragments = { [hero_id]: count, universal: count }
+local nk = require("nakama")
 
 local catalog = require("hero_catalog")
 

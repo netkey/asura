@@ -1,6 +1,3 @@
--- Nakama 运行时注入的全局变量
-globals = {"nk"}
-
 -- Nakama 回调签名需要参数占位，忽略此类无害警告
 unused_args = false
 unused_loopvars = false
