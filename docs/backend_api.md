@@ -157,6 +157,7 @@
     "equipment": {"weapon": null, "armor": null, "horse": null},
     "delayed_effects": [],
     "weapon_buff": false,
+    "wall": false,
     "skin_id": "aladdin_golden",
     "seat_idx": 1,
     "attacks_this_turn": 1,
@@ -173,7 +174,8 @@
       "role": "UNKNOWN",
       "equipment": {"weapon": null, "armor": null, "horse": null},
       "skin_id": null,
-      "seat_idx": 2
+      "seat_idx": 2,
+      "wall": false
     }
   ]
 }
@@ -182,6 +184,8 @@
 > **身份迷雾**：`others[].role` 除主公（MONARCH）、已阵亡玩家、对局结束外，均显示为 `"UNKNOWN"`。  
 > **皮肤字段**：`skin_id = null` 表示使用默认皮肤，客户端加载 `skins/{hero_id}/default/`。  
 > **座次字段**：`seat_idx` 为玩家在环上的位置索引（1-based），结合全场玩家的 `seat_idx` 和 `equipment` 可在本地计算攻击距离。  
+> **壁垒字段**：`wall = true` 表示该角色身上有双角王【筑壁】放置的壁垒（公开信息），下次受伤 -1 后消失。
+> **双角王【筑壁】响应**：收到 `DHUL_SKILL_CHOICE`（OpCode 101，含 `can_wall`、`wall_count`、`wall_targets: [{id, username, seat_idx}]`）后，发送 `{"confirm":true,"skill":"wall","card_id":"<弃置的手牌>","target_id":"<wall_targets 中的 id>"}`；省略 `target_id` 时默认放在自己身上。目标无效或已达上限时服务端不扣牌、重新询问。
 > **新增字段**（v0.6.0）：`max_health`、`attacks_this_turn`、`wine_used_this_turn` 用于客户端出牌预判，详见 [客户端预检](#客户端预检)。
 
 #### 客户端预检
