@@ -90,7 +90,9 @@ local STATUS_PLAYING, STATUS_HERO_SELECT = 1, 3
 local MAX_TURNS = 300        -- 超过视为未分胜负（5 人局 = 60 轮）
 local MAX_TICKS = 40000
 local MAX_PLAYS_PER_TURN = 40
-local IGNORED_AFTER = 3      -- 同一 pending 连续响应 N 次无变化 → 记为服务端忽略响应，改等 deadline
+local IGNORED_AFTER = 3
+-- 带 player_id 但不属于英雄技能的询问（由 match_loop/rules 直接处理）
+local NON_HERO_PENDING = { WAITING_FOR_DISCARD = true, WEAPON_QINGLONG_DAO = true, WEAPON_CHUANGSHI_FU = true }      -- 同一 pending 连续响应 N 次无变化 → 记为服务端忽略响应，改等 deadline
 
 --------------------------------------------------------------------------------
 -- 卡牌估值
@@ -440,7 +442,7 @@ end
 local function run_game(cfg)
     math.randomseed(cfg.seed)
     CLOCK = 1000000
-    local g = { hostility = {}, triggers = {}, unknown = {}, ignored = {}, turns = 0, plays = 0, ticks = 0 }
+    local g = { hostility = {}, triggers = {}, unknown = {}, ignored = {}, contract = {}, turns = 0, plays = 0, ticks = 0 }
     local disp = make_dispatcher(g)
     local ctx = { match_id = "sim-" .. cfg.seed }
     local state = handler.match_init(ctx, { max_players = #cfg.heroes })
@@ -475,6 +477,10 @@ local function run_game(cfg)
         elseif state.status == STATUS_PLAYING then
             local pa = state.pending_action
             if pa then
+                -- 路由契约：match_loop 只把带 hero_id 的 pending 交给 hero_mgr，漏写 hero_id 的英雄询问会被丢弃
+                if pa.player_id and not pa.hero_id and not NON_HERO_PENDING[pa.type] then
+                    g.contract[pa.type] = (g.contract[pa.type] or 0) + 1
+                end
                 local sig = pending_sig(pa)
                 if sig ~= last_pending then same_pending = 0 end
                 last_pending = sig
@@ -587,7 +593,7 @@ local FACTION_OF_WIN = { MONARCH_WIN = { MONARCH = true, MINISTER = true }, REBE
 local S = {
     games = 0, finished = 0, draws = 0, crashes = {}, turns = 0, plays = 0,
     by_mode = { pvp = { n = 0, fin = 0 }, identity = { n = 0, fin = 0 } },
-    faction = {}, hero = {}, triggers = {}, played = {}, unknown = {}, ignored = {},
+    faction = {}, hero = {}, triggers = {}, played = {}, unknown = {}, ignored = {}, contract = {},
 }
 local digest = 2166136261
 
@@ -604,6 +610,7 @@ for i = first, last do
     S.plays = S.plays + g.plays
     for t, c in pairs(g.unknown) do S.unknown[t] = (S.unknown[t] or 0) + c end
     for t, c in pairs(g.ignored) do S.ignored[t] = (S.ignored[t] or 0) + c end
+    for t, c in pairs(g.contract) do S.contract[t] = (S.contract[t] or 0) + c end
     if g.draw then S.draws = S.draws + 1 end
     if g.crash then S.crashes[#S.crashes + 1] = string.format("game %d (seed %d): %s", i, cfg.seed, g.crash) end
 
@@ -704,11 +711,14 @@ end
 for _, t in ipairs(sorted_keys(S.unknown)) do
     print(string.format("FAIL unknown pending_action %s ×%d (AI 无对应响应)", t, S.unknown[t]))
 end
+for _, t in ipairs(sorted_keys(S.contract)) do
+    print(string.format("FAIL pending %s 有 player_id 但缺 hero_id ×%d（match_loop 会丢弃其响应）", t, S.contract[t]))
+end
 for _, c in ipairs(S.crashes) do print("FAIL crash " .. c) end
 print(string.format("digest=%08x", digest))
 
 -- 服务端静默丢弃客户端响应（濒死自救、武器询问都曾如此）也算失败
-local failed = #S.crashes > 0 or next(S.unknown) ~= nil or next(S.ignored) ~= nil
+local failed = #S.crashes > 0 or next(S.unknown) ~= nil or next(S.ignored) ~= nil or next(S.contract) ~= nil
     or unfinished_rate > OPT.max_unfinished
 if unfinished_rate > OPT.max_unfinished then
     print(string.format("FAIL unfinished rate %.1f%% > %.1f%%", unfinished_rate * 100, OPT.max_unfinished * 100))
