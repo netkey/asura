@@ -17,7 +17,7 @@ end
 -- 加载每日任务状态（不存在则创建今日空任务）
 -- 返回 state, version
 -- ==========================================
-local function load_or_create(nk, uid)
+local function load_or_create(uid)
     local objects = nk.storage_read({{
         collection = "daily_tasks",
         key        = "state",
@@ -43,7 +43,7 @@ end
 -- ==========================================
 -- 持久化每日任务状态（OCC 版本控制，3 次重试）
 -- ==========================================
-local function save(nk, uid, state, version)
+local function save(uid, state, version)
     local ok = pcall(nk.storage_write, {{
         collection       = "daily_tasks",
         key              = "state",
@@ -59,12 +59,12 @@ end
 -- ==========================================
 -- 外部回调：对局胜利时调用（由 season_manager.record_match 触发）
 -- ==========================================
-function M.on_match_win(nk, uid, username)
-    local state, version = load_or_create(nk, uid)
+function M.on_match_win(uid, username)
+    local state, version = load_or_create(uid)
     if state.claimed then return end
     if state.date ~= today_key() then return end
     state.wins = (state.wins or 0) + 1
-    save(nk, uid, state, version)
+    save(uid, state, version)
     -- 忽略 OCC 冲突（极低概率，下一场胜场会覆盖重算）
 end
 
@@ -77,7 +77,7 @@ function M.get_task(context, payload)
     local uid = context.user_id
     local _ = payload
 
-    local state = load_or_create(nk, uid)
+    local state = load_or_create(uid)
     return nk.json_encode({
         date             = state.date,
         wins             = state.wins,
@@ -98,7 +98,7 @@ function M.claim(context, payload)
     local _ = payload
 
     for attempt = 1, 3 do
-        local state, version = load_or_create(nk, uid)
+        local state, version = load_or_create(uid)
 
         if state.date ~= today_key() then
             return nk.json_encode({ success = false, error = "today's task not available yet" })
@@ -116,7 +116,7 @@ function M.claim(context, payload)
         end
 
         state.claimed = true
-        if save(nk, uid, state, version) then
+        if save(uid, state, version) then
             return nk.json_encode({
                 success        = true,
                 fragment_hero  = hero_id,
