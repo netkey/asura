@@ -1,6 +1,7 @@
 -- localization_manager.lua
 -- 加载本地化数据并提供给 RPC 层
 -- locales/*.lua 为 Lua module 格式，require 加载，零运行时开销
+local nk = require("nakama")
 
 local hero_catalog = require("hero_catalog")
 

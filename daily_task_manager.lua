@@ -2,6 +2,7 @@
 -- 刷新周期：UTC+3 每日 00:00
 -- 任务：赢得 1 局对战 → 1 随机英雄碎片
 -- 胜场计数由 season_manager.record_match 回调触发
+local nk = require("nakama")
 
 local frag_mgr = require("fragment_manager")
 

@@ -1,3 +1,4 @@
+local nk = require("nakama")
 local M = {}
 -- 自动加载所有英雄脚本
 local heroes = {
