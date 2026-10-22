@@ -3,14 +3,37 @@ local local_mgr = require("localization_manager")
 local M = {}
 
 -- 双角王（Dhul-Qarnayn）- 《古兰经》中的伟大君主，筑壁垒、征远疆
--- 技能：【筑壁】 出牌阶段铸手牌为壁垒（最多3枚）；任意角色受伤时自动消耗壁垒减伤1并摸1张；准备阶段从弃牌堆回收1张补壁
+-- 技能：【筑壁】 出牌阶段弃1张手牌，把壁垒公开放在任意一名角色身上（场上最多2枚，同一角色不叠）；
+--               带壁垒者下次受伤 -1，壁垒消耗。给谁上壁由玩家决定——公开站队或伪装身份都是玩法
 -- 技能：【远疆】 弃1张牌声明方位：西行→本回合杀无距离限制+可额外指定1目标；东行→本回合非延时锦囊可额外选1目标
 
-local MAX_WALLS = 3
+local MAX_WALLS = 2
+
+-- 壁垒存在被保护者身上（wall_from = 双角王 id），伤害结算时由 absorb_wall 消耗
+local function walls_placed(state, owner_id)
+    local n = 0
+    for _, p in pairs(state.players) do
+        if p.wall_from == owner_id and p.health > 0 then n = n + 1 end
+    end
+    return n
+end
+
+local function wall_targets(state)
+    local list = {}
+    for uid, p in pairs(state.players) do
+        if p.health > 0 and not p.wall_from then
+            list[#list + 1] = { id = uid, username = p.username, seat_idx = p.seat_idx or 0 }
+        end
+    end
+    table.sort(list, function(a, b) return a.seat_idx < b.seat_idx end)
+    return list
+end
 
 -- 辅助：本地 pending_action 函数（需在 on_play_phase_start 前定义）
 local function _offer_skills(dispatcher, state, player_id, p)
-    local can_wall = p.dhul_wall_count < MAX_WALLS and #p.hand > 0
+    local placed = walls_placed(state, player_id)
+    local targets = wall_targets(state)
+    local can_wall = placed < MAX_WALLS and #p.hand > 0 and #targets > 0
     local can_west = not p.dhul_west_used and #p.hand > 0
     local can_east = not p.dhul_east_used and #p.hand > 0
     if not can_wall and not can_west and not can_east then return end
@@ -22,7 +45,8 @@ local function _offer_skills(dispatcher, state, player_id, p)
         can_wall   = can_wall,
         can_west   = can_west,
         can_east   = can_east,
-        wall_count = p.dhul_wall_count,
+        wall_count = placed,
+        wall_targets = targets,
         deadline   = os.time() + 15,
     }
     local m = local_mgr.bc("skill_dhul_qarnayn_skill_choose")
@@ -31,30 +55,9 @@ local function _offer_skills(dispatcher, state, player_id, p)
     m.can_wall   = can_wall
     m.can_west   = can_west
     m.can_east   = can_east
-    m.wall_count = p.dhul_wall_count
+    m.wall_count = placed
+    m.wall_targets = targets
     dispatcher.broadcast_message(101, nk.json_encode(m), {state.presences[player_id]})
-end
-
--- 准备阶段：从弃牌堆回收1张牌铸为壁垒（不占出牌阶段次数）
-function M.on_draw_phase_start(dispatcher, state, player_id)
-    local p = state.players[player_id]
-    if p.hero ~= "dhul_qarnayn" then return false end
-    if p.health <= 0 then return false end
-
-    p.dhul_wall_count = p.dhul_wall_count or 0
-    if p.dhul_wall_count >= MAX_WALLS then return false end
-    if #state.discard_pile == 0 then return false end
-
-    p.dhul_wall_count = p.dhul_wall_count + 1
-    local msg = local_mgr.bc("skill_dhul_qarnayn_wall_recover", {
-        username = p.username,
-        current = tostring(p.dhul_wall_count),
-        max = tostring(MAX_WALLS),
-    })
-    msg.hero = "dhul_qarnayn"
-    msg.skill = "zhu_bi"
-    dispatcher.broadcast_message(11, nk.json_encode(msg))
-    return false
 end
 
 -- 出牌阶段：提供技能选择菜单（筑壁/西行/东行）
@@ -63,7 +66,6 @@ function M.on_play_phase_start(dispatcher, state, player_id)
     if p.hero ~= "dhul_qarnayn" then return false end
     if p.health <= 0 then return false end
 
-    p.dhul_wall_count  = p.dhul_wall_count  or 0
     p.dhul_west_used   = p.dhul_west_used   or false
     p.dhul_east_used   = p.dhul_east_used   or false
 
@@ -166,30 +168,16 @@ function M.on_trick_resolved(dispatcher, state, player_id, subtype)
     return true
 end
 
--- 任意角色受伤时自动消耗壁垒减伤
-function M.on_before_damage(dispatcher, state, target_id, amount, source_id)
-    if amount <= 0 then return false end
-    for _, p in pairs(state.players) do
-        if p.hero == "dhul_qarnayn" and p.health > 0 then
-            local wc = p.dhul_wall_count or 0
-            if wc > 0 then
-                p.dhul_wall_count = wc - 1
-                local rules = require("game_rules")
-                rules.draw_cards(state, p.id, 1)
-                local tname = (state.players[target_id] and state.players[target_id].username) or "?"
-                local msg3 = local_mgr.bc("skill_dhul_qarnayn_wall_consume", {
-                    username = p.username,
-                    target = tname,
-                    remaining = tostring(p.dhul_wall_count),
-                })
-                msg3.hero = "dhul_qarnayn"
-                msg3.skill = "zhu_bi"
-                dispatcher.broadcast_message(11, nk.json_encode(msg3))
-                return true
-            end
-        end
-    end
-    return false
+-- 由 game_rules.apply_damage 经 hero_mgr.absorb_wall 调用：受伤者带壁垒则消耗并减伤 1
+function M.absorb_wall(dispatcher, state, target_id)
+    local t = state.players[target_id]
+    if not t or not t.wall_from then return false end
+    t.wall_from = nil
+    local msg = local_mgr.bc("skill_dhul_qarnayn_wall_consume", { target = t.username })
+    msg.hero = "dhul_qarnayn"
+    msg.skill = "zhu_bi"
+    dispatcher.broadcast_message(11, nk.json_encode(msg))
+    return true
 end
 
 function M.on_response(dispatcher, state, player_id, payload)
@@ -209,6 +197,20 @@ function M.on_response(dispatcher, state, player_id, payload)
             return
         end
 
+        local wall_target
+        if payload.skill == "wall" then
+            local tid = payload.target_id
+            if tid == nil then tid = player_id end
+            local t = type(tid) == "string" and state.players[tid]
+            if not t or t.health <= 0 or t.wall_from
+                or walls_placed(state, player_id) >= MAX_WALLS then
+                _offer_skills(dispatcher, state, player_id, p)
+                rules.broadcast_update(dispatcher, state)
+                return
+            end
+            wall_target = t
+        end
+
         local cost_paid = false
         if type(payload.card_id) == "string" then
             for i, c in ipairs(p.hand) do
@@ -225,12 +227,14 @@ function M.on_response(dispatcher, state, player_id, payload)
         end
 
         if payload.skill == "wall" then
-            p.dhul_wall_count = (p.dhul_wall_count or 0) + 1
+            wall_target.wall_from = player_id
             local msg = local_mgr.bc("skill_dhul_qarnayn_wall_build", {
                 username = p.username,
-                current = tostring(p.dhul_wall_count),
+                target = wall_target.username,
+                current = tostring(walls_placed(state, player_id)),
                 max = tostring(MAX_WALLS),
             })
+            msg.target_id = wall_target.id
             msg.hero = "dhul_qarnayn"
             msg.skill = "zhu_bi"
             dispatcher.broadcast_message(11, nk.json_encode(msg))

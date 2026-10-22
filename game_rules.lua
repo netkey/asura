@@ -1702,7 +1702,8 @@ function M.apply_damage(dispatcher, state, target_id, amount, source_id, dmg_typ
     end
 
     local hero_mgr = require("hero_manager")
-    local reduced = hero_mgr.trigger("on_before_damage", dispatcher, state, target_id, amount, source_id)
+    if amount > 0 and hero_mgr.absorb_wall(dispatcher, state, target_id) then amount = amount - 1 end
+    local reduced = amount > 0 and hero_mgr.trigger("on_before_damage", dispatcher, state, target_id, amount, source_id)
     if reduced then amount = amount - 1 end
     if amount <= 0 then return end
 
@@ -1809,6 +1810,7 @@ local function public_others(state, viewer_id)
                 equipment  = other_p.equipment,
                 skin_id    = other_p.skin_id,
                 seat_idx   = other_p.seat_idx,
+                wall       = other_p.wall_from ~= nil,
             })
         end
     end
@@ -1829,6 +1831,7 @@ function M.spectator_view(state, target_id)
         equipment       = t.equipment,
         delayed_effects = t.delayed_effects,
         weapon_buff     = t.weapon_buff,
+        wall            = t.wall_from ~= nil,
         skin_id         = t.skin_id,
         seat_idx        = t.seat_idx,
     }
@@ -1859,6 +1862,7 @@ function M.broadcast_update(dispatcher, state)
                 equipment         = p_data.equipment,
                 delayed_effects   = p_data.delayed_effects,
                 weapon_buff       = p_data.weapon_buff,
+                wall              = p_data.wall_from ~= nil,
                 skin_id           = p_data.skin_id,
                 seat_idx          = p_data.seat_idx,
                 attacks_this_turn = p_data.attacks_this_turn or 0,
