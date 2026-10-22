@@ -139,6 +139,56 @@ do
     check("主公视角看到 r2 有壁垒", seen == true, "wall=" .. tostring(seen))
 end
 
+print("case 7: 远疆西行/东行每回合各 1 次，重复请求不扣牌")
+do
+    local state = new_state()
+    offer(state)
+    hero_mgr.handle_response(disp, state, "d", { confirm = true, skill = "westward", card_id = "H1" })
+    local pa = state.pending_action
+    check("西行后菜单不再提供西行", pa and pa.can_west == false, "can_west=" .. tostring(pa and pa.can_west))
+    hero_mgr.handle_response(disp, state, "d", { confirm = true, skill = "westward", card_id = "H2" })
+    check("重复西行被拒，牌不扣", #state.players.d.hand == 3, "hand=" .. #state.players.d.hand)
+    state.pending_action = nil
+    hero_mgr.trigger("on_turn_end", disp, state, "d")
+    pa = offer(state)
+    check("下回合可再西行", pa and pa.can_west == true)
+end
+
+print("case 8: 未知技能名不扣牌")
+do
+    local state = new_state()
+    offer(state)
+    hero_mgr.handle_response(disp, state, "d", { confirm = true, skill = "bogus", card_id = "H1" })
+    check("手牌未减少", #state.players.d.hand == 4, "hand=" .. #state.players.d.hand)
+end
+
+print("case 9: 断线重连快照含壁垒；阵亡者不显示壁垒")
+do
+    local state = new_state()
+    local handler = require("match_handler")
+    place(state, "H1", "r2")
+    place(state, "H2", "m")
+    state.players.m.health = 0
+    sent = {}
+    handler.send_full_state_to_player(disp, state, { user_id = "k" })
+    local walls = {}
+    for _, o in ipairs(sent[#sent].data.others) do walls[o.id] = o.wall end
+    check("重连快照中 r2 有壁垒", walls.r2 == true, "wall=" .. tostring(walls.r2))
+    check("阵亡的 m 不显示壁垒", walls.m ~= true, "wall=" .. tostring(walls.m))
+    sent = {}
+    handler.send_full_state_to_player(disp, state, { user_id = "r2" })
+    check("重连快照 me.wall", sent[#sent].data.me.wall == true)
+    sent = {}
+    rules.broadcast_update(disp, state)
+    local seen
+    for _, x in ipairs(sent) do
+        if x.op == 10 and x.to[1].user_id == "k" then
+            for _, o in ipairs(x.data.others) do if o.id == "m" then seen = o.wall end end
+        end
+    end
+    check("广播中阵亡的 m 不显示壁垒", seen ~= true, "wall=" .. tostring(seen))
+end
+
 if failures > 0 then
     print(string.format("\n%d check(s) failed", failures))
     os.exit(1)
