@@ -107,12 +107,12 @@ function M.handle_timeout(dispatcher, state)
     state._timeout_depth = (state._timeout_depth or 1) - 1
 end
 
--- 救援扩展：英雄可定义额外的可用卡牌类型用于救援
 -- 壁垒挂在受伤者身上而非双角王身上，trigger 只分发给受伤者的英雄，故单独路由
 function M.absorb_wall(dispatcher, state, target_id)
     return heroes.dhul_qarnayn.absorb_wall(dispatcher, state, target_id)
 end
 
+-- 救援扩展：英雄可定义额外的可用卡牌类型用于救援
 function M.can_rescue_with(hero_id, card)
     local hero = heroes[hero_id]
     if hero and hero.can_rescue_with then

@@ -1239,6 +1239,7 @@ function M.send_full_state_to_player(dispatcher, state, presence)
             delayed_effects = p_data.delayed_effects,
             weapon_buff     = p_data.weapon_buff,
             judgments       = p_data.judgments,
+            wall            = rules.has_wall(p_data),
             skin_id         = p_data.skin_id,
             seat_idx        = p_data.seat_idx,
         },
@@ -1259,6 +1260,7 @@ function M.send_full_state_to_player(dispatcher, state, presence)
                 role       = visible_role,
                 equipment  = other_p.equipment,
                 skin_id    = other_p.skin_id,
+                wall       = rules.has_wall(other_p),
             })
         end
     end

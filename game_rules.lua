@@ -1810,7 +1810,7 @@ local function public_others(state, viewer_id)
                 equipment  = other_p.equipment,
                 skin_id    = other_p.skin_id,
                 seat_idx   = other_p.seat_idx,
-                wall       = other_p.wall_from ~= nil,
+                wall       = M.has_wall(other_p),
             })
         end
     end
@@ -1819,6 +1819,11 @@ end
 
 -- 观战者只拿公开信息：观战者身份不可验证（小号即可观战对手），
 -- 进行中下发目标手牌/隐藏身份等于给场外报点。目标阵亡或对局结束后信息已无竞技价值，解锁完整视野。
+-- 壁垒只在存活者身上有意义；阵亡者的 wall_from 不清理（不计入上限），仅在展示层屏蔽
+function M.has_wall(p)
+    return p.wall_from ~= nil and p.health > 0
+end
+
 function M.spectator_view(state, target_id)
     local t = state.players[target_id]
     if not t then return nil end
@@ -1831,7 +1836,7 @@ function M.spectator_view(state, target_id)
         equipment       = t.equipment,
         delayed_effects = t.delayed_effects,
         weapon_buff     = t.weapon_buff,
-        wall            = t.wall_from ~= nil,
+        wall            = M.has_wall(t),
         skin_id         = t.skin_id,
         seat_idx        = t.seat_idx,
     }
@@ -1862,7 +1867,7 @@ function M.broadcast_update(dispatcher, state)
                 equipment         = p_data.equipment,
                 delayed_effects   = p_data.delayed_effects,
                 weapon_buff       = p_data.weapon_buff,
-                wall              = p_data.wall_from ~= nil,
+                wall              = M.has_wall(p_data),
                 skin_id           = p_data.skin_id,
                 seat_idx          = p_data.seat_idx,
                 attacks_this_turn = p_data.attacks_this_turn or 0,
