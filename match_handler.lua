@@ -399,12 +399,10 @@ local function auto_resolve_pending(dispatcher, state)
         local rescuer_id = act.rescuers and act.rescuers[act.current_rescuer_idx]
         local rescuer = rescuer_id and state.players[rescuer_id]
         if rescuer then
-            local dying_id = act.dying_player_id
-            local is_self = (rescuer_id == dying_id)
             local found
             for _, c in ipairs(rescuer.hand) do
-                if c.type == "HEAL" or (is_self and c.type == "WINE")
-                    or hero_mgr.can_rescue_with(rescuer.hero, c) then
+                -- 与 game_rules 手动救援同规则：酒不可救人（fc0ec02），否则选中酒会被判放弃、桃没机会出
+                if c.type == "HEAL" or hero_mgr.can_rescue_with(rescuer.hero, c) then
                     rules.handle_response(dispatcher, state, rescuer_id, { confirm = true, card_id = c.id })
                     found = true
                     break
