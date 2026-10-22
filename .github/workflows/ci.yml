@@ -20,7 +20,8 @@ jobs:
 
       - name: Lua syntax check (luac -p)
         run: |
-          find . -name '*.lua' -not -path './.git/*' -exec luac5.4 -p {} \;
+          # -exec {} \; 不传递子进程退出码，语法错误也会绿；xargs 任一失败即非零
+          find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac5.4 -p
 
       - name: Luacheck lint
         run: luacheck --no-color .
@@ -28,3 +29,11 @@ jobs:
       - name: Regression tests
         run: |
           for t in tests/*_test.lua; do lua5.4 "$t" || exit 1; done
+
+      # 门禁：崩溃 / AI 遇到未知 pending / 未结束率 >5% 即失败；两次运行 digest 不同 = 引入了不确定性
+      - name: Simulation gate (200 games, deterministic)
+        run: |
+          lua5.4 demo_concurrent.lua | tee sim1.txt
+          lua5.4 demo_concurrent.lua > sim2.txt
+          d1=$(grep '^digest=' sim1.txt); d2=$(grep '^digest=' sim2.txt)
+          [ "$d1" = "$d2" ] || { echo "FAIL nondeterministic: $d1 vs $d2"; exit 1; }
