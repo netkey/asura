@@ -734,7 +734,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                 end
                 state._auto_resolve_turn = state.current_turn_id
             end
-            return state
+            goto process_messages
         end
 
         -- 恢复被弃牌阶段挂起的回合切换（弃牌完成后继续）
@@ -742,7 +742,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             local dc = state.pending_discard_continuation
             state.pending_discard_continuation = nil
             M.finish_turn_end_continue(dispatcher, state, dc.uid)
-            return state
+            goto process_messages
         end
 
         -- 恢复被吉尔伽美什【不朽】等回合结束技能挂起的回合切换
@@ -750,14 +750,14 @@ function M.match_loop(context, dispatcher, tick, state, messages)
             local te = state.pending_turn_end
             state.pending_turn_end = nil
             M.resume_after_turn_end(dispatcher, state, te)
-            return state
+            goto process_messages
         end
 
         -- 恢复被哈基姆【星象】挂起的判定+摸牌阶段
         if state.pending_turn_continuation and not state.pending_action then
             state.pending_turn_continuation = nil
             M.do_judgment_and_draw_phase(dispatcher, state)
-            return state
+            goto process_messages
         end
 
         -- 恢复被摸牌阶段英雄技能挂起的出牌阶段
@@ -773,14 +773,14 @@ function M.match_loop(context, dispatcher, tick, state, messages)
                     trigger_phase_hook(dispatcher, state, uid, "on_play_phase_start")
                 end
             end
-            return state
+            goto process_messages
         end
 
         -- 当前回合玩家已死，强制跳回合（决斗反杀/反击等场景）
         local current_p = state.players[state.current_turn_id]
         if not current_p or (current_p.health <= 0 and not rules.is_dying(state, state.current_turn_id)) then
             M.next_turn(dispatcher, state)
-            return state
+            goto process_messages
         end
 
         state.current_turn_elapsed = state.current_turn_elapsed + 1
@@ -818,11 +818,13 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         if state.current_turn_elapsed >= effective_timeout and not has_cross_pending then
             log_info(state, "玩家 " .. (state.current_turn_id or "未知") .. " 超时，执行托管")
             M.perform_auto_play(dispatcher, state)
-            -- 托管后计时器会在 next_turn 中重置，这里直接返回 state 等待下一秒
-            return state
+            -- 托管后计时器会在 next_turn 中重置；本 tick 仍需处理已收到的消息
+            goto process_messages
         end
     end
 
+    -- 计时分支提前结束也必须落到这里：Nakama 不重投消息，跳过即永久丢失
+    ::process_messages::
     -- ==========================================
     -- 2. 处理客户端消息
     -- ==========================================
