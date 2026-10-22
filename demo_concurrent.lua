@@ -385,8 +385,20 @@ local function ai_pending(g, state)
         -- 技能要弃牌作代价，手牌少时发动会把自己耗空、拖成僵局
         if #p.hand < 3 then return one(uid, { confirm = false }) end
         local s = by_value_desc(p.hand)
-        local skill = a.can_west and "westward" or (a.can_east and "eastward" or "wall")
-        return one(uid, { confirm = true, card_id = s[#s].id, skill = skill })
+        if a.can_west or a.can_east then
+            return one(uid, { confirm = true, card_id = s[#s].id, skill = a.can_west and "westward" or "eastward" })
+        end
+        if not a.can_wall then return one(uid, { confirm = false }) end
+        -- 壁垒优先给自己，其次给不在敌方候选里的人
+        local enemy = {}
+        for _, o in ipairs(enemy_candidates(g, state, uid)) do enemy[o.id] = true end
+        local tid
+        for _, o in ipairs(a.wall_targets or {}) do
+            if o.id == uid then tid = uid break end
+            if not tid and not enemy[o.id] then tid = o.id end
+        end
+        if not tid then return one(uid, { confirm = false }) end
+        return one(uid, { confirm = true, card_id = s[#s].id, skill = "wall", target_id = tid })
     elseif t == "DHUL_WEST_EXTRA" or t == "DHUL_EAST_EXTRA" then
         local tid = first_target(enemy_candidates(g, state, uid))
         if not tid then return one(uid, { confirm = false }) end
