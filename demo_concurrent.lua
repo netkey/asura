@@ -385,20 +385,24 @@ local function ai_pending(g, state)
         -- 技能要弃牌作代价，手牌少时发动会把自己耗空、拖成僵局
         if #p.hand < 3 then return one(uid, { confirm = false }) end
         local s = by_value_desc(p.hand)
-        if a.can_west or a.can_east then
-            return one(uid, { confirm = true, card_id = s[#s].id, skill = a.can_west and "westward" or "eastward" })
+        local cost = s[#s]
+        local function holds(ctype)
+            for _, c in ipairs(p.hand) do if c ~= cost and c.type == ctype then return true end end
         end
-        if not a.can_wall then return one(uid, { confirm = false }) end
-        -- 壁垒优先给自己，其次给不在敌方候选里的人
-        local enemy = {}
-        for _, o in ipairs(enemy_candidates(g, state, uid)) do enemy[o.id] = true end
+        -- 远疆只在手里有对应牌可打时才划算，否则只是白弃一张
+        if a.can_west and holds("ATTACK") then
+            return one(uid, { confirm = true, card_id = cost.id, skill = "westward" })
+        end
+        if a.can_east and holds("INSTANT_TRICK") then
+            return one(uid, { confirm = true, card_id = cost.id, skill = "eastward" })
+        end
+        -- AI 看不到队友身份，壁垒只给自己，避免误给敌方
         local tid
-        for _, o in ipairs(a.wall_targets or {}) do
-            if o.id == uid then tid = uid break end
-            if not tid and not enemy[o.id] then tid = o.id end
+        for _, o in ipairs(a.can_wall and a.wall_targets or {}) do
+            if o.id == uid then tid = uid end
         end
         if not tid then return one(uid, { confirm = false }) end
-        return one(uid, { confirm = true, card_id = s[#s].id, skill = "wall", target_id = tid })
+        return one(uid, { confirm = true, card_id = cost.id, skill = "wall", target_id = tid })
     elseif t == "DHUL_WEST_EXTRA" or t == "DHUL_EAST_EXTRA" then
         local tid = first_target(enemy_candidates(g, state, uid))
         if not tid then return one(uid, { confirm = false }) end

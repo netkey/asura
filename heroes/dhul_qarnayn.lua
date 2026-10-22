@@ -209,6 +209,12 @@ function M.on_response(dispatcher, state, player_id, payload)
                 return
             end
             wall_target = t
+        elseif (payload.skill == "westward" and p.dhul_west_used)
+            or (payload.skill == "eastward" and p.dhul_east_used)
+            or (payload.skill ~= "westward" and payload.skill ~= "eastward") then
+            _offer_skills(dispatcher, state, player_id, p)
+            rules.broadcast_update(dispatcher, state)
+            return
         end
 
         local cost_paid = false
@@ -242,6 +248,7 @@ function M.on_response(dispatcher, state, player_id, payload)
         elseif payload.skill == "westward" then
             state.dhul_westward = state.dhul_westward or {}
             state.dhul_westward[player_id] = true
+            p.dhul_west_used = true
             local msg4 = local_mgr.bc("skill_dhul_qarnayn_far_west", {
                 username = p.username,
             })
@@ -252,16 +259,13 @@ function M.on_response(dispatcher, state, player_id, payload)
         elseif payload.skill == "eastward" then
             state.dhul_eastward = state.dhul_eastward or {}
             state.dhul_eastward[player_id] = true
+            p.dhul_east_used = true
             local msg5 = local_mgr.bc("skill_dhul_qarnayn_far_east", {
                 username = p.username,
             })
             msg5.hero = "dhul_qarnayn"
             msg5.skill = "yuan_jiang"
             dispatcher.broadcast_message(11, nk.json_encode(msg5))
-
-        else
-            rules.broadcast_update(dispatcher, state)
-            return
         end
 
         -- 技能执行完后检查是否还有可用技能
