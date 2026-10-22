@@ -780,7 +780,7 @@ function M.match_loop(context, dispatcher, tick, state, messages)
 
         -- 当前回合玩家已死，强制跳回合（决斗反杀/反击等场景）
         local current_p = state.players[state.current_turn_id]
-        if not current_p or current_p.health <= 0 then
+        if not current_p or (current_p.health <= 0 and not rules.is_dying(state, state.current_turn_id)) then
             M.next_turn(dispatcher, state)
             return state
         end
@@ -832,7 +832,12 @@ function M.match_loop(context, dispatcher, tick, state, messages)
         local ok, payload = pcall(nk.json_decode, message.data)
         if not ok or type(payload) ~= "table" then goto continue end
         local uid = message.sender.user_id
-        if not state.players[uid] or (state.status == STATE.PLAYING and state.players[uid].health <= 0) then goto continue end
+        if not state.players[uid] then goto continue end
+        -- 死者消息一律丢弃；濒死者只能发 op 5 响应自己的求桃（不能借机出牌/结束回合）
+        if state.status == STATE.PLAYING and state.players[uid].health <= 0
+            and not (message.op_code == 5 and rules.is_dying(state, uid)) then
+            goto continue
+        end
 
         -- 选将阶段：处理 op=6 英雄选择
         if state.status == STATE.HERO_SELECT and message.op_code == 6 then

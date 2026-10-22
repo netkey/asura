@@ -645,12 +645,18 @@ function M.handle_role_reward(dispatcher, state, killer_id, victim_id)
     end
 end
 
+-- 濒死：hp<=0 但求桃尚未结算。此时还没死，胜负判定与回合推进都不能把他当死者
+function M.is_dying(state, uid)
+    local pa = state.pending_action
+    return pa ~= nil and pa.type == "WAITING_FOR_RESCUE" and pa.dying_player_id == uid
+end
+
 function M.check_victory(dispatcher, state)
     if state.mode == "pvp" then
         local alive = 0
         local winner
         for _, p in pairs(state.players) do
-            if p.health > 0 then alive = alive + 1; winner = p.id end
+            if p.health > 0 or M.is_dying(state, p.id) then alive = alive + 1; winner = p.id end
         end
         if alive <= 1 then return true, winner end
         return false, nil
@@ -658,7 +664,7 @@ function M.check_victory(dispatcher, state)
 
     local alive = { MONARCH = 0, MINISTER = 0, REBEL = 0, TRAITOR = 0 }
     for _, p in pairs(state.players) do
-        if p.health > 0 then
+        if p.health > 0 or M.is_dying(state, p.id) then
             alive[p.role] = alive[p.role] + 1
         end
     end
